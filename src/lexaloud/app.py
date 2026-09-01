@@ -131,14 +131,47 @@ def _run_kbuildsycoca() -> bool:
     return False
 
 
-def ensure_kde_shortcuts() -> bool:
-    """Install/update the KDE desktop entry.
+def cleanup_kde_shortcuts() -> None:
+    """Remove the transient KDE desktop entry on exit.
 
-    The global hotkeys (Meta+R / Meta+P) are now handled in-process by the
+    The file is created by :func:`ensure_kde_shortcuts` only for the
+    lifetime of the running app. Leaving it behind would pollute the
+    user's applications menu with a stale entry pointing at a specific
+    AppImage path, and the next launch would have to work around KDE
+    bug 487941 to re-import it. Remove the file and its sync marker
+    and refresh the sycoca cache. Best-effort — never raises.
+    """
+    try:
+        from .platform import detect_desktop
+
+        if not detect_desktop().is_kde:
+            return
+    except Exception:  # noqa: BLE001
+        pass
+    for path in (kde_shortcuts_path(), kde_sync_marker_path()):
+        try:
+            if path.exists():
+                path.unlink()
+        except OSError as e:
+            log.debug("cleanup_kde_shortcuts: failed to remove %s: %s", path, e)
+    # Don't warn if sycoca refresh fails during shutdown — session may already
+    # be tearing down.
+    try:
+        _run_kbuildsycoca()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def ensure_kde_shortcuts() -> bool:
+    """Install/update the transient KDE desktop entry.
+
+    The global hotkeys (Meta+R / Meta+P) are handled in-process by the
     running app via KGlobalAccel D-Bus (no per-press AppImage spawn). The
-    desktop file is kept only for launching the app from the menu and for
-    System Settings visibility; its actions use `true` so that pressing the
-    hotkey when the app is not running does nothing, as requested.
+    desktop file exists only while the app is running, for KWin to deliver
+    the hotkey to our D-Bus component and for System Settings visibility;
+    its actions use `true` so that pressing the hotkey when the app is not
+    running does nothing, as requested. The file is removed on exit by
+    :func:`cleanup_kde_shortcuts`.
     KGlobalAccel never refreshes an already-imported component, so whenever
     the Exec command changes it would keep launching the stale command. To
     avoid that, the desktop entry is removed and re-imported.
@@ -817,4 +850,5 @@ def main() -> int:
 
     controller.stop()
     tray.hide()
+    cleanup_kde_shortcuts()
     return 0
