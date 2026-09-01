@@ -22,7 +22,9 @@ from lexaloud.app import (  # noqa: E402
     autostart_path,
     binary_path,
     ensure_default_keybindings,
+    ensure_kde_shortcuts,
     is_onboarded,
+    kde_shortcuts_path,
     mark_onboarded,
     set_autostart,
 )
@@ -128,7 +130,7 @@ def test_daemon_controller_start_and_stop(monkeypatch, tmp_path):
 
     assert controller.running is False
     assert controller.start() is True
-    assert started == [[str(tmp_path / "lexaloud.AppImage"), "daemon"]]
+    assert started == [[sys.executable, "daemon"]]
     assert controller.running is True
 
     controller.stop()
@@ -203,3 +205,18 @@ def test_ensure_default_keybindings_skips_unavailable_backend(monkeypatch):
         created = ensure_default_keybindings()
     assert created == []
     assert backend.set_calls == []
+
+
+def test_ensure_kde_shortcuts_writes_native_actions(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("APPIMAGE", "/tmp/Lexaloud.AppImage")
+    desktop = type("Desktop", (), {"is_kde": True})()
+    with patch("lexaloud.platform.detect_desktop", return_value=desktop):
+        with patch("subprocess.run"):
+            assert ensure_kde_shortcuts() is True
+    content = kde_shortcuts_path().read_text()
+    assert "Name=Lexaloud" in content
+    assert 'Exec="/tmp/Lexaloud.AppImage" speak-selection' in content
+    assert "X-KDE-Shortcuts=Meta+R" in content
+    assert "X-KDE-Shortcuts=Meta+P" in content

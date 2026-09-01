@@ -27,11 +27,9 @@ That is the whole installation. The app opens as a tray icon and:
 
 `lexaloud setup` (advanced) still exists for users who prefer a
 systemd `--user` service instead of app-managed lifecycle; when such a
-unit is installed and running, the app adopts the running daemon and
-the tray's service actions manage it.
+unit is installed and running, the app adopts the running daemon.
 
-To remove the integration, use the tray menu ("Remove service…" for
-the systemd path) or:
+To remove the optional systemd integration, run:
 
 ```bash
 ./Lexaloud-*-x86_64.AppImage uninstall
@@ -50,8 +48,7 @@ compositor, clipboard ownership, PipeWire/PulseAudio, or ALSA session.
 
 The Qt 6 runtime (PySide6) is bundled, so the tray icon works out of
 the box: the tray menu offers start/stop daemon, playback controls, the
-control window, a "Start with desktop" autostart toggle, service
-reinstall/remove actions for the optional systemd path, and shows the
+control window, a "Start with desktop" autostart toggle, and shows the
 global shortcut in use.
 
 On Wayland, the most reliable workflow for applications that do not publish a

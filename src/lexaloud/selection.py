@@ -96,6 +96,7 @@ _DISPLAY_FAILURE_MARKERS = (
     "wayland_display",
     "no wayland connection",
     "compositor doesn't support",
+    "does not seem to support primary selection",
     "could not connect",
     "failed to connect",
 )

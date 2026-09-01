@@ -45,36 +45,28 @@ their distribution respects the upstream Apache-2.0 and MIT terms.
 
 ## Voices
 
-Kokoro v1.0 ships with ~50+ voices. Lexaloud's control window exposes
-a curated subset:
+Kokoro v1.0 ships with 54 voices. Lexaloud's control window exposes the
+complete bundled catalog:
 
 | ID | Description |
 |----|-------------|
-| `af_heart` | American female, warm (default) |
-| `af_bella` | American female, bright |
-| `af_nova` | American female, energetic |
-| `af_sarah` | American female, calm |
-| `af_sky` | American female, light |
-| `am_adam` | American male, deep |
-| `am_michael` | American male, conversational |
-| `am_onyx` | American male, serious |
-| `bf_emma` | British female |
-| `bf_isabella` | British female |
-| `bm_george` | British male |
-| `bm_lewis` | British male |
+| American English | `af_heart`, `af_alloy`, `af_aoede`, `af_bella`, `af_jessica`, `af_kore`, `af_nicole`, `af_nova`, `af_river`, `af_sarah`, `af_sky`, `am_adam`, `am_echo`, `am_eric`, `am_fenrir`, `am_liam`, `am_michael`, `am_onyx`, `am_puck`, `am_santa` |
+| British English | `bf_alice`, `bf_emma`, `bf_isabella`, `bf_lily`, `bm_daniel`, `bm_fable`, `bm_george`, `bm_lewis` |
+| Spanish | `ef_dora`, `em_alex`, `em_santa` |
+| French | `ff_siwis` |
+| Hindi | `hf_alpha`, `hf_beta`, `hm_omega`, `hm_psi` |
+| Italian | `if_sara`, `im_nicola` |
+| Japanese | `jf_alpha`, `jf_gongitsune`, `jf_nezumi`, `jf_tebukuro`, `jm_kumo` |
+| Brazilian Portuguese | `pf_dora`, `pm_alex`, `pm_santa` |
+| Mandarin Chinese | `zf_xiaobei`, `zf_xiaoni`, `zf_xiaoxiao`, `zf_xiaoyi`, `zm_yunjian`, `zm_yunxi`, `zm_yunxia`, `zm_yunyang` |
 
 Any voice string the installed voices pack recognizes works in
-`config.toml` — the curated list is just a convenience for the GUI
-dropdown. See the Hugging Face model card for the full voice
-catalog.
+`config.toml`.
 
 ## Languages
 
-Tested: `en-us`, `en-gb`.
-
-Kokoro supports more languages upstream (Japanese, Chinese, etc.) but
-the preprocessor and voice catalog in Lexaloud v0.1.0 are tuned for
-English. Non-English use may work but is not supported.
+The control window includes `en-us`, `en-gb`, `es`, `fr-fr`, `hi`, `it`,
+`ja`, `pt-br`, and `zh`, matching the bundled Kokoro voices.
 
 ## Why 310 MB?
 

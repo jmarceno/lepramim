@@ -49,14 +49,14 @@ To hear what Kokoro sounds like before installing, try the
 - **Sentence-granularity streaming** with bounded backpressure and
   cooperative cancellation. Pause, skip, rewind, or stop mid-article
   without audio clipping.
-- **12 built-in voices** — American and British, male and female,
-  from warm to serious. The control window lets you preview and switch
-  voices; see the full list in [`docs/models.md`](docs/models.md).
+- **54 built-in voices** — every bundled American, British, Spanish,
+  French, Hindi, Italian, Japanese, Brazilian Portuguese, and Mandarin
+  Chinese Kokoro v1.0 voice is available in the control window.
 - **Qt tray indicator + control window** — visible on any desktop
   whose tray supports the StatusNotifierItem protocol (GNOME with the
   `ubuntu-appindicators` extension, KDE, XFCE, Budgie, etc.). Voice,
-  speed, and hotkey settings, plus service reinstall/remove actions,
-  straight from the tray menu. Built with PySide6 — no system GTK/PyGObject
+  language, speed, and hotkey settings are available straight from the
+  tray menu. Built with PySide6 — no system GTK/PyGObject
   packages needed. The CLI works without the tray on minimal setups.
 - **Privacy-first** — see the [Privacy](#privacy) section.
 - **Open-source** — MIT-licensed code, Apache-2.0-licensed model

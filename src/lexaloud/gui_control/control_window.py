@@ -7,7 +7,7 @@ desktop keyboard shortcuts.
 from __future__ import annotations
 
 import logging
-import subprocess
+from collections.abc import Callable
 
 from PySide6 import QtCore, QtWidgets
 
@@ -23,12 +23,13 @@ log = logging.getLogger(__name__)
 
 
 class ControlWindow(QtWidgets.QWidget):
-    def __init__(self) -> None:
+    def __init__(self, on_config_saved: Callable[[], None] | None = None) -> None:
         super().__init__()
         self.setWindowTitle("Lexaloud — Control")
         self.setMinimumSize(520, 480)
 
         self._kb_backend = detect_backend()
+        self._on_config_saved = on_config_saved
 
         outer = QtWidgets.QVBoxLayout(self)
         outer.setContentsMargins(16, 16, 16, 16)
@@ -87,16 +88,21 @@ class ControlWindow(QtWidgets.QWidget):
             name_lbl = QtWidgets.QLabel(f"{label}:")
             current_lbl = QtWidgets.QLabel(self._kb_backend.get_binding(shortcut_id))
             self.hotkey_labels[shortcut_id] = current_lbl
-            change_btn = QtWidgets.QPushButton("Change…")
-            change_btn.setEnabled(can_change)
-            if not can_change:
-                change_btn.setToolTip("Keybindings are managed by the desktop environment.")
-            change_btn.clicked.connect(
-                lambda _=False, sid=shortcut_id: self._on_change_binding(sid)
-            )
             keys_grid.addWidget(name_lbl, row, 0)
             keys_grid.addWidget(current_lbl, row, 1)
-            keys_grid.addWidget(change_btn, row, 2)
+            if can_change:
+                change_btn = QtWidgets.QPushButton("Change…")
+                change_btn.clicked.connect(
+                    lambda _=False, sid=shortcut_id: self._on_change_binding(sid)
+                )
+                keys_grid.addWidget(change_btn, row, 2)
+        if not can_change:
+            hint = QtWidgets.QLabel(
+                "Change these shortcuts in System Settings → Keyboard → Shortcuts → Lexaloud."
+            )
+            hint.setWordWrap(True)
+            hint.setStyleSheet("color: gray;")
+            keys_grid.addWidget(hint, len(SHORTCUTS), 0, 1, 3)
         keys_grid.setColumnStretch(1, 1)
 
         outer.addWidget(keys_frame)
@@ -114,15 +120,6 @@ class ControlWindow(QtWidgets.QWidget):
         )
         advanced_box.addWidget(self.overlay_toggle)
 
-        self.llm_toggle = QtWidgets.QCheckBox("Enable LLM text normalization")
-        self.llm_toggle.setToolTip(
-            "Use a local LLM to normalize complex text (acronyms, equations, "
-            "tables) before speech synthesis. Requires ~1.2 GB additional VRAM.\n"
-            "Install with: pip install lexaloud[llm]\n"
-            "Download model: lexaloud download-models --llm"
-        )
-        advanced_box.addWidget(self.llm_toggle)
-
         outer.addWidget(advanced_frame)
 
         # Buttons
@@ -134,7 +131,7 @@ class ControlWindow(QtWidgets.QWidget):
         outer.addWidget(self.status_label)
 
         button_box.addStretch(1)
-        apply_btn = QtWidgets.QPushButton("Apply & restart daemon")
+        apply_btn = QtWidgets.QPushButton("Apply settings")
         apply_btn.clicked.connect(self._on_apply_voice)
         button_box.addWidget(apply_btn)
 
@@ -208,8 +205,6 @@ class ControlWindow(QtWidgets.QWidget):
         provider["speed"] = speed
         advanced = cfg.setdefault("advanced", {})
         advanced["overlay"] = self.overlay_toggle.isChecked()
-        normalizer = cfg.setdefault("normalizer", {})
-        normalizer["enabled"] = self.llm_toggle.isChecked()
         try:
             _save_config_dict(cfg)
         except Exception as e:  # noqa: BLE001
@@ -217,27 +212,15 @@ class ControlWindow(QtWidgets.QWidget):
             return
 
         summary = f"voice={voice}, lang={lang}, speed={speed:.2f}×"
-        try:
-            r = subprocess.run(
-                ["systemctl", "--user", "is-active", "lexaloud.service"],
-                capture_output=True,
-                text=True,
-                timeout=2,
-            )
-            if r.stdout.strip() == "active":
-                subprocess.run(
-                    ["systemctl", "--user", "restart", "lexaloud.service"],
-                    capture_output=True,
-                    timeout=10,
-                )
-                self.status_label.setText(f"Saved {summary}; daemon restarted.")
-            else:
-                self.status_label.setText(
-                    f"Saved {summary}. Daemon is stopped; "
-                    "it will use the new settings on the next start."
-                )
-        except Exception as e:  # noqa: BLE001
-            self.status_label.setText(f"Saved {summary}; couldn't restart daemon: {e}")
+        if self._on_config_saved is not None:
+            try:
+                self._on_config_saved()
+            except Exception as e:  # noqa: BLE001
+                self.status_label.setText(f"Saved {summary}; restarting playback failed: {e}")
+                return
+            self.status_label.setText(f"Saved {summary}; playback restarted.")
+        else:
+            self.status_label.setText(f"Saved {summary}; it applies on the next playback start.")
 
     def _on_change_binding(self, shortcut_id: str) -> None:
         dialog = CaptureDialog(self, shortcut_id, self._kb_backend)

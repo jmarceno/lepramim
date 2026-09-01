@@ -33,8 +33,8 @@ systemctl --user restart lexaloud.service
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `voice` | `"af_heart"` | Any Kokoro v1.0 voice. Curated subset in the control window; full list at the Kokoro-82M Hugging Face model card. |
-| `lang` | `"en-us"` | Phonemizer language code. Only `en-us` and `en-gb` are tested. |
+| `voice` | `"af_heart"` | Any Kokoro v1.0 voice. The control window lists the full bundled catalog. |
+| `lang` | `"en-us"` | Phonemizer language code. The control window lists every language represented by the bundled voices. |
 | `speed` | `1.0` | Playback speed multiplier. Safe range for dense academic prose is 0.85-1.3. The control window slider enforces 0.5-2.0. |
 
 ### `[preprocessor]`
@@ -96,7 +96,7 @@ tables). **Off by default.** Requires:
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `enabled` | `false` | Enable LLM text normalization. Toggle from the control window or edit `config.toml` directly. |
+| `enabled` | `false` | Enable LLM text normalization. This separately configured advanced feature is available through `config.toml`. |
 | `model_path` | `""` | Absolute path to a GGUF model file. Empty = auto-detect in `~/.cache/lexaloud/models/`. |
 | `model_repo` | `"Qwen/Qwen2.5-1.5B-Instruct-GGUF"` | HuggingFace repository for the default model. |
 | `model_file` | `"qwen2.5-1.5b-instruct-q4_k_m.gguf"` | Filename within the repository. |
@@ -131,9 +131,8 @@ additional VRAM usage).
 ## Voice selection
 
 The control window (`lexaloud-control` or the tray menu → Control
-window…) offers a curated voice dropdown. For the full Kokoro voice
-catalog, edit `voice` directly in `config.toml` — any string the
-installed voices pack recognizes will work.
+window…) offers the complete bundled Kokoro voice catalog. Any string
+the installed voices pack recognizes also works in `config.toml`.
 
 ## Speed guidance
 
@@ -153,5 +152,5 @@ The daemon does not hot-reload `config.toml`. Restart via:
 systemctl --user restart lexaloud.service
 ```
 
-The control window has an "Apply & restart daemon" button that does the
-restart for you.
+The control window's "Apply settings" button restarts app-managed
+playback so the saved settings take effect immediately.

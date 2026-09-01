@@ -226,29 +226,28 @@ class XfceBackend:
         return "Hotkeys (XFCE)"
 
 
-# --- KDE / portal read-only backend -------------------------------------
+# --- KDE native shortcut display ---------------------------------------
 
 
 class PortalReadOnly:
-    """Read-only display for KDE Plasma 6+ / Sway / Hyprland.
-
-    Shortcuts are managed via the XDG GlobalShortcuts portal (registered
-    by the daemon via shortcuts.py). The GUI shows them read-only with a
-    note to use System Settings.
-    """
+    """Read-only display for KDE Plasma's native desktop actions."""
 
     def get_binding(self, shortcut_id: str) -> str:
-        return "(managed via System Settings)"
+        preferred = {
+            "lexaloud": "Meta+R",
+            "lexaloud-toggle": "Meta+P",
+        }.get(shortcut_id)
+        return preferred or "(see System Settings)"
 
     def set_binding(self, shortcut_id: str, binding: str) -> bool:
         return False  # read-only
 
     def is_available(self) -> bool:
-        return False  # "Change..." button should be greyed out
+        return False
 
     @property
     def frame_label(self) -> str:
-        return "Hotkeys (System Settings)"
+        return "Hotkeys (KDE System Settings)"
 
 
 # --- null backend (unsupported DEs) -------------------------------------

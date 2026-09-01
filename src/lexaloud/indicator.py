@@ -12,8 +12,6 @@ Menu responsibilities (kept deliberately small and action-oriented):
 - display the current global shortcut the user must press,
 - start/stop the daemon and trigger playback,
 - open the control window,
-- reinstall the user systemd service (re-runs ``setup``),
-- remove the user systemd service (runs ``uninstall``),
 - quit the tray.
 """
 
@@ -209,7 +207,7 @@ def _detect_backend_safe():
 
 
 class _Worker(QtCore.QThread):
-    """Run a blocking service action off the GUI thread; emit a signal."""
+    """Run a blocking tray action off the GUI thread; emit a signal."""
 
     finished_with = QtCore.Signal(str)  # human-readable result summary
 
@@ -258,11 +256,13 @@ class LexaloudTray(QtWidgets.QSystemTrayIcon):
         self._current_icon: str | None = None
         self._daemon = daemon
         self._systemd_mode = systemd_mode
+        self._selection_snapshot: str | None = None
 
         self._kb_backend = _detect_backend_safe()
 
         self._menu = QtWidgets.QMenu()
         self._build_menu()
+        self._menu.aboutToShow.connect(self._snapshot_primary_selection)
         self.setContextMenu(self._menu)
         self.setToolTip("Lexaloud: stopped")
         self._control_window: ControlWindow | None = None
@@ -292,9 +292,7 @@ class LexaloudTray(QtWidgets.QSystemTrayIcon):
         self._menu.addAction(self.item_toggle_daemon)
 
         self.item_speak = QtGui.QAction("Speak highlighted selection")
-        self.item_speak.triggered.connect(
-            lambda: _spawn_detached([_lexaloud_binary(), "speak-selection"])
-        )
+        self.item_speak.triggered.connect(self._on_speak_selection)
         self._menu.addAction(self.item_speak)
 
         self.item_pause = QtGui.QAction("Pause / resume")
@@ -319,18 +317,6 @@ class LexaloudTray(QtWidgets.QSystemTrayIcon):
         )
         self.item_autostart.toggled.connect(self._on_autostart_toggled)
         self._menu.addAction(self.item_autostart)
-
-        self._menu.addSeparator()
-
-        self.item_reinstall = QtGui.QAction("Reinstall service…")
-        self.item_reinstall.triggered.connect(self._on_reinstall)
-        self._menu.addAction(self.item_reinstall)
-
-        self.item_remove = QtGui.QAction("Remove service…")
-        self.item_remove.triggered.connect(self._on_remove)
-        self._menu.addAction(self.item_remove)
-
-        self._menu.addSeparator()
 
         self.item_quit = QtGui.QAction("Quit Lexaloud")
         self.item_quit.triggered.connect(self._on_quit)
@@ -442,7 +428,7 @@ class LexaloudTray(QtWidgets.QSystemTrayIcon):
         # leak new windows on every open.
         if self._control_window is None or not self._control_window.isVisible():
             try:
-                self._control_window = ControlWindow()
+                self._control_window = ControlWindow(on_config_saved=self._restart_for_new_settings)
             except Exception as e:  # noqa: BLE001
                 log.exception("ControlWindow construction failed: %s", e)
                 _notify("Lexaloud: control window error", str(e)[:200])
@@ -452,80 +438,77 @@ class LexaloudTray(QtWidgets.QSystemTrayIcon):
         self._control_window.raise_()
         self._control_window.activateWindow()
 
-    def _on_reinstall(self) -> None:
-        if not self._confirm(
-            "Reinstall Lexaloud service",
-            "Re-run setup?\n\nThis re-downloads missing models, rewrites the "
-            "user systemd unit, and leaves the service state untouched. "
-            "Existing configuration is kept.",
-        ):
+    def _snapshot_primary_selection(self) -> None:
+        """Read PRIMARY before a tray-menu click can replace it.
+
+        Plasma may put the clicked menu/action text into PRIMARY.  The
+        snapshot therefore happens as the menu opens, while the user's
+        highlighted text is still the active selection.
+        """
+        self._selection_snapshot = None
+        try:
+            from .config import load_config
+            from .selection import SelectionError, read_primary
+
+            cfg = load_config()
+            # A healthy wl-paste/xclip returns in a few milliseconds. Bound
+            # this menu-path read more tightly than a normal CLI capture so a
+            # broken display connection cannot make the tray appear dead.
+            result = read_primary(cfg.capture.max_bytes, min(cfg.capture.subprocess_timeout_s, 0.5))
+            self._selection_snapshot = result.text
+        except SelectionError:
+            pass
+        except Exception:  # noqa: BLE001
+            log.debug("could not snapshot primary selection", exc_info=True)
+
+    def _on_speak_selection(self) -> None:
+        text = self._selection_snapshot
+        self._selection_snapshot = None
+        if not text:
+            _notify("Select text first", "Lexaloud: no highlighted text was found.")
             return
-        self._run_service_action(
-            label="Reinstall",
-            fn=self._reinstall_fn,
-            done=self._notify_result,
-        )
-
-    def _reinstall_fn(self) -> int:
-        from .setup import run_setup
-
-        return run_setup()
-
-    def _on_remove(self) -> None:
-        if not self._confirm(
-            "Remove Lexaloud service",
-            "Stop the daemon and remove its user systemd unit and desktop "
-            "launcher?\n\nYour configuration and downloaded models are kept.",
-        ):
-            return
-        self._run_service_action(
-            label="Remove service",
-            fn=self._remove_fn,
-            done=self._notify_result,
-        )
-
-    def _remove_fn(self) -> int:
-        from .uninstall import run_uninstall
-
-        return run_uninstall()
-
-    def _confirm(self, title: str, body: str) -> bool:
-        answer = QtWidgets.QMessageBox.question(
-            None,
-            title,
-            body,
-            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
-            QtWidgets.QMessageBox.StandardButton.No,
-        )
-        return answer == QtWidgets.QMessageBox.StandardButton.Yes
-
-    def _run_service_action(
-        self,
-        label: str,
-        fn: Callable[[], int],
-        done: Callable[[str], None],
-    ) -> None:
         if self._worker is not None and self._worker.isRunning():
-            _notify("Lexaloud", "Another service action is already running.")
+            _notify("Lexaloud", "A playback request is already being sent.")
             return
-        self.item_reinstall.setEnabled(False)
-        self.item_remove.setEnabled(False)
-        worker = _Worker(label, fn)
-        worker.finished_with.connect(done)
-        worker.finished.connect(lambda: self._service_action_done(worker))
+        worker = _Worker("Speak selection", lambda: self._post_selection(text))
+        worker.finished_with.connect(lambda message: _notify("Lexaloud", message))
+        worker.finished.connect(lambda: self._worker_done(worker))
         worker.start()
         self._worker = worker
 
-    def _service_action_done(self, worker: _Worker) -> None:
+    @staticmethod
+    def _post_selection(text: str) -> int:
+        try:
+            import httpx
+
+            from .config import socket_path
+
+            with httpx.Client(
+                transport=httpx.HTTPTransport(uds=str(socket_path())),
+                base_url="http://lexaloud",
+                timeout=httpx.Timeout(5.0, connect=2.0),
+            ) as client:
+                response = client.post("/speak", json={"text": text, "mode": "replace"})
+            if response.status_code < 400:
+                return 0
+            log.warning("daemon rejected selection: %s", response.status_code)
+        except Exception:  # noqa: BLE001
+            log.debug("could not send selected text to daemon", exc_info=True)
+        return 1
+
+    def _worker_done(self, worker: _Worker) -> None:
         worker.deleteLater()
         if self._worker is worker:
             self._worker = None
-        self.item_reinstall.setEnabled(True)
-        self.item_remove.setEnabled(True)
-        self._refresh_state()
 
-    def _notify_result(self, summary: str) -> None:
-        _notify("Lexaloud", summary)
+    def _restart_for_new_settings(self) -> None:
+        if self._daemon is not None and not self._systemd_mode:
+            self._daemon.stop()
+            if not self._daemon.start():
+                raise RuntimeError("could not start playback")
+        else:
+            _notify("Lexaloud", "Settings will be used when playback next starts.")
+        QtCore.QTimer.singleShot(250, self._refresh_state)
 
     def _on_quit(self) -> None:
         QtWidgets.QApplication.quit()

@@ -36,13 +36,18 @@ PORTAL_OBJECT_PATH = "/org/freedesktop/portal/desktop"
 PORTAL_INTERFACE = "org.freedesktop.portal.GlobalShortcuts"
 
 # Shortcut IDs and descriptions
-SHORTCUTS = [
-    ("lexaloud-speak-selection", "Speak selection", "Capture PRIMARY selection and speak it"),
-    ("lexaloud-speak-clipboard", "Speak clipboard", "Capture CLIPBOARD and speak it"),
-    ("lexaloud-toggle", "Toggle pause/resume", "Pause if speaking, resume if paused"),
-    ("lexaloud-stop", "Stop", "Stop playback and clear the queue"),
-    ("lexaloud-skip", "Skip sentence", "Skip to the next sentence"),
-    ("lexaloud-back", "Back one sentence", "Rewind to the previous sentence"),
+SHORTCUTS: list[tuple[str, str, str, str]] = [
+    (
+        "lexaloud-speak-selection",
+        "Speak highlighted selection",
+        "Capture the highlighted text and speak it",
+        "SUPER+R",
+    ),
+    ("lexaloud-speak-clipboard", "Speak clipboard", "Capture copied text and speak it", ""),
+    ("lexaloud-toggle", "Pause / resume", "Pause or resume playback", "SUPER+P"),
+    ("lexaloud-stop", "Stop", "Stop playback and clear the queue", ""),
+    ("lexaloud-skip", "Skip sentence", "Skip to the next sentence", ""),
+    ("lexaloud-back", "Back one sentence", "Rewind to the previous sentence", ""),
 ]
 
 
@@ -69,6 +74,7 @@ class ShortcutsAdapter:
         self._normalizer = normalizer
         self._bus: Any = None
         self._signal_handler: Any = None
+        self._session_handle: str | None = None
 
     async def try_register(self) -> bool:
         """Attempt to bind shortcuts via the GlobalShortcuts portal.
@@ -123,44 +129,76 @@ class ShortcutsAdapter:
                 self._cleanup_bus()
                 return False
 
-            shortcut_descriptors = [
-                (sid, {"description": Variant("s", desc)}) for sid, _name, desc in SHORTCUTS
-            ]
+            shortcut_descriptors = []
+            for sid, _name, desc, preferred in SHORTCUTS:
+                properties = {"description": Variant("s", desc)}
+                if preferred:
+                    properties["preferred_trigger"] = Variant("s", preferred)
+                shortcut_descriptors.append((sid, properties))
 
-            await iface.call_bind_shortcuts(
+            request_handle = await iface.call_bind_shortcuts(
                 session_handle,
                 shortcut_descriptors,
                 "",  # parent_window
-                {},  # options
+                {"handle_token": Variant("s", "lexaloud_bind")},
             )
+            response, results = await self._await_request(request_handle)
+            if response != 0:
+                log.info("GlobalShortcuts binding was declined (response=%d)", response)
+                self._cleanup_bus()
+                return False
+            bound = results.get("shortcuts", [])
+            if not bound:
+                log.info("GlobalShortcuts portal returned no bound shortcuts")
+                self._cleanup_bus()
+                return False
         except Exception as e:
             log.debug("could not bind shortcuts: %s", e)
             self._cleanup_bus()
             return False
 
-        log.info("GlobalShortcuts portal: %d shortcuts registered", len(SHORTCUTS))
+        self._session_handle = session_handle
+        log.info("GlobalShortcuts portal: %d shortcuts registered", len(bound))
         return True
 
     async def _create_session(self, iface, variant_cls):
         """Create a GlobalShortcuts session. Returns the session handle or None."""
         try:
-            result = await iface.call_create_session(
+            request_handle = await iface.call_create_session(
                 {
                     "handle_token": variant_cls("s", "lexaloud"),
                     "session_handle_token": variant_cls("s", "lexaloud"),
                 }
             )
-            # result is the request object path; the actual session handle
-            # follows the portal convention
-            if isinstance(result, str):
-                return result
-            # Some portals return a tuple (request_handle,)
-            if isinstance(result, (list, tuple)) and len(result) > 0:
-                return result[0]
-            return result
+            response, results = await self._await_request(request_handle)
+            if response != 0:
+                log.info("GlobalShortcuts session creation was declined (response=%d)", response)
+                return None
+            session_handle = results.get("session_handle")
+            if hasattr(session_handle, "value"):
+                session_handle = session_handle.value
+            return str(session_handle) if session_handle else None
         except Exception as e:
             log.debug("CreateSession failed: %s", e)
             return None
+
+    async def _await_request(self, request_handle: str) -> tuple[int, dict[str, Any]]:
+        """Wait for the portal Request response instead of using its handle as data."""
+        if self._bus is None:
+            raise RuntimeError("D-Bus session is not connected")
+        introspection = await self._bus.introspect(PORTAL_BUS_NAME, request_handle)
+        request = self._bus.get_proxy_object(PORTAL_BUS_NAME, request_handle, introspection)
+        iface = request.get_interface("org.freedesktop.portal.Request")
+        response_future: asyncio.Future[tuple[int, dict[str, Any]]] = (
+            asyncio.get_running_loop().create_future()
+        )
+
+        def on_response(response: int, results: dict[str, Any]) -> None:
+            if not response_future.done():
+                response_future.set_result((response, results))
+
+        iface.on_response(on_response)
+        return await asyncio.wait_for(response_future, timeout=30)
 
     def _on_activated(self, _session_handle, shortcut_id, _timestamp, _options) -> None:
         """Handle shortcut activation from the portal.
@@ -241,6 +279,7 @@ class ShortcutsAdapter:
     def _cleanup_bus(self) -> None:
         """Disconnect the bus and reset internal state."""
         self._signal_handler = None
+        self._session_handle = None
         if self._bus is not None:
             try:
                 self._bus.disconnect()

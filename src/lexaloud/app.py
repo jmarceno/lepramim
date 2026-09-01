@@ -7,17 +7,15 @@ without ever asking the user to open a terminal:
 1. If the Kokoro model is not cached, download it automatically with a
    progress dialog (one-time, ~350 MB).
 2. Create default global shortcuts when the desktop allows it
-   (GNOME gsettings / XFCE xfconf; KDE Plasma gets its shortcuts
-   registered by the daemon through the GlobalShortcuts portal).
+   (GNOME gsettings / XFCE xfconf / native KDE desktop actions).
 3. Offer to start Lexaloud automatically at login (XDG autostart).
 4. Start the daemon as a child process and hand control to the tray.
 
 No systemd unit is required: the daemon lives exactly as long as the
 app does, and "Start with desktop" replaces the service for autostart.
 The systemd integration stays available as an opt-in CLI path
-(`lexaloud setup`) and through the tray's service actions for users who
-prefer it; if a unit is installed and running, the app adopts the
-running daemon instead of starting a second one.
+(`lexaloud setup`); if a unit is installed and running, the app adopts
+the running daemon instead of starting a second one.
 """
 
 from __future__ import annotations
@@ -31,7 +29,7 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
 
-from .config import socket_path
+from .config import runtime_dir, socket_path
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +73,84 @@ def binary_path() -> Path:
 def _xdg_config_home() -> Path:
     value = os.environ.get("XDG_CONFIG_HOME")
     return Path(value) if value else Path.home() / ".config"
+
+
+def _xdg_data_home() -> Path:
+    value = os.environ.get("XDG_DATA_HOME")
+    return Path(value) if value else Path.home() / ".local" / "share"
+
+
+def kde_shortcuts_path() -> Path:
+    return _xdg_data_home() / "applications" / "lexaloud.desktop"
+
+
+def _desktop_exec(binary: Path, tail: str = "") -> str:
+    """Return a safely quoted Desktop Entry Exec value."""
+    escaped = str(binary).replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"{tail}'
+
+
+def ensure_kde_shortcuts() -> bool:
+    """Install/update KDE-native application actions and default shortcuts.
+
+    Plasma imports ``X-KDE-Shortcuts`` from desktop actions into KGlobalAccel,
+    which makes the entries visible in System Settings and keeps activation
+    independent of the GUI/daemon process.
+    """
+    try:
+        from .platform import detect_desktop
+
+        if not detect_desktop().is_kde:
+            return False
+        path = kde_shortcuts_path()
+        executable = binary_path()
+        content = "\n".join(
+            [
+                "[Desktop Entry]",
+                "Type=Application",
+                "Name=Lexaloud",
+                "GenericName=Text to Speech",
+                "Comment=Read highlighted text aloud with local Kokoro voices",
+                f"Exec={_desktop_exec(executable)}",
+                "Icon=lexaloud",
+                "Terminal=false",
+                "Categories=AudioVideo;Audio;Accessibility;",
+                "Actions=SpeakSelection;TogglePlayback;",
+                "",
+                "[Desktop Action SpeakSelection]",
+                "Name=Speak highlighted selection",
+                f"Exec={_desktop_exec(executable, ' speak-selection')}",
+                "X-KDE-Shortcuts=Meta+R",
+                "",
+                "[Desktop Action TogglePlayback]",
+                "Name=Pause or resume speech",
+                f"Exec={_desktop_exec(executable, ' toggle')}",
+                "X-KDE-Shortcuts=Meta+P",
+                "",
+            ]
+        )
+        if path.exists() and path.read_text() == content:
+            return True
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+        # Refresh Plasma's service database now; otherwise discovery can lag
+        # until the next login. The desktop file remains the source of truth.
+        for command in ("kbuildsycoca6", "kbuildsycoca5"):
+            try:
+                subprocess.run(
+                    [command],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=15,
+                )
+                break
+            except FileNotFoundError:
+                continue
+        return True
+    except (OSError, subprocess.SubprocessError) as e:
+        log.error("KDE shortcut registration failed: %s", e)
+        return False
 
 
 def autostart_path() -> Path:
@@ -175,23 +251,34 @@ class DaemonController:
             log.info("daemon already answering; adopting instead of starting")
             return True
         if getattr(sys, "frozen", False):
-            cmd = [str(self.binary), "daemon"]
+            # The outer AppImage launcher forks an extracted executable and is
+            # not the daemon itself. Launch the internal frozen executable so
+            # this controller owns the real daemon process and can reliably
+            # stop/restart it while the parent's extraction directory exists.
+            cmd = [sys.executable, "daemon"]
         else:
             # Source/venv installs: always go through the same
             # interpreter instead of resolving a console script, which
             # can be shadowed or missing on PATH.
             cmd = [sys.executable, "-m", "lexaloud", "daemon"]
+        log_file = None
         try:
+            log_path = runtime_dir() / "lexaloud" / "daemon.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            log_file = log_path.open("ab")
             self._proc = subprocess.Popen(
                 cmd,
                 stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
             )
         except (OSError, subprocess.SubprocessError) as e:
             log.error("failed to start daemon subprocess: %s", e)
             self._proc = None
             return False
+        finally:
+            if log_file is not None:
+                log_file.close()
         return True
 
     def stop(self, timeout: float = 8.0) -> None:
@@ -217,9 +304,9 @@ class DaemonController:
 def ensure_default_keybindings() -> list[str]:
     """Create default global shortcuts where the desktop allows it.
 
-    Returns the shortcut labels that were created. KDE Plasma and wlroots
-    compositors get their shortcuts registered by the daemon through the
-    GlobalShortcuts portal, so nothing is done here for those.
+    Returns the shortcut labels that were created. KDE is handled separately
+    by :func:`ensure_kde_shortcuts` because its native desktop actions support
+    both persistent registration and System Settings visibility.
     """
     created: list[str] = []
     try:
@@ -379,6 +466,10 @@ def main() -> int:
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv)
     app.setApplicationName("Lexaloud")
     app.setQuitOnLastWindowClosed(False)
+
+    # Repair/migrate shortcut registration for existing users as well as new
+    # installs. This is intentionally not gated by the onboarding marker.
+    ensure_kde_shortcuts()
 
     binary = binary_path()
     controller = DaemonController(binary)

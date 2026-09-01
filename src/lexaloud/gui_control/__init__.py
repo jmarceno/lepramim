@@ -1,4 +1,4 @@
-"""GTK3 control window package for Lexaloud."""
+"""Qt control window package for Lexaloud."""
 
 from .control_window import ControlWindow, main
 

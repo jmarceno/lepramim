@@ -23,9 +23,9 @@ port = 5487
 ready_queue_depth = 3
 
 [provider]
-# Voice selection. The curated list shown in the Control window is in
-# src/lexaloud/gui_control.py (KOKORO_VOICES). Any Kokoro v1.0 voice name
-# works here, not just curated ones.
+# Voice selection. The complete bundled catalog shown in the Control window
+# is in src/lexaloud/gui_control/voices.py (KOKORO_VOICES). Any Kokoro v1.0
+# voice name works here.
 voice = "af_heart"
 lang = "en-us"
 # Playback speed multiplier. Safe range for dense academic prose is

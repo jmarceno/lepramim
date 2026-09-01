@@ -10,10 +10,12 @@ if [[ -n "${APPIMAGE:-}" ]]; then
   export LEXALOUD_APPIMAGE="$APPIMAGE"
 fi
 
-# Keep the frozen runtime isolated from user site packages and make bundled
-# helper binaries win over same-named host tools when they are present.
+# Keep the frozen runtime isolated from user site packages. Prefer the host's
+# clipboard tools when installed: Wayland protocol support evolves with the
+# compositor, so a distro-matched wl-paste is more compatible than an older
+# bundled fallback. The AppImage copies remain last-resort fallbacks.
 export PYTHONNOUSERSITE=1
-export PATH="$HERE/usr/bin:$PATH"
+export PATH="$PATH:$HERE/usr/bin"
 export LD_LIBRARY_PATH="$HERE/usr/lib/lexaloud:$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 exec "$HERE/usr/lib/lexaloud/lexaloud" "$@"
