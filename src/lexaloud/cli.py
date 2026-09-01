@@ -209,10 +209,64 @@ def _do_capture_and_speak(capture_fn, source_label: str, args) -> int:
 def cmd_speak_selection(args) -> int:
     """Capture the PRIMARY selection and POST it to the daemon's /speak endpoint.
 
-    Returns EXIT_EMPTY_SELECTION (2) if the primary selection is empty,
+    On Wayland many apps (Chrome, Electron) never set PRIMARY and require
+    an explicit Ctrl+C to populate CLIPBOARD. To avoid speaking a stale
+    PRIMARY in that case, fall back to CLIPBOARD when PRIMARY is empty or
+    the compositor reports that PRIMARY is unsupported.
+
+    Returns EXIT_EMPTY_SELECTION (2) if both selections are empty,
     EXIT_TOOL_MISSING_OR_TIMEOUT (5) if wl-paste/xclip is missing or hung.
     """
-    return _do_capture_and_speak(read_primary, "primary", args)
+    cfg = load_config()
+    max_bytes = args.max_bytes or cfg.capture.max_bytes
+    timeout_s = cfg.capture.subprocess_timeout_s
+    primary_error: Exception | None = None
+    try:
+        result = read_primary(max_bytes, timeout_s)
+        if result.text.strip():
+            _post_to_daemon("/speak", {"text": result.text, "mode": "replace"})
+            if result.truncated:
+                try_notify(
+                    "Selection truncated",
+                    f"Lexaloud captured the first {max_bytes} bytes of a larger selection.",
+                )
+            return EXIT_OK
+        primary_error = SelectionEmpty("primary selection is empty")
+    except (SelectionEmpty, SelectionDisplayUnavailable) as e:
+        primary_error = e
+    except (SelectionToolMissing, SelectionTimeout, SelectionError) as e:
+        print(str(e), file=sys.stderr)
+        try_notify("Lexaloud: capture tool missing", str(e))
+        return EXIT_TOOL_MISSING_OR_TIMEOUT
+
+    # PRIMARY empty or unsupported — try CLIPBOARD as fallback.
+    try:
+        result = read_clipboard(max_bytes, timeout_s)
+    except SelectionEmpty:
+        assert primary_error is not None
+        print(str(primary_error), file=sys.stderr)
+        try_notify("Select text first", "Lexaloud: no selection found. Try selecting text or pressing Ctrl+C first.")
+        return EXIT_EMPTY_SELECTION
+    except SelectionDisplayUnavailable as e:
+        print(str(e), file=sys.stderr)
+        try_notify(
+            "Lexaloud: cannot reach display server",
+            "Is DISPLAY set? Are you running from a session that can talk to X/Wayland?",
+        )
+        return EXIT_TOOL_MISSING_OR_TIMEOUT
+    except (SelectionToolMissing, SelectionTimeout, SelectionError) as e:
+        print(str(e), file=sys.stderr)
+        try_notify("Lexaloud: capture tool missing", str(e))
+        return EXIT_TOOL_MISSING_OR_TIMEOUT
+
+    if result.truncated:
+        try_notify(
+            "Selection truncated",
+            f"Lexaloud captured the first {max_bytes} bytes of a larger selection.",
+        )
+    try_notify("Lexaloud: used clipboard fallback", "PRIMARY was empty — spoke clipboard instead.")
+    _post_to_daemon("/speak", {"text": result.text, "mode": "replace"})
+    return EXIT_OK
 
 
 def cmd_speak_clipboard(args) -> int:
