@@ -227,16 +227,7 @@ def try_force_copy(timeout_s: float = 1.0) -> bool:
     `wl-paste --no-newline` can then read. Returns True if an injector
     was invoked, False if no injector is installed.
     """
-    import os
     import time
-
-    # Debug to /tmp for Wayland hotkey troubleshooting (visible even from
-    # systemd transient where stderr is swallowed).
-    try:
-        with open("/tmp/lexaloud-force-copy.log", "a") as f:
-            f.write(f"try_force_copy PATH={os.environ.get('PATH','')} ydotool={shutil.which('ydotool')} dotool={shutil.which('dotool')} wtype={shutil.which('wtype')} xdotool={shutil.which('xdotool')}\n")
-    except Exception:
-        pass
 
     # ydotool via uinput (daemon must be running, which it is on Plasma)
     ydotool = shutil.which("ydotool")
