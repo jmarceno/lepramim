@@ -271,33 +271,48 @@ class _KGlobalAccelManager(QtCore.QObject):
             # org.kde.kglobalaccel:/component/lexaloud. When the app exits
             # the component becomes inactive, so Meta+R does nothing — no
             # fallback AppImage spawn, as requested.
+            # Use busctl for reliable D-Bus typing (QDBusInterface struggles
+            # with ai/a(ai) signatures). DoRegister + setShortcut via busctl
+            # is what the working manual test used.
+            import subprocess as _sp
+
             for action, text, default_key in [
                 ("speak-selection", "Speak highlighted selection", "Meta+R"),
                 ("toggle", "Pause / resume", "Meta+P"),
             ]:
                 action_id = ["lexaloud", action, "Lexaloud", text]
-                # doRegister is idempotent.
-                iface.call("doRegister", [action_id])
-                # setShortcutKeys expects a(ss) + a(ai) + u ; we use setShortcut for simplicity
-                # with a single QKeySequence. The C++ API does:
-                #   iface->setShortcutKeys(actionId, [QKeySequence(default_key)], flags)
-                # flags: 0 = SetPresent, 1 = NoAutoloading, 2 = IsDefault etc.
-                # We want SetPresent (0) for the active shortcut and IsDefault (4) for default.
-                # Use setShortcut (int version) for Meta+R / Meta+P which are single keys.
-                # QKeySequence("Meta+R") -> 0x10000000 | 0x52 = 268435538
                 try:
                     from PySide6.QtGui import QKeySequence
 
                     seq = QKeySequence(default_key)
-                    # setShortcut expects (actionId, keys ai, flags u)
-                    # keys is QList<int> with one entry per sequence part.
-                    keys = [seq[0].toCombined()] if not seq.isEmpty() else []
-                    # Active shortcut (what the user currently has) - SetPresent
-                    iface.call("setShortcut", [action_id, keys, 0])
-                    # Default shortcut - IsDefault (4)
-                    iface.call("setShortcut", [action_id, keys, 4])
-                except Exception as e:  # noqa: BLE001
-                    log.debug("KGlobalAccel setShortcut failed for %s: %s", action, e)
+                    key_int = seq[0].toCombined() if not seq.isEmpty() else 0
+                except Exception:
+                    key_int = 0
+                # doRegister
+                _sp.run(
+                    ["busctl", "--user", "call", "org.kde.kglobalaccel", "/kglobalaccel", "org.kde.KGlobalAccel", "doRegister", "as", "4", *action_id],
+                    check=False,
+                    stdout=_sp.DEVNULL,
+                    stderr=_sp.DEVNULL,
+                    timeout=2,
+                )
+                # getComponent ensures the daemon creates the object
+                _sp.run(
+                    ["busctl", "--user", "call", "org.kde.kglobalaccel", "/kglobalaccel", "org.kde.KGlobalAccel", "getComponent", "s", "lexaloud"],
+                    check=False,
+                    stdout=_sp.DEVNULL,
+                    stderr=_sp.DEVNULL,
+                    timeout=2,
+                )
+                if key_int:
+                    # set active shortcut (flag 0 = SetPresent)
+                    _sp.run(
+                        ["busctl", "--user", "call", "org.kde.kglobalaccel", "/kglobalaccel", "org.kde.KGlobalAccel", "setShortcut", "asaiu", "4", *action_id, "1", str(key_int), "0"],
+                        check=False,
+                        stdout=_sp.DEVNULL,
+                        stderr=_sp.DEVNULL,
+                        timeout=2,
+                    )
             # Listen for KWin delivering the hotkey to our component.
             # No registerObject needed — we just connect to the daemon's
             # component signals. The daemon owns /component/lexaloud on
