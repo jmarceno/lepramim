@@ -245,7 +245,7 @@ class _KGlobalAccelManager(QtCore.QObject):
     loaded once at login, hotkeys are instant after that.
     """
 
-    def __init__(self, controller: "DaemonController") -> None:
+    def __init__(self, controller: DaemonController) -> None:
         super().__init__()
         self._controller = controller
         self._bus = None
@@ -271,15 +271,16 @@ class _KGlobalAccelManager(QtCore.QObject):
             # org.kde.kglobalaccel:/component/lexaloud. When the app exits
             # the component becomes inactive, so Meta+R does nothing — no
             # fallback AppImage spawn, as requested.
-            # Use busctl for reliable D-Bus typing (QDBusInterface struggles
-            # with ai/a(ai) signatures). DoRegister + setShortcut via busctl
-            # is what the working manual test used.
+            # Use busctl only for setShortcut's ai argument, which PySide6
+            # incorrectly marshals as av. doRegister must originate from this
+            # process's persistent D-Bus connection.
             import subprocess as _sp
 
-            for action, text, default_key in [
+            actions = [
                 ("speak-selection", "Speak highlighted selection", "Meta+R"),
                 ("toggle", "Pause / resume", "Meta+P"),
-            ]:
+            ]
+            for action, text, default_key in actions:
                 action_id = ["lexaloud", action, "Lexaloud", text]
                 try:
                     from PySide6.QtGui import QKeySequence
@@ -288,31 +289,35 @@ class _KGlobalAccelManager(QtCore.QObject):
                     key_int = seq[0].toCombined() if not seq.isEmpty() else 0
                 except Exception:
                     key_int = 0
-                # doRegister
-                _sp.run(
-                    ["busctl", "--user", "call", "org.kde.kglobalaccel", "/kglobalaccel", "org.kde.KGlobalAccel", "doRegister", "as", "4", *action_id],
-                    check=False,
-                    stdout=_sp.DEVNULL,
-                    stderr=_sp.DEVNULL,
-                    timeout=2,
-                )
+                reply = iface.call("doRegister", action_id)
+                if reply.errorName():
+                    log.warning("KGlobalAccel doRegister failed for %s: %s", action, reply.errorMessage())
+                    return
                 # getComponent ensures the daemon creates the object
-                _sp.run(
-                    ["busctl", "--user", "call", "org.kde.kglobalaccel", "/kglobalaccel", "org.kde.KGlobalAccel", "getComponent", "s", "lexaloud"],
-                    check=False,
-                    stdout=_sp.DEVNULL,
-                    stderr=_sp.DEVNULL,
-                    timeout=2,
-                )
+                iface.call("getComponent", "lexaloud")
                 if key_int:
-                    # set active shortcut (flag 0 = SetPresent)
-                    _sp.run(
-                        ["busctl", "--user", "call", "org.kde.kglobalaccel", "/kglobalaccel", "org.kde.KGlobalAccel", "setShortcut", "asaiu", "4", *action_id, "1", str(key_int), "0"],
+                    # KGlobalAccel's SetPresent flag is 2. Without it the key
+                    # is saved in kglobalshortcutsrc but is not grabbed.
+                    result = _sp.run(
+                        ["busctl", "--user", "call", "org.kde.kglobalaccel", "/kglobalaccel", "org.kde.KGlobalAccel", "setShortcut", "asaiu", "4", *action_id, "1", str(key_int), "2"],
                         check=False,
                         stdout=_sp.DEVNULL,
                         stderr=_sp.DEVNULL,
                         timeout=2,
                     )
+                    if result.returncode != 0:
+                        log.warning("KGlobalAccel setShortcut failed for %s", action)
+                        return
+            component = QDBusInterface(
+                "org.kde.kglobalaccel",
+                "/component/lexaloud",
+                "org.kde.kglobalaccel.Component",
+                bus,
+            )
+            active_reply = component.call("isActive")
+            if active_reply.errorName() or not active_reply.arguments() or not active_reply.arguments()[0]:
+                log.error("KGlobalAccel rejected Meta+R / Meta+P; component is inactive")
+                return
             # Listen for KWin delivering the hotkey to our component.
             # No registerObject needed — we just connect to the daemon's
             # component signals. The daemon owns /component/lexaloud on
@@ -330,6 +335,7 @@ class _KGlobalAccelManager(QtCore.QObject):
                 log.warning("KGlobalAccel: bus.connect for globalShortcutPressed failed: %s", bus.lastError().message())
                 return
             self._registered = True
+            QtCore.QCoreApplication.instance().aboutToQuit.connect(self.close)
             log.info("KGlobalAccel in-process hotkeys registered (Meta+R / Meta+P) on lexaloud")
         except Exception as e:  # noqa: BLE001
             log.warning("KGlobalAccel in-process registration failed: %s", e, exc_info=True)
@@ -343,6 +349,14 @@ class _KGlobalAccelManager(QtCore.QObject):
         elif action == "toggle":
             self._handle_toggle()
 
+    @QtCore.Slot()
+    def close(self) -> None:
+        if not self._registered or self._iface is None:
+            return
+        self._registered = False
+        for action in ("speak-selection", "toggle"):
+            self._iface.call("unregister", "lexaloud", action)
+
     def _handle_speak(self) -> None:
         # Use a single-shot timer so we don't block the D-Bus thread.
         QtCore.QTimer.singleShot(0, self._do_speak)
@@ -351,8 +365,7 @@ class _KGlobalAccelManager(QtCore.QObject):
         try:
             # Prefer Qt's clipboard as it is connected to the display server
             # and may have better Wayland permission than a background wl-paste.
-            from PySide6.QtGui import QGuiApplication
-            from PySide6.QtGui import QClipboard
+            from PySide6.QtGui import QClipboard, QGuiApplication
 
             clipboard = QGuiApplication.clipboard()
             # Try PRIMARY first via QClipboard::Selection

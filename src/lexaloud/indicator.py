@@ -448,8 +448,7 @@ class LexaloudTray(QtWidgets.QSystemTrayIcon):
         """
         self._selection_snapshot = None
         try:
-            from PySide6.QtGui import QGuiApplication
-            from PySide6.QtGui import QClipboard
+            from PySide6.QtGui import QClipboard, QGuiApplication
 
             clipboard = QGuiApplication.clipboard()
             mime = clipboard.mimeData(mode=QClipboard.Mode.Selection)
@@ -499,8 +498,7 @@ class LexaloudTray(QtWidgets.QSystemTrayIcon):
             # Fallback: try once more directly (covers race where menu
             # snapshot happened before forced copy completed)
             try:
-                from PySide6.QtGui import QGuiApplication
-                from PySide6.QtGui import QClipboard
+                from PySide6.QtGui import QClipboard, QGuiApplication
 
                 clipboard = QGuiApplication.clipboard()
                 mime = clipboard.mimeData(mode=QClipboard.Mode.Clipboard)
