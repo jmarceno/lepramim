@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.2] - 2026-09-01
 
 ### Added
+- **Desktop-app first-run experience** — running the AppImage (or
+  `lexaloud` with no arguments) now behaves like a normal GUI app:
+  the model downloads automatically on first start with a progress
+  window, default global shortcuts are created without terminal
+  instructions (GNOME/XFCE written directly; KDE via the
+  GlobalShortcuts portal at daemon startup), and a first-run dialog
+  offers login autostart ("Start with desktop").
+- **App-managed daemon** — the speech daemon runs as a child of the
+  app; quitting the app (window close, SIGTERM at logout) stops it
+  cleanly. No systemd unit is required; the systemd service remains an
+  opt-in `lexaloud setup` path and is adopted automatically when
+  already running.
+
+### Added
 - **Qt system tray** — `lexaloud tray` (and `lexaloud-indicator`) shows a
   persistent status-bar icon with: the current global shortcut, start/stop
   daemon, playback controls, the control window, **Reinstall service…**

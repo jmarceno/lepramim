@@ -124,18 +124,20 @@ file a PR against [`docs/install/`](docs/install/).
 ### AppImage (CPU)
 
 The release page also provides a CPU-only AppImage with its own Python
-runtime and application dependencies. It does not require Python, CUDA, or
-distribution-specific package names on the host:
+runtime, Qt GUI, and application dependencies. It does not require Python,
+CUDA, or distribution-specific package names on the host:
 
 ```bash
 chmod +x Lexaloud-*-x86_64.AppImage
-./Lexaloud-*-x86_64.AppImage setup
+./Lexaloud-*-x86_64.AppImage
 ```
 
-The model is downloaded separately on first setup, so it can be updated
-without replacing the AppImage. See [`docs/install/appimage.md`](docs/install/appimage.md)
-for the uninstall command, host-session boundary, GUI/tray scope, and Wayland
-clipboard workflow.
+Running it IS the app: a tray icon appears, the model is downloaded
+automatically on first start (one-time ~350 MB with a progress window),
+default shortcuts are created, and the daemon runs as part of the app.
+An optional "Start with desktop" autostart entry replaces the need for a
+systemd service. See [`docs/install/appimage.md`](docs/install/appimage.md)
+for details, the host-session boundary, and the Wayland clipboard workflow.
 
 ### GPU backend
 

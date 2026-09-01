@@ -92,7 +92,7 @@ Issues = "https://github.com/Gustavjiversen01/lexaloud/issues"
 
 [project.scripts]
 lexaloud = "lexaloud.cli:main"
-lexaloud-indicator = "lexaloud.indicator:main"
+lexaloud-indicator = "lexaloud.app:main"
 lexaloud-control = "lexaloud.gui_control:main"
 lexaloud-overlay = "lexaloud.overlay:main"
 

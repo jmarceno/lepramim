@@ -26,6 +26,7 @@ import hashlib
 import importlib.metadata
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.request import urlopen
@@ -90,7 +91,12 @@ class ArtifactError(RuntimeError):
 MAX_MODEL_DOWNLOAD_BYTES: int = 4 * (1 << 30)
 
 
-def _download(url: str, dest: Path) -> None:
+def _download(url: str, dest: Path, progress_cb: Callable[[str, int], None] | None = None) -> None:
+    """Download `url` to `dest` atomically.
+
+    `progress_cb(filename, downloaded_bytes)` is invoked after every
+    1 MiB block so callers can render a progress dialog.
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".partial")
     log.info("downloading %s -> %s", url, dest)
@@ -107,6 +113,8 @@ def _download(url: str, dest: Path) -> None:
                         f"download of {url} exceeded {MAX_MODEL_DOWNLOAD_BYTES} bytes cap; aborting"
                     )
                 f.write(block)
+                if progress_cb is not None:
+                    progress_cb(dest.name, downloaded)
         tmp.replace(dest)
     except BaseException:
         # Never leave a half-written .partial behind on failure.
@@ -119,11 +127,17 @@ def _download(url: str, dest: Path) -> None:
 
 
 def ensure_artifacts(
-    cache_dir: Path | None = None, *, download_if_missing: bool = True
+    cache_dir: Path | None = None,
+    *,
+    download_if_missing: bool = True,
+    progress_cb: Callable[[str, int], None] | None = None,
 ) -> dict[str, Path]:
     """Ensure the Kokoro artifacts are present and hash-verified.
 
     Returns a mapping of filename -> absolute path.
+
+    `progress_cb(filename, downloaded_bytes)` is forwarded to downloads so
+    GUI callers can render a progress dialog.
 
     Raises:
         ArtifactError: if files are missing and `download_if_missing=False`,
@@ -140,7 +154,7 @@ def ensure_artifacts(
                 raise ArtifactError(
                     f"missing artifact: {path}. Run `lexaloud download-models` to fetch it."
                 )
-            _download(art.url, path)
+            _download(art.url, path, progress_cb)
         digest = sha256_of(path)
         if digest != art.sha256:
             raise ArtifactError(

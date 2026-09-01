@@ -94,11 +94,12 @@ lexaloud bug-report > /tmp/lexaloud-bug.md
 cat /tmp/lexaloud-bug.md | head -30
 ```
 
-### `lexaloud tray`
-Run the Qt system-tray icon in the foreground (also available as the
-`lexaloud-indicator` entry point). The tray shows the daemon state,
-offers start/stop, playback controls, the control window, and service
-reinstall/remove actions, and displays the global shortcut in use.
+### `lexaloud app` (default)
+Run the Lexaloud desktop app: tray icon, in-app daemon, and first-run
+onboarding (model download, default shortcuts, optional login
+autostart). Running the AppImage or `lexaloud` with no subcommand does
+this. `lexaloud tray` is an alias. Also available as the
+`lexaloud-indicator` entry point.
 
 ### `lexaloud daemon`
 Run the FastAPI daemon in the foreground. Normally invoked via

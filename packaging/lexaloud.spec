@@ -34,6 +34,7 @@ hiddenimports: list[str] = [
     # The CLI imports the GUI modules lazily (they need a display server),
     # so PyInstaller cannot see them from the frozen entry point alone.
     "lexaloud.indicator",
+    "lexaloud.app",
     "lexaloud.overlay",
     "lexaloud.gui_control",
     "lexaloud.gui_control.control_window",

@@ -10,28 +10,32 @@ the Gitea repository, then run:
 
 ```bash
 chmod +x Lexaloud-*-x86_64.AppImage
-./Lexaloud-*-x86_64.AppImage setup
+./Lexaloud-*-x86_64.AppImage
 ```
 
-`setup` downloads the Kokoro model and voices into
-`$XDG_CACHE_HOME/lexaloud/models` (or `~/.cache/lexaloud/models`), writes a
-user-level systemd unit whose `ExecStart` points to the AppImage itself, and
-prints the hotkey commands.  Activate the service exactly as printed:
+That is the whole installation. The app opens as a tray icon and:
 
-```bash
-systemctl --user daemon-reload
-systemctl --user enable --now lexaloud.service
-```
+- downloads the Kokoro model on first start (one-time, ~350 MB, with a
+  progress window),
+- creates default global shortcuts where the desktop allows it
+  (GNOME/XFCE write them automatically; KDE Plasma registers them
+  through the GlobalShortcuts portal when the daemon starts),
+- asks whether to start automatically at login ("Start with desktop",
+  changeable any time from the tray menu),
+- runs the speech daemon as part of the app — no systemd unit, no
+  terminal commands, and no host Python.
 
-When you want to remove the integration, run the same image with:
+`lexaloud setup` (advanced) still exists for users who prefer a
+systemd `--user` service instead of app-managed lifecycle; when such a
+unit is installed and running, the app adopts the running daemon and
+the tray's service actions manage it.
+
+To remove the integration, use the tray menu ("Remove service…" for
+the systemd path) or:
 
 ```bash
 ./Lexaloud-*-x86_64.AppImage uninstall
 ```
-
-That stops/disables the user service, removes the rendered unit, reloads the
-user manager, and removes the optional per-user desktop launcher. It keeps the
-model cache and configuration; delete the AppImage itself separately.
 
 The model is intentionally external to the AppImage so the image stays
 small and a future model update does not require replacing the executable.
@@ -44,10 +48,11 @@ package names.  It still requires a running graphical session and its host
 Wayland/X11 and audio services; an AppImage cannot bundle or replace the
 compositor, clipboard ownership, PipeWire/PulseAudio, or ALSA session.
 
-The Qt 6 runtime (PySide6) is bundled, so `lexaloud tray` works out of
-the box: the tray icon offers start/stop daemon, playback controls, the
-control window, service reinstall/remove actions, and shows the global
-shortcut in use.
+The Qt 6 runtime (PySide6) is bundled, so the tray icon works out of
+the box: the tray menu offers start/stop daemon, playback controls, the
+control window, a "Start with desktop" autostart toggle, service
+reinstall/remove actions for the optional systemd path, and shows the
+global shortcut in use.
 
 On Wayland, the most reliable workflow for applications that do not publish a
 PRIMARY selection is:

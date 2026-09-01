@@ -415,10 +415,10 @@ def cmd_uninstall(args) -> int:
 
 
 def cmd_tray(args) -> int:
-    """Run the Qt system-tray icon in the foreground."""
-    from .indicator import main as indicator_main
+    """Run the Lexaloud desktop app: tray icon, daemon, and onboarding."""
+    from .app import main as app_main
 
-    return indicator_main()
+    return app_main()
 
 
 def cmd_bug_report(args) -> int:
@@ -443,7 +443,17 @@ def build_parser() -> argparse.ArgumentParser:
         description="Universal Linux text-to-speech tool for reading-along.",
     )
     p.add_argument("--version", action="version", version=f"lexaloud {__version__}")
-    sub = p.add_subparsers(dest="command", required=True)
+    sub = p.add_subparsers(dest="command", required=False)
+
+    def _add_app_cmd(name: str, help_text: str) -> None:
+        sp = sub.add_parser(name, help=help_text)
+        sp.set_defaults(func=cmd_tray)
+
+    _add_app_cmd(
+        "app",
+        "run the Lexaloud desktop app: tray icon, daemon, and first-run setup",
+    )
+    _add_app_cmd("tray", "alias for `app`")
 
     def _add_capture_cmd(name: str, handler) -> None:
         sp = sub.add_parser(name, help=f"{name}: capture and speak")
@@ -462,7 +472,6 @@ def build_parser() -> argparse.ArgumentParser:
         ("back", cmd_back),
         ("status", cmd_status),
         ("daemon", cmd_daemon),
-        ("tray", cmd_tray),
         ("uninstall", cmd_uninstall),
     ]:
         sp = sub.add_parser(name, help=f"{name}")
@@ -494,9 +503,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    logging.basicConfig(level=logging.WARNING, format="%(message)s")
+    import os
+
+    logging.basicConfig(
+        level=os.environ.get("LEXALOUD_LOG_LEVEL", "WARNING").upper(),
+        format="%(message)s",
+    )
     parser = build_parser()
     args = parser.parse_args(argv)
+    if getattr(args, "func", None) is None:
+        # No subcommand: launching the binary directly IS the app
+        # (tray + daemon + onboarding), like any other desktop app.
+        return cmd_tray(args)
     return int(args.func(args))
 
 

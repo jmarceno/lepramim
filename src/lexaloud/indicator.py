@@ -24,7 +24,7 @@ import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from PySide6 import QtCore, QtGui, QtSvg, QtWidgets
 
@@ -36,6 +36,18 @@ log = logging.getLogger(__name__)
 SERVICE = "lexaloud.service"
 
 POLL_INTERVAL_MS = 3_000
+
+
+class DaemonControllerLike(Protocol):
+    """Structural type for the app-mode daemon controller."""
+
+    @property
+    def running(self) -> bool: ...
+
+    def start(self) -> bool: ...
+
+    def stop(self, timeout: float = 8.0) -> None: ...
+
 
 # The tray shows the same artwork in every state; stopped states are
 # dimmed instead of swapped for a different glyph so the icon stays
@@ -218,9 +230,25 @@ class _Worker(QtCore.QThread):
 
 
 class LexaloudTray(QtWidgets.QSystemTrayIcon):
-    """Persistent status-bar icon and its menu."""
+    """Persistent status-bar icon and its menu.
 
-    def __init__(self, icon_path: Path) -> None:
+    Daemon control modes:
+
+    - ``systemd_mode=True``: the daemon is managed via the user systemd
+      unit (opt-in `lexaloud setup` path) — start/stop go through
+      systemctl.
+    - otherwise, when a ``daemon`` controller is supplied (app mode), the
+      tray starts/stops the in-app daemon child process.
+    - plain `lexaloud-indicator` with neither keeps the legacy systemctl
+      behaviour for source installs started without the app wrapper.
+    """
+
+    def __init__(
+        self,
+        icon_path: Path,
+        daemon: DaemonControllerLike | None = None,
+        systemd_mode: bool = False,
+    ) -> None:
         super().__init__(_tinted_icon(icon_path, OPACITY_STOPPED))
         self._icon_path = icon_path
         self._icons = {
@@ -228,6 +256,8 @@ class LexaloudTray(QtWidgets.QSystemTrayIcon):
             "stopped": _tinted_icon(icon_path, OPACITY_STOPPED),
         }
         self._current_icon: str | None = None
+        self._daemon = daemon
+        self._systemd_mode = systemd_mode
 
         self._kb_backend = _detect_backend_safe()
 
@@ -245,7 +275,6 @@ class LexaloudTray(QtWidgets.QSystemTrayIcon):
         self._timer.setInterval(POLL_INTERVAL_MS)
         self._timer.timeout.connect(self._refresh_state)
         self._timer.start()
-        self.activated.connect(self._on_activated)
 
     # ---------- menu ----------
 
@@ -282,6 +311,15 @@ class LexaloudTray(QtWidgets.QSystemTrayIcon):
         self.item_control.triggered.connect(self._on_control)
         self._menu.addAction(self.item_control)
 
+        self.item_autostart = QtGui.QAction("Start with desktop")
+        self.item_autostart.setCheckable(True)
+        self.item_autostart.setChecked(self._autostart_enabled())
+        self.item_autostart.setToolTip(
+            "Launch Lexaloud (tray + speech service) automatically at login."
+        )
+        self.item_autostart.toggled.connect(self._on_autostart_toggled)
+        self._menu.addAction(self.item_autostart)
+
         self._menu.addSeparator()
 
         self.item_reinstall = QtGui.QAction("Reinstall service…")
@@ -307,10 +345,21 @@ class LexaloudTray(QtWidgets.QSystemTrayIcon):
 
     # ---------- state polling ----------
 
+    def refresh_state(self) -> None:
+        """Public alias used by app mode after onboarding/daemon changes."""
+        self._refresh_state()
+
+    def _daemon_active_in_current_mode(self) -> bool:
+        if self._daemon is not None and not self._systemd_mode:
+            # App mode: the child process is the source of truth; the
+            # socket check covers the brief starting window.
+            return self._daemon.running or _daemon_state() != ""
+        return _daemon_active()
+
     def _refresh_state(self) -> None:
-        active = _daemon_active()
+        active = self._daemon_active_in_current_mode()
         # Distinguish warming from plain active by asking the daemon
-        # directly; fall back to the systemctl is-active result.
+        # directly; fall back to the process/service state.
         state_str = _daemon_state() if active else ""
         warming = state_str == "warming"
 
@@ -321,7 +370,7 @@ class LexaloudTray(QtWidgets.QSystemTrayIcon):
         elif active:
             desired = "running"
             tooltip = "Lexaloud: running"
-            toggle_label = "Stop daemon (free GPU)"
+            toggle_label = "Stop daemon"
         else:
             desired = "stopped"
             tooltip = "Lexaloud: stopped"
@@ -343,14 +392,45 @@ class LexaloudTray(QtWidgets.QSystemTrayIcon):
 
     # ---------- menu handlers ----------
 
+    @staticmethod
+    def _autostart_enabled() -> bool:
+        try:
+            from .app import autostart_enabled
+
+            return autostart_enabled()
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _on_autostart_toggled(self, checked: bool) -> None:
+        try:
+            from .app import set_autostart
+        except Exception:  # noqa: BLE001
+            log.error("autostart module unavailable", exc_info=True)
+            return
+        if not set_autostart(checked):
+            # Revert the checkbox if the filesystem write failed.
+            self.item_autostart.setChecked(not checked)
+            _notify(
+                "Lexaloud",
+                "Could not update the autostart entry — check permissions on ~/.config/autostart.",
+            )
+
     def _on_toggle_daemon(self) -> None:
-        action = "stop" if _daemon_active() else "start"
-        _systemctl(action)
-        # Poll state again in 500ms to catch up with systemd.
+        if self._daemon is not None and not self._systemd_mode:
+            # App mode: the tray owns the daemon child process.
+            if self._daemon.running:
+                self._daemon.stop()
+            else:
+                self._daemon.start()
+        else:
+            action = "stop" if _daemon_active() else "start"
+            _systemctl(action)
+        # Poll state again in 500ms to catch up.
         QtCore.QTimer.singleShot(500, self._refresh_state)
 
-    def _on_control(self) -> None:
-        # Import here so the tray starts even if the control window has a
+    def _on_control(
+        self,
+    ) -> None:  # Import here so the tray starts even if the control window has a
         # transient problem.
         try:
             from .gui_control import ControlWindow
@@ -449,12 +529,6 @@ class LexaloudTray(QtWidgets.QSystemTrayIcon):
 
     def _on_quit(self) -> None:
         QtWidgets.QApplication.quit()
-
-    def _on_activated(self, reason: QtWidgets.QSystemTrayIcon.ActivationReason) -> None:
-        # Left click opens the menu too, so the tray is usable even on
-        # desktops that do not show context menus on left click.
-        if reason == QtWidgets.QSystemTrayIcon.ActivationReason.Trigger:
-            self._menu.popup(QtGui.QCursor.pos())
 
 
 def _acquire_single_instance_lock():
