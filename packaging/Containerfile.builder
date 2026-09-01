@@ -12,6 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip python3-venv python3.12 python3.12-venv python3.12-dev \
     patchelf curl ca-certificates file binutils \
     wl-clipboard xclip libnotify-bin libportaudio2 \
+    libfontconfig1 libfreetype6 libdbus-1-3 libglib2.0-0 \
+    libx11-6 libxext6 libxrender1 libxcb1 \
     libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
     libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-shm0 \
     libxcb-sync1 libxcb-xfixes0 libxcb-xkb1 libxcb-xinerama0 \
