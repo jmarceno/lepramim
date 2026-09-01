@@ -439,77 +439,30 @@ class LexaloudTray(QtWidgets.QSystemTrayIcon):
         self._control_window.activateWindow()
 
     def _snapshot_primary_selection(self) -> None:
-        """Read selection before a tray-menu click can replace it.
+        """Read PRIMARY before a tray-menu click can replace it.
 
-        On Wayland the background wl-paste cannot read the focused app's
-        PRIMARY, so this also tries a forced Ctrl+C + clipboard fallback
-        via the same helpers the hotkey uses. The snapshot happens as the
-        menu opens, while the user's highlighted text is still selected.
+        Plasma may put the clicked menu/action text into PRIMARY. The
+        snapshot therefore happens as the menu opens, while the user's
+        highlighted text is still the active selection.
         """
         self._selection_snapshot = None
         try:
-            from PySide6.QtGui import QClipboard, QGuiApplication
-
-            clipboard = QGuiApplication.clipboard()
-            mime = clipboard.mimeData(mode=QClipboard.Mode.Selection)
-            if mime and mime.hasText():
-                t = mime.text().strip()
-                if t:
-                    self._selection_snapshot = t
-                    return
-            # PRIMARY empty/unreadable — force copy and try clipboard
             from .config import load_config
-            from .selection import read_clipboard, read_clipboard_via_klipper, try_force_copy
-
-            try_force_copy(timeout_s=0.5)
-            import time as _time
+            from .selection import SelectionError, read_primary
 
             cfg = load_config()
-            deadline = _time.monotonic() + 0.4
-            while _time.monotonic() < deadline:
-                mime = clipboard.mimeData(mode=QClipboard.Mode.Clipboard)
-                if mime and mime.hasText():
-                    t = mime.text().strip()
-                    if t:
-                        self._selection_snapshot = t
-                        return
-                try:
-                    result = read_clipboard(cfg.capture.max_bytes, 0.3)
-                    if result.text.strip():
-                        self._selection_snapshot = result.text
-                        return
-                except Exception:
-                    pass
-                try:
-                    result = read_clipboard_via_klipper(cfg.capture.max_bytes, 0.3)
-                    if result.text.strip():
-                        self._selection_snapshot = result.text
-                        return
-                except Exception:
-                    pass
-                _time.sleep(0.05)
+            result = read_primary(cfg.capture.max_bytes, min(cfg.capture.subprocess_timeout_s, 0.5))
+            self._selection_snapshot = result.text
+        except SelectionError:
+            pass
         except Exception:  # noqa: BLE001
-            log.debug("could not snapshot selection", exc_info=True)
+            log.debug("could not snapshot primary selection", exc_info=True)
 
     def _on_speak_selection(self) -> None:
         text = self._selection_snapshot
         self._selection_snapshot = None
         if not text:
-            # Fallback: try once more directly (covers race where menu
-            # snapshot happened before forced copy completed)
-            try:
-                from PySide6.QtGui import QClipboard, QGuiApplication
-
-                clipboard = QGuiApplication.clipboard()
-                mime = clipboard.mimeData(mode=QClipboard.Mode.Clipboard)
-                if mime and mime.hasText():
-                    t = mime.text().strip()
-                    if t:
-                        text = t
-            except Exception:
-                pass
-        if not text:
-            _notify("Select text first", "Lexaloud: no highlighted text was found. Select text and try again.")
+            _notify("Select text first", "Lexaloud: no highlighted text was found.")
             return
         if self._worker is not None and self._worker.isRunning():
             _notify("Lexaloud", "A playback request is already being sent.")

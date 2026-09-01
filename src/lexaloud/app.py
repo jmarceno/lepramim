@@ -251,9 +251,6 @@ class _KGlobalAccelManager(QtCore.QObject):
         self._bus = None
         self._iface = None
         self._registered = False
-        self._capture_deadline = 0.0
-        self._capture_previous_text = ""
-        self._capture_sentinel = ""
         try:
             from PySide6.QtDBus import QDBusConnection, QDBusInterface
 
@@ -363,87 +360,56 @@ class _KGlobalAccelManager(QtCore.QObject):
             self._iface.call("unregister", "lexaloud", action)
 
     def _handle_speak(self) -> None:
-        # Use a single-shot timer so we don't block the D-Bus thread.
-        QtCore.QTimer.singleShot(0, self._do_speak)
+        # The c4382ed AppImage startup implicitly allowed Meta to be released
+        # before Ctrl+C was injected. A resident process needs an explicit
+        # settling delay or releasing R first can produce Meta+Ctrl+C.
+        QtCore.QTimer.singleShot(250, self._do_speak)
 
     def _do_speak(self) -> None:
+        # Preserve the capture sequence from c4382ed, the last version known
+        # to work in the user's real session. The only architectural change is
+        # that this now runs inside the resident app instead of launching the
+        # AppImage for every keypress.
+        from .config import load_config
+        from .selection import (
+            SelectionDisplayUnavailable,
+            SelectionEmpty,
+            SelectionError,
+            SelectionTimeout,
+            SelectionToolMissing,
+            read_clipboard,
+            read_clipboard_via_klipper,
+            read_primary,
+            try_force_copy,
+            try_notify,
+        )
+
+        cfg = load_config()
+        max_bytes = cfg.capture.max_bytes
+        timeout_s = cfg.capture.subprocess_timeout_s
+
         try:
-            from PySide6.QtGui import QClipboard, QGuiApplication
-
-            clipboard = QGuiApplication.clipboard()
-            from .session import detect_session
-
-            if not detect_session().is_wayland:
-                mime = clipboard.mimeData(mode=QClipboard.Mode.Selection)
-                if mime and mime.hasText() and mime.text().strip():
-                    self._post_text(mime.text().strip())
-                    return
-
-            # Wayland does not expose another application's PRIMARY selection
-            # reliably. Claim CLIPBOARD with a unique sentinel so stale content
-            # can never be mistaken for a successful copy, then accept only a
-            # clipboard change caused by the injected Ctrl+C.
-            from uuid import uuid4
-
-            from .selection import try_force_copy
-
-            previous_text = clipboard.text(mode=QClipboard.Mode.Clipboard)
-            sentinel = f"lexaloud-capture-{uuid4()}"
-            sentinel_owner = subprocess.run(
-                ["wl-copy"],
-                input=sentinel.encode(),
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=0.5,
-                check=False,
-            )
-            if sentinel_owner.returncode != 0:
-                raise RuntimeError("wl-copy could not establish fresh clipboard ownership")
-
-            if not try_force_copy(timeout_s=0.5):
-                if previous_text:
-                    clipboard.setText(previous_text, mode=QClipboard.Mode.Clipboard)
-                raise RuntimeError("no working keyboard injector is available")
-            import time as _time
-
-            self._capture_deadline = _time.monotonic() + 1.0
-            self._capture_previous_text = previous_text
-            self._capture_sentinel = sentinel
-            # Return to Qt's event loop so the Wayland clipboard-change event
-            # from the focused application can be delivered.
-            QtCore.QTimer.singleShot(0, self._poll_fresh_clipboard)
-        except Exception as e:  # noqa: BLE001
-            log.exception("in-process speak failed: %s", e)
-
-    def _poll_fresh_clipboard(self) -> None:
-        import time
-
-        from PySide6.QtGui import QClipboard, QGuiApplication
-
-        clipboard = QGuiApplication.clipboard()
-        text = ""
-        try:
-            from .config import load_config
-            from .selection import read_clipboard
-
-            cfg = load_config()
-            text = read_clipboard(cfg.capture.max_bytes, 0.2).text.strip()
-        except Exception:
+            result = read_primary(max_bytes, timeout_s)
+            self._post_text(result.text)
+            return
+        except (SelectionEmpty, SelectionDisplayUnavailable):
             pass
-        if text and text != self._capture_sentinel:
-            self._capture_sentinel = ""
-            self._capture_previous_text = ""
-            self._post_text(text)
+        except (SelectionToolMissing, SelectionTimeout, SelectionError) as e:
+            log.error("selection capture failed: %s", e)
+            try_notify("Lexaloud: capture tool missing", str(e))
             return
-        if time.monotonic() < self._capture_deadline:
-            QtCore.QTimer.singleShot(50, self._poll_fresh_clipboard)
-            return
-        if self._capture_previous_text:
-            clipboard.setText(self._capture_previous_text, mode=QClipboard.Mode.Clipboard)
-        self._capture_sentinel = ""
-        self._capture_previous_text = ""
-        from .selection import try_notify
 
+        try_force_copy(timeout_s=1.0)
+        last_error: Exception | None = None
+        for reader in (read_clipboard, read_clipboard_via_klipper):
+            try:
+                result = reader(max_bytes, timeout_s)
+                self._post_text(result.text)
+                return
+            except (SelectionEmpty, SelectionDisplayUnavailable, SelectionToolMissing, SelectionTimeout, SelectionError) as e:
+                last_error = e
+
+        log.error("selection capture failed: %s", last_error)
         try_notify("Select text first", "Lexaloud: no selection found. Select text and press Meta+R again.")
 
     def _post_text(self, text: str) -> None:

@@ -59,11 +59,9 @@ def socket_path() -> Path:
 @dataclass
 class CaptureConfig:
     max_bytes: int = 200 * 1024  # 200 KB
-    # Per-tool timeout in seconds for the capture subprocess calls.
-    # Kept short so a hotkey press feels instant; the capture tools
-    # return in <100ms when data is available, and we fall back quickly
-    # to the next reader when the compositor denies access.
-    subprocess_timeout_s: float = 0.5
+    # Match the proven c4382ed capture path. Healthy tools return immediately;
+    # this only prevents intermittent failures when Wayland/Klipper is busy.
+    subprocess_timeout_s: float = 2.0
 
 
 @dataclass
