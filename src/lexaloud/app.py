@@ -163,18 +163,15 @@ def cleanup_kde_shortcuts() -> None:
 
 
 def ensure_kde_shortcuts() -> bool:
-    """Install/update the transient KDE desktop entry.
+    """Install/update the transient KDE launcher entry.
 
     The global hotkeys (Meta+R / Meta+P) are handled in-process by the
-    running app via KGlobalAccel D-Bus (no per-press AppImage spawn). The
-    desktop file exists only while the app is running, for KWin to deliver
-    the hotkey to our D-Bus component and for System Settings visibility;
-    its actions use `true` so that pressing the hotkey when the app is not
-    running does nothing, as requested. The file is removed on exit by
-    :func:`cleanup_kde_shortcuts`.
-    KGlobalAccel never refreshes an already-imported component, so whenever
-    the Exec command changes it would keep launching the stale command. To
-    avoid that, the desktop entry is removed and re-imported.
+    running app via KGlobalAccel D-Bus (no per-press AppImage spawn).
+    The desktop file exists only while the app is running, for the
+    application menu. It contains no X-KDE-Shortcuts — the hotkeys live
+    solely in the in-process component "lexaloud", so when the app isn't
+    running Meta+R does nothing, as requested. The file is removed on
+    exit by :func:`cleanup_kde_shortcuts`.
     """
     try:
         from .platform import detect_desktop
@@ -191,6 +188,10 @@ def ensure_kde_shortcuts() -> bool:
                 executable,
             )
             return False
+        # Transient launcher only — no Actions with X-KDE-Shortcuts.
+        # Hotkeys are handled in-process via KGlobalAccel (see
+        # _KGlobalAccelManager) so Meta+R is instant and does nothing
+        # when the app isn't running, as requested.
         content = "\n".join(
             [
                 "[Desktop Entry]",
@@ -202,17 +203,6 @@ def ensure_kde_shortcuts() -> bool:
                 "Icon=lexaloud",
                 "Terminal=false",
                 "Categories=AudioVideo;Audio;Accessibility;",
-                "Actions=SpeakSelection;TogglePlayback;",
-                "",
-                "[Desktop Action SpeakSelection]",
-                "Name=Speak highlighted selection",
-                "Exec=true",
-                "X-KDE-Shortcuts=Meta+R",
-                "",
-                "[Desktop Action TogglePlayback]",
-                "Name=Pause or resume speech",
-                "Exec=true",
-                "X-KDE-Shortcuts=Meta+P",
                 "",
             ]
         )
@@ -268,54 +258,24 @@ class _KGlobalAccelManager(QtCore.QObject):
             if not bus.isConnected():
                 log.warning("KGlobalAccel in-process hotkeys unavailable: no session bus")
                 return
-            # Register our component object so KWin can deliver signals.
-            # Use the same component as the desktop file (lexaloud_desktop)
-            # so we intercept its shortcuts in-process when the app is running.
-            # The desktop file's Exec is `true` when the app is not running
-            # the hotkey does nothing, as requested.
-            # Use an adaptor so the D-Bus interface is correctly exported.
-            from PySide6.QtDBus import QDBusAbstractAdaptor
-
-            class _Adaptor(QDBusAbstractAdaptor):  # type: ignore[misc]
-                Q_CLASSINFO("D-Bus Interface", "org.kde.kglobalaccel.Component")
-
-                def __init__(self, parent: QtCore.QObject) -> None:
-                    super().__init__(parent)
-                    self._parent = parent  # type: ignore[attr-defined]
-
-                @QtCore.Slot(str, str, "qlonglong")
-                def globalShortcutPressed(self, component: str, action: str, timestamp: int) -> None:
-                    # Forward to the manager.
-                    self._parent.globalShortcutPressed(component, action, timestamp)  # type: ignore[attr-defined]
-
-                @QtCore.Slot(str, str, "qlonglong")
-                def globalShortcutReleased(self, component: str, action: str, timestamp: int) -> None:
-                    pass
-
-                @QtCore.Slot(str, str, "qlonglong")
-                def globalShortcutRepeated(self, component: str, action: str, timestamp: int) -> None:
-                    pass
-
-            self._adaptor = _Adaptor(self)
-            if not bus.registerObject("/component/lexaloud_desktop", self, QDBusConnection.ExportAdaptors):
-                if not bus.registerObject("/component/lexaloud_desktop", self._adaptor, QDBusConnection.ExportScriptableSlots):
-                    log.warning("KGlobalAccel: failed to register /component/lexaloud_desktop: %s", bus.lastError().message())
-                    return
             # Keep a reference to the bus to prevent it being GC'd.
             self._bus = bus
-            # Talk to kglobalaccel.
             iface = QDBusInterface("org.kde.kglobalaccel", "/kglobalaccel", "org.kde.KGlobalAccel", bus)
             if not iface.isValid():
-                log.warning("KGlobalAccel not available: %s", bus.lastError().message())
+                log.warning("KGlobalAccel not available: %s", iface.lastError().message() if hasattr(iface, "lastError") else "invalid")
                 return
             self._iface = iface
-            # Register our actions with the same IDs as the desktop file so
-            # KWin delivers to us instead of launching a new process.
+            # Register a regular KGlobalAccel component "lexaloud" (distinct
+            # from the transient desktop file's lexaloud_desktop). The daemon
+            # will deliver globalShortcutPressed signals to us on
+            # org.kde.kglobalaccel:/component/lexaloud. When the app exits
+            # the component becomes inactive, so Meta+R does nothing — no
+            # fallback AppImage spawn, as requested.
             for action, text, default_key in [
-                ("SpeakSelection", "Speak highlighted selection", "Meta+R"),
-                ("TogglePlayback", "Pause / resume", "Meta+P"),
+                ("speak-selection", "Speak highlighted selection", "Meta+R"),
+                ("toggle", "Pause / resume", "Meta+P"),
             ]:
-                action_id = ["lexaloud_desktop", action, "Lexaloud", text]
+                action_id = ["lexaloud", action, "Lexaloud", text]
                 # doRegister is idempotent.
                 iface.call("doRegister", [action_id])
                 # setShortcutKeys expects a(ss) + a(ai) + u ; we use setShortcut for simplicity
@@ -338,33 +298,34 @@ class _KGlobalAccelManager(QtCore.QObject):
                     iface.call("setShortcut", [action_id, keys, 4])
                 except Exception as e:  # noqa: BLE001
                     log.debug("KGlobalAccel setShortcut failed for %s: %s", action, e)
-            # Connect to the Component's globalShortcutPressed signal.
-            # Use the adaptor as the receiver so the D-Bus slot is found.
+            # Listen for KWin delivering the hotkey to our component.
+            # No registerObject needed — we just connect to the daemon's
+            # component signals. The daemon owns /component/lexaloud on
+            # org.kde.kglobalaccel; we receive its globalShortcutPressed.
             from PySide6.QtCore import SLOT
 
-            receiver = getattr(self, "_adaptor", self)
             if not bus.connect(
                 "org.kde.kglobalaccel",
-                "/component/lexaloud_desktop",
+                "/component/lexaloud",
                 "org.kde.kglobalaccel.Component",
                 "globalShortcutPressed",
-                receiver,
+                self,
                 SLOT("globalShortcutPressed(QString,QString,qlonglong)"),
             ):
                 log.warning("KGlobalAccel: bus.connect for globalShortcutPressed failed: %s", bus.lastError().message())
                 return
             self._registered = True
-            log.info("KGlobalAccel in-process hotkeys registered (Meta+R / Meta+P)")
+            log.info("KGlobalAccel in-process hotkeys registered (Meta+R / Meta+P) on lexaloud")
         except Exception as e:  # noqa: BLE001
             log.warning("KGlobalAccel in-process registration failed: %s", e, exc_info=True)
 
     @QtCore.Slot(str, str, "qlonglong")
     def globalShortcutPressed(self, component: str, action: str, timestamp: int) -> None:  # noqa: ARG002
-        if component != "lexaloud_desktop":
+        if component != "lexaloud":
             return
-        if action == "SpeakSelection":
+        if action == "speak-selection":
             self._handle_speak()
-        elif action == "TogglePlayback":
+        elif action == "toggle":
             self._handle_toggle()
 
     def _handle_speak(self) -> None:
