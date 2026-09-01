@@ -237,10 +237,10 @@ def try_force_copy(timeout_s: float = 1.0) -> bool:
                 [ydotool, "key", "29:1", "46:1", "46:0", "29:0"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=timeout_s,
+                timeout=min(timeout_s, 0.5),
                 check=False,
             )
-            time.sleep(0.35)
+            time.sleep(0.20)
             return True
         except Exception as e:  # noqa: BLE001
             log.debug("ydotool force-copy failed: %s", e)
@@ -253,10 +253,10 @@ def try_force_copy(timeout_s: float = 1.0) -> bool:
                 input=b"key Ctrl_L+c\n",
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=timeout_s,
+                timeout=min(timeout_s, 0.5),
                 check=False,
             )
-            time.sleep(0.35)
+            time.sleep(0.20)
             return True
         except Exception as e:  # noqa: BLE001
             log.debug("dotool force-copy failed: %s", e)
@@ -268,10 +268,10 @@ def try_force_copy(timeout_s: float = 1.0) -> bool:
                 [wtype, "-M", "ctrl", "-P", "c", "-m", "ctrl"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=timeout_s,
+                timeout=min(timeout_s, 0.5),
                 check=False,
             )
-            time.sleep(0.35)
+            time.sleep(0.20)
             return True
         except Exception as e:  # noqa: BLE001
             log.debug("wtype force-copy failed: %s", e)
@@ -283,10 +283,10 @@ def try_force_copy(timeout_s: float = 1.0) -> bool:
                 [xdotool, "key", "ctrl+c"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=timeout_s,
+                timeout=min(timeout_s, 0.5),
                 check=False,
             )
-            time.sleep(0.35)
+            time.sleep(0.20)
             return True
         except Exception as e:  # noqa: BLE001
             log.debug("xdotool force-copy failed: %s", e)

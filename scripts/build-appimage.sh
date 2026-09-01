@@ -47,9 +47,6 @@ if (( PY_MAJOR < 3 || (PY_MAJOR == 3 && PY_MINOR < 11) )); then
   die "build Python $PY_VERSION is too old; Lexaloud requires Python >= 3.11"
 fi
 
-rm -rf "$BUILD_ROOT"
-mkdir -p "$BUILD_ROOT" "$OUTPUT_DIR"
-
 VENV="$BUILD_ROOT/venv"
 APPDIR="$BUILD_ROOT/AppDir"
 PYINSTALLER_DIST="$BUILD_ROOT/pyinstaller-dist"
@@ -57,28 +54,57 @@ PYINSTALLER_WORK="$BUILD_ROOT/pyinstaller-work"
 LOCK="$PROJECT_ROOT/requirements-lock.cpu.txt"
 LOCK_NO_KOKORO="$BUILD_ROOT/requirements-no-kokoro.txt"
 KOKORO_REQ="$BUILD_ROOT/requirements-kokoro.txt"
+# Hash of lock file to detect when venv needs recreation
+LOCK_HASH_FILE="$BUILD_ROOT/.lock-hash"
 
-echo "Creating build venv with Python $PY_VERSION"
-"$BUILD_PYTHON" -m venv "$VENV"
+if [[ "${LEXALOUD_INCREMENTAL:-0}" == "1" && -d "$VENV" && -x "$VENV/bin/python" ]]; then
+  echo "Incremental build: reusing existing venv at $VENV"
+  mkdir -p "$BUILD_ROOT" "$OUTPUT_DIR"
+  rm -rf "$APPDIR" "$PYINSTALLER_DIST"
+  mkdir -p "$APPDIR" "$PYINSTALLER_DIST"
+else
+  rm -rf "$BUILD_ROOT"
+  mkdir -p "$BUILD_ROOT" "$OUTPUT_DIR"
+  echo "Creating build venv with Python $PY_VERSION"
+  "$BUILD_PYTHON" -m venv "$VENV"
+fi
 VENV_PYTHON="$VENV/bin/python"
 
-echo "Installing locked CPU runtime dependencies"
-"$VENV_PYTHON" -m pip install --upgrade pip >/dev/null
+# Only reinstall locked deps if lock hash changed or venv was just created
+CURRENT_LOCK_HASH="$(sha256sum "$LOCK" 2>/dev/null | cut -d' ' -f1 || echo "no-lock")"
+STORED_LOCK_HASH="$(cat "$LOCK_HASH_FILE" 2>/dev/null || echo "")"
+if [[ "$CURRENT_LOCK_HASH" != "$STORED_LOCK_HASH" || ! -f "$VENV/.lexaloud-deps-installed" ]]; then
+  echo "Installing locked CPU runtime dependencies (lock changed or first build)"
+  "$VENV_PYTHON" -m pip install --upgrade pip >/dev/null
 
-# Keep the same kokoro-onnx installation shape as scripts/install.sh.  The
-# lock file contains the complete, hash-pinned dependency set.  Install it
-# without dependency resolution: the current lock has an intentionally
-# complete set, and resolving it again would reject the pinned csvw/rfc3986
-# pair before the application can even be packaged.
-awk '/^kokoro-onnx==/{skip=1; next} /^[^ \t]/{skip=0} !skip' "$LOCK" > "$LOCK_NO_KOKORO"
-awk '/^kokoro-onnx==/{found=1} found{print} found && !/\\$/{exit}' "$LOCK" > "$KOKORO_REQ"
+  # Keep the same kokoro-onnx installation shape as scripts/install.sh.  The
+  # lock file contains the complete, hash-pinned dependency set.  Install it
+  # without dependency resolution: the current lock has an intentionally
+  # complete set, and resolving it again would reject the pinned csvw/rfc3986
+  # pair before the application can even be packaged.
+  awk '/^kokoro-onnx==/{skip=1; next} /^[^ \t]/{skip=0} !skip' "$LOCK" > "$LOCK_NO_KOKORO"
+  awk '/^kokoro-onnx==/{found=1} found{print} found && !/\\$/{exit}' "$LOCK" > "$KOKORO_REQ"
 
-"$VENV_PYTHON" -m pip install --no-deps --require-hashes -r "$LOCK_NO_KOKORO"
-"$VENV_PYTHON" -m pip install --no-deps --require-hashes -r "$KOKORO_REQ"
-"$VENV_PYTHON" -m pip install --no-deps "$PROJECT_ROOT"
+  "$VENV_PYTHON" -m pip install --no-deps --require-hashes -r "$LOCK_NO_KOKORO"
+  "$VENV_PYTHON" -m pip install --no-deps --require-hashes -r "$KOKORO_REQ"
+  echo "$CURRENT_LOCK_HASH" > "$LOCK_HASH_FILE"
+  touch "$VENV/.lexaloud-deps-installed"
+else
+  echo "Reusing locked dependencies (hash $CURRENT_LOCK_HASH unchanged)"
+  # Still need to split lock for later steps that expect those files
+  awk '/^kokoro-onnx==/{skip=1; next} /^[^ \t]/{skip=0} !skip' "$LOCK" > "$LOCK_NO_KOKORO"
+  awk '/^kokoro-onnx==/{found=1} found{print} found && !/\\$/{exit}' "$LOCK" > "$KOKORO_REQ"
+fi
 
-echo "Installing PyInstaller build tool"
-"$VENV_PYTHON" -m pip install 'pyinstaller>=6.10,<7'
+# Always reinstall the project itself (source may have changed)
+echo "Installing project"
+"$VENV_PYTHON" -m pip install --no-deps --force-reinstall --no-build-isolation "$PROJECT_ROOT" >/dev/null
+
+# Ensure PyInstaller is available (reused when possible)
+if ! "$VENV_PYTHON" -m pip show pyinstaller >/dev/null 2>&1; then
+  echo "Installing PyInstaller build tool"
+  "$VENV_PYTHON" -m pip install 'pyinstaller>=6.10,<7' >/dev/null
+fi
 
 echo "Freezing Python runtime and application"
 "$VENV_PYTHON" -m PyInstaller \

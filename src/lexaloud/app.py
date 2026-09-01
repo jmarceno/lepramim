@@ -132,19 +132,16 @@ def _run_kbuildsycoca() -> bool:
 
 
 def ensure_kde_shortcuts() -> bool:
-    """Install/update KDE-native application actions and default shortcuts.
+    """Install/update the KDE desktop entry.
 
-    Plasma imports ``X-KDE-Shortcuts`` from desktop actions into KGlobalAccel,
-    which makes the entries visible in System Settings and keeps activation
-    independent of the GUI/daemon process.
-
+    The global hotkeys (Meta+R / Meta+P) are now handled in-process by the
+    running app via KGlobalAccel D-Bus (no per-press AppImage spawn). The
+    desktop file is kept only for launching the app from the menu and for
+    System Settings visibility; its actions use `true` so that pressing the
+    hotkey when the app is not running does nothing, as requested.
     KGlobalAccel never refreshes an already-imported component, so whenever
-    the Exec command changes (new build, moved AppImage) it would keep
-    launching the stale command. To avoid that, the desktop entry is removed
-    and re-imported: delete the file, rebuild the service cache (which drops
-    the component), write the fresh entry, rebuild again (which re-imports it
-    with the current Exec). A sync marker keeps track of the Exec string
-    KGlobalAccel last imported so the expensive cycle only runs on change.
+    the Exec command changes it would keep launching the stale command. To
+    avoid that, the desktop entry is removed and re-imported.
     """
     try:
         from .platform import detect_desktop
@@ -176,12 +173,12 @@ def ensure_kde_shortcuts() -> bool:
                 "",
                 "[Desktop Action SpeakSelection]",
                 "Name=Speak highlighted selection",
-                f"Exec={_desktop_exec(executable, ' speak-selection')}",
+                "Exec=true",
                 "X-KDE-Shortcuts=Meta+R",
                 "",
                 "[Desktop Action TogglePlayback]",
                 "Name=Pause or resume speech",
-                f"Exec={_desktop_exec(executable, ' toggle')}",
+                "Exec=true",
                 "X-KDE-Shortcuts=Meta+P",
                 "",
             ]
@@ -198,9 +195,6 @@ def ensure_kde_shortcuts() -> bool:
             return True
         marker.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         path.parent.mkdir(parents=True, exist_ok=True)
-        # Drop the old component first: KGlobalAccel caches the imported
-        # KService (with its Exec) and never re-reads an existing component,
-        # so rewriting the file alone keeps firing the previous command.
         if path.exists():
             path.unlink()
             _run_kbuildsycoca()
@@ -215,6 +209,225 @@ def ensure_kde_shortcuts() -> bool:
     except (OSError, subprocess.SubprocessError) as e:
         log.error("KDE shortcut registration failed: %s", e)
         return False
+
+
+class _KGlobalAccelManager(QtCore.QObject):
+    """In-process global hotkey handler via KGlobalAccel D-Bus.
+
+    Registers Meta+R (speak) and Meta+P (toggle) directly with KWin's
+    kglobalaccel daemon. When the hotkey is pressed KWin delivers
+    ``globalShortcutPressed`` to this process, so we can capture the
+    selection in-process (no per-press AppImage spawn) and POST to the
+    daemon. This is the fast path the user asked for: the AppImage is
+    loaded once at login, hotkeys are instant after that.
+    """
+
+    def __init__(self, controller: "DaemonController") -> None:
+        super().__init__()
+        self._controller = controller
+        self._bus = None
+        self._iface = None
+        self._registered = False
+        try:
+            from PySide6.QtDBus import QDBusConnection, QDBusInterface
+
+            bus = QDBusConnection.sessionBus()
+            if not bus.isConnected():
+                log.warning("KGlobalAccel in-process hotkeys unavailable: no session bus")
+                return
+            # Register our component object so KWin can deliver signals.
+            # Use the same component as the desktop file (lexaloud_desktop)
+            # so we intercept its shortcuts in-process when the app is running.
+            # The desktop file's Exec is `true` when the app is not running
+            # the hotkey does nothing, as requested.
+            # Use an adaptor so the D-Bus interface is correctly exported.
+            from PySide6.QtDBus import QDBusAbstractAdaptor
+
+            class _Adaptor(QDBusAbstractAdaptor):  # type: ignore[misc]
+                Q_CLASSINFO("D-Bus Interface", "org.kde.kglobalaccel.Component")
+
+                def __init__(self, parent: QtCore.QObject) -> None:
+                    super().__init__(parent)
+                    self._parent = parent  # type: ignore[attr-defined]
+
+                @QtCore.Slot(str, str, "qlonglong")
+                def globalShortcutPressed(self, component: str, action: str, timestamp: int) -> None:
+                    # Forward to the manager.
+                    self._parent.globalShortcutPressed(component, action, timestamp)  # type: ignore[attr-defined]
+
+                @QtCore.Slot(str, str, "qlonglong")
+                def globalShortcutReleased(self, component: str, action: str, timestamp: int) -> None:
+                    pass
+
+                @QtCore.Slot(str, str, "qlonglong")
+                def globalShortcutRepeated(self, component: str, action: str, timestamp: int) -> None:
+                    pass
+
+            self._adaptor = _Adaptor(self)
+            if not bus.registerObject("/component/lexaloud_desktop", self, QDBusConnection.ExportAdaptors):
+                if not bus.registerObject("/component/lexaloud_desktop", self._adaptor, QDBusConnection.ExportScriptableSlots):
+                    log.warning("KGlobalAccel: failed to register /component/lexaloud_desktop: %s", bus.lastError().message())
+                    return
+            # Keep a reference to the bus to prevent it being GC'd.
+            self._bus = bus
+            # Talk to kglobalaccel.
+            iface = QDBusInterface("org.kde.kglobalaccel", "/kglobalaccel", "org.kde.KGlobalAccel", bus)
+            if not iface.isValid():
+                log.warning("KGlobalAccel not available: %s", bus.lastError().message())
+                return
+            self._iface = iface
+            # Register our actions with the same IDs as the desktop file so
+            # KWin delivers to us instead of launching a new process.
+            for action, text, default_key in [
+                ("SpeakSelection", "Speak highlighted selection", "Meta+R"),
+                ("TogglePlayback", "Pause / resume", "Meta+P"),
+            ]:
+                action_id = ["lexaloud_desktop", action, "Lexaloud", text]
+                # doRegister is idempotent.
+                iface.call("doRegister", [action_id])
+                # setShortcutKeys expects a(ss) + a(ai) + u ; we use setShortcut for simplicity
+                # with a single QKeySequence. The C++ API does:
+                #   iface->setShortcutKeys(actionId, [QKeySequence(default_key)], flags)
+                # flags: 0 = SetPresent, 1 = NoAutoloading, 2 = IsDefault etc.
+                # We want SetPresent (0) for the active shortcut and IsDefault (4) for default.
+                # Use setShortcut (int version) for Meta+R / Meta+P which are single keys.
+                # QKeySequence("Meta+R") -> 0x10000000 | 0x52 = 268435538
+                try:
+                    from PySide6.QtGui import QKeySequence
+
+                    seq = QKeySequence(default_key)
+                    # setShortcut expects (actionId, keys ai, flags u)
+                    # keys is QList<int> with one entry per sequence part.
+                    keys = [seq[0].toCombined()] if not seq.isEmpty() else []
+                    # Active shortcut (what the user currently has) - SetPresent
+                    iface.call("setShortcut", [action_id, keys, 0])
+                    # Default shortcut - IsDefault (4)
+                    iface.call("setShortcut", [action_id, keys, 4])
+                except Exception as e:  # noqa: BLE001
+                    log.debug("KGlobalAccel setShortcut failed for %s: %s", action, e)
+            # Connect to the Component's globalShortcutPressed signal.
+            # Use the adaptor as the receiver so the D-Bus slot is found.
+            from PySide6.QtCore import SLOT
+
+            receiver = getattr(self, "_adaptor", self)
+            if not bus.connect(
+                "org.kde.kglobalaccel",
+                "/component/lexaloud_desktop",
+                "org.kde.kglobalaccel.Component",
+                "globalShortcutPressed",
+                receiver,
+                SLOT("globalShortcutPressed(QString,QString,qlonglong)"),
+            ):
+                log.warning("KGlobalAccel: bus.connect for globalShortcutPressed failed: %s", bus.lastError().message())
+                return
+            self._registered = True
+            log.info("KGlobalAccel in-process hotkeys registered (Meta+R / Meta+P)")
+        except Exception as e:  # noqa: BLE001
+            log.warning("KGlobalAccel in-process registration failed: %s", e, exc_info=True)
+
+    @QtCore.Slot(str, str, "qlonglong")
+    def globalShortcutPressed(self, component: str, action: str, timestamp: int) -> None:  # noqa: ARG002
+        if component != "lexaloud_desktop":
+            return
+        if action == "SpeakSelection":
+            self._handle_speak()
+        elif action == "TogglePlayback":
+            self._handle_toggle()
+
+    def _handle_speak(self) -> None:
+        # Use a single-shot timer so we don't block the D-Bus thread.
+        QtCore.QTimer.singleShot(0, self._do_speak)
+
+    def _do_speak(self) -> None:
+        try:
+            # Prefer Qt's clipboard as it is connected to the display server
+            # and may have better Wayland permission than a background wl-paste.
+            from PySide6.QtGui import QGuiApplication
+            from PySide6.QtGui import QClipboard
+
+            clipboard = QGuiApplication.clipboard()
+            # Try PRIMARY first via QClipboard::Selection
+            text = ""
+            mime = clipboard.mimeData(mode=QClipboard.Mode.Selection)
+            if mime and mime.hasText():
+                text = mime.text().strip()
+            if text:
+                self._post_text(text)
+                return
+            # PRIMARY empty — force a Ctrl+C to populate CLIPBOARD, then read it.
+            # Use the same helper as the CLI path which knows about ydotool etc.
+            from .selection import read_clipboard, read_clipboard_via_klipper, try_force_copy
+
+            try_force_copy(timeout_s=0.5)
+            # Poll for clipboard to appear (the app needs a moment to handle Ctrl+C)
+            import time as _time
+
+            deadline = _time.monotonic() + 0.4
+            while _time.monotonic() < deadline:
+                # Try Qt clipboard first (fast, no subprocess)
+                mime = clipboard.mimeData(mode=QClipboard.Mode.Clipboard)
+                if mime and mime.hasText():
+                    t = mime.text().strip()
+                    if t:
+                        self._post_text(t)
+                        return
+                # Fallback to wl-paste / Klipper which may see it sooner
+                try:
+                    from .config import load_config
+
+                    cfg = load_config()
+                    result = read_clipboard(cfg.capture.max_bytes, 0.3)
+                    if result.text.strip():
+                        self._post_text(result.text)
+                        return
+                except Exception:
+                    pass
+                try:
+                    from .config import load_config
+
+                    cfg = load_config()
+                    result = read_clipboard_via_klipper(cfg.capture.max_bytes, 0.3)
+                    if result.text.strip():
+                        self._post_text(result.text)
+                        return
+                except Exception:
+                    pass
+                _time.sleep(0.05)
+            # Still nothing — notify
+            from .selection import try_notify
+
+            try_notify("Select text first", "Lexaloud: no selection found. Select text and press Meta+R again.")
+        except Exception as e:  # noqa: BLE001
+            log.exception("in-process speak failed: %s", e)
+
+    def _post_text(self, text: str) -> None:
+        try:
+            import httpx
+
+            with httpx.Client(
+                transport=httpx.HTTPTransport(uds=str(socket_path())),
+                base_url="http://lexaloud",
+                timeout=httpx.Timeout(4.0, connect=1.0),
+            ) as client:
+                client.post("/speak", json={"text": text, "mode": "replace"})
+        except Exception as e:  # noqa: BLE001
+            log.error("failed to POST /speak to daemon: %s", e)
+
+    def _handle_toggle(self) -> None:
+        QtCore.QTimer.singleShot(0, self._do_toggle)
+
+    def _do_toggle(self) -> None:
+        try:
+            import httpx
+
+            with httpx.Client(
+                transport=httpx.HTTPTransport(uds=str(socket_path())),
+                base_url="http://lexaloud",
+                timeout=httpx.Timeout(4.0, connect=1.0),
+            ) as client:
+                client.post("/toggle")
+        except Exception as e:  # noqa: BLE001
+            log.error("failed to POST /toggle: %s", e)
 
 
 def autostart_path() -> Path:
@@ -559,6 +772,21 @@ def main() -> int:
         systemd_mode=systemd_mode,
     )
     tray.show()
+
+    # In-process global hotkeys (fast path): when the app is running, handle
+    # Meta+R / Meta+P directly via KGlobalAccel D-Bus so we don't spawn a
+    # new AppImage per press. The desktop file's Exec is `true` when the app
+    # is not running the hotkey does nothing, as requested.
+    _hotkey_manager = None
+    try:
+        from .platform import detect_desktop
+
+        if detect_desktop().is_kde:
+            _hotkey_manager = _KGlobalAccelManager(controller)
+            # Keep a reference on the app to prevent GC.
+            app._lexaloud_hotkey_manager = _hotkey_manager  # type: ignore[attr-defined]
+    except Exception as e:  # noqa: BLE001
+        log.debug("in-process hotkey manager not started: %s", e)
 
     # Qt's event loop does not exit on SIGINT/SIGTERM by default; without
     # this, closing the session (SIGTERM) would orphan the daemon child.
