@@ -233,13 +233,15 @@ def try_force_copy(timeout_s: float = 1.0) -> bool:
     ydotool = shutil.which("ydotool")
     if ydotool:
         try:
-            subprocess.run(
+            result = subprocess.run(
                 [ydotool, "key", "29:1", "46:1", "46:0", "29:0"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=min(timeout_s, 0.5),
                 check=False,
             )
+            if result.returncode != 0:
+                raise RuntimeError(f"ydotool exited with {result.returncode}")
             time.sleep(0.20)
             return True
         except Exception as e:  # noqa: BLE001
@@ -248,7 +250,7 @@ def try_force_copy(timeout_s: float = 1.0) -> bool:
     dotool = shutil.which("dotool")
     if dotool:
         try:
-            subprocess.run(
+            result = subprocess.run(
                 [dotool],
                 input=b"key Ctrl_L+c\n",
                 stdout=subprocess.DEVNULL,
@@ -256,6 +258,8 @@ def try_force_copy(timeout_s: float = 1.0) -> bool:
                 timeout=min(timeout_s, 0.5),
                 check=False,
             )
+            if result.returncode != 0:
+                raise RuntimeError(f"dotool exited with {result.returncode}")
             time.sleep(0.20)
             return True
         except Exception as e:  # noqa: BLE001
@@ -264,13 +268,15 @@ def try_force_copy(timeout_s: float = 1.0) -> bool:
     wtype = shutil.which("wtype")
     if wtype:
         try:
-            subprocess.run(
+            result = subprocess.run(
                 [wtype, "-M", "ctrl", "-P", "c", "-m", "ctrl"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=min(timeout_s, 0.5),
                 check=False,
             )
+            if result.returncode != 0:
+                raise RuntimeError(f"wtype exited with {result.returncode}")
             time.sleep(0.20)
             return True
         except Exception as e:  # noqa: BLE001
@@ -279,13 +285,15 @@ def try_force_copy(timeout_s: float = 1.0) -> bool:
     xdotool = shutil.which("xdotool")
     if xdotool:
         try:
-            subprocess.run(
+            result = subprocess.run(
                 [xdotool, "key", "ctrl+c"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 timeout=min(timeout_s, 0.5),
                 check=False,
             )
+            if result.returncode != 0:
+                raise RuntimeError(f"xdotool exited with {result.returncode}")
             time.sleep(0.20)
             return True
         except Exception as e:  # noqa: BLE001

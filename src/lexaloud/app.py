@@ -251,6 +251,9 @@ class _KGlobalAccelManager(QtCore.QObject):
         self._bus = None
         self._iface = None
         self._registered = False
+        self._capture_deadline = 0.0
+        self._capture_previous_text = ""
+        self._capture_sentinel = ""
         try:
             from PySide6.QtDBus import QDBusConnection, QDBusInterface
 
@@ -318,7 +321,9 @@ class _KGlobalAccelManager(QtCore.QObject):
             if active_reply.errorName() or not active_reply.arguments() or not active_reply.arguments()[0]:
                 log.error("KGlobalAccel rejected Meta+R / Meta+P; component is inactive")
                 return
-            # Listen for KWin delivering the hotkey to our component.
+            # Listen for key release so Meta is no longer held when selection
+            # capture injects Ctrl+C. Handling key-down would produce
+            # Meta+Ctrl+C instead of Copy.
             # No registerObject needed — we just connect to the daemon's
             # component signals. The daemon owns /component/lexaloud on
             # org.kde.kglobalaccel; we receive its globalShortcutPressed.
@@ -328,11 +333,11 @@ class _KGlobalAccelManager(QtCore.QObject):
                 "org.kde.kglobalaccel",
                 "/component/lexaloud",
                 "org.kde.kglobalaccel.Component",
-                "globalShortcutPressed",
+                "globalShortcutReleased",
                 self,
-                SLOT("globalShortcutPressed(QString,QString,qlonglong)"),
+                SLOT("globalShortcutReleased(QString,QString,qlonglong)"),
             ):
-                log.warning("KGlobalAccel: bus.connect for globalShortcutPressed failed: %s", bus.lastError().message())
+                log.warning("KGlobalAccel: bus.connect for globalShortcutReleased failed: %s", bus.lastError().message())
                 return
             self._registered = True
             QtCore.QCoreApplication.instance().aboutToQuit.connect(self.close)
@@ -341,7 +346,7 @@ class _KGlobalAccelManager(QtCore.QObject):
             log.warning("KGlobalAccel in-process registration failed: %s", e, exc_info=True)
 
     @QtCore.Slot(str, str, "qlonglong")
-    def globalShortcutPressed(self, component: str, action: str, timestamp: int) -> None:  # noqa: ARG002
+    def globalShortcutReleased(self, component: str, action: str, timestamp: int) -> None:  # noqa: ARG002
         if component != "lexaloud":
             return
         if action == "speak-selection":
@@ -363,64 +368,83 @@ class _KGlobalAccelManager(QtCore.QObject):
 
     def _do_speak(self) -> None:
         try:
-            # Prefer Qt's clipboard as it is connected to the display server
-            # and may have better Wayland permission than a background wl-paste.
             from PySide6.QtGui import QClipboard, QGuiApplication
 
             clipboard = QGuiApplication.clipboard()
-            # Try PRIMARY first via QClipboard::Selection
-            text = ""
-            mime = clipboard.mimeData(mode=QClipboard.Mode.Selection)
-            if mime and mime.hasText():
-                text = mime.text().strip()
-            if text:
-                self._post_text(text)
-                return
-            # PRIMARY empty — force a Ctrl+C to populate CLIPBOARD, then read it.
-            # Use the same helper as the CLI path which knows about ydotool etc.
-            from .selection import read_clipboard, read_clipboard_via_klipper, try_force_copy
+            from .session import detect_session
 
-            try_force_copy(timeout_s=0.5)
-            # Poll for clipboard to appear (the app needs a moment to handle Ctrl+C)
+            if not detect_session().is_wayland:
+                mime = clipboard.mimeData(mode=QClipboard.Mode.Selection)
+                if mime and mime.hasText() and mime.text().strip():
+                    self._post_text(mime.text().strip())
+                    return
+
+            # Wayland does not expose another application's PRIMARY selection
+            # reliably. Claim CLIPBOARD with a unique sentinel so stale content
+            # can never be mistaken for a successful copy, then accept only a
+            # clipboard change caused by the injected Ctrl+C.
+            from uuid import uuid4
+
+            from .selection import try_force_copy
+
+            previous_text = clipboard.text(mode=QClipboard.Mode.Clipboard)
+            sentinel = f"lexaloud-capture-{uuid4()}"
+            sentinel_owner = subprocess.run(
+                ["wl-copy"],
+                input=sentinel.encode(),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=0.5,
+                check=False,
+            )
+            if sentinel_owner.returncode != 0:
+                raise RuntimeError("wl-copy could not establish fresh clipboard ownership")
+
+            if not try_force_copy(timeout_s=0.5):
+                if previous_text:
+                    clipboard.setText(previous_text, mode=QClipboard.Mode.Clipboard)
+                raise RuntimeError("no working keyboard injector is available")
             import time as _time
 
-            deadline = _time.monotonic() + 0.4
-            while _time.monotonic() < deadline:
-                # Try Qt clipboard first (fast, no subprocess)
-                mime = clipboard.mimeData(mode=QClipboard.Mode.Clipboard)
-                if mime and mime.hasText():
-                    t = mime.text().strip()
-                    if t:
-                        self._post_text(t)
-                        return
-                # Fallback to wl-paste / Klipper which may see it sooner
-                try:
-                    from .config import load_config
-
-                    cfg = load_config()
-                    result = read_clipboard(cfg.capture.max_bytes, 0.3)
-                    if result.text.strip():
-                        self._post_text(result.text)
-                        return
-                except Exception:
-                    pass
-                try:
-                    from .config import load_config
-
-                    cfg = load_config()
-                    result = read_clipboard_via_klipper(cfg.capture.max_bytes, 0.3)
-                    if result.text.strip():
-                        self._post_text(result.text)
-                        return
-                except Exception:
-                    pass
-                _time.sleep(0.05)
-            # Still nothing — notify
-            from .selection import try_notify
-
-            try_notify("Select text first", "Lexaloud: no selection found. Select text and press Meta+R again.")
+            self._capture_deadline = _time.monotonic() + 1.0
+            self._capture_previous_text = previous_text
+            self._capture_sentinel = sentinel
+            # Return to Qt's event loop so the Wayland clipboard-change event
+            # from the focused application can be delivered.
+            QtCore.QTimer.singleShot(0, self._poll_fresh_clipboard)
         except Exception as e:  # noqa: BLE001
             log.exception("in-process speak failed: %s", e)
+
+    def _poll_fresh_clipboard(self) -> None:
+        import time
+
+        from PySide6.QtGui import QClipboard, QGuiApplication
+
+        clipboard = QGuiApplication.clipboard()
+        text = ""
+        try:
+            from .config import load_config
+            from .selection import read_clipboard
+
+            cfg = load_config()
+            text = read_clipboard(cfg.capture.max_bytes, 0.2).text.strip()
+        except Exception:
+            pass
+        if text and text != self._capture_sentinel:
+            self._capture_sentinel = ""
+            self._capture_previous_text = ""
+            self._post_text(text)
+            return
+        if time.monotonic() < self._capture_deadline:
+            QtCore.QTimer.singleShot(50, self._poll_fresh_clipboard)
+            return
+        if self._capture_previous_text:
+            clipboard.setText(self._capture_previous_text, mode=QClipboard.Mode.Clipboard)
+        self._capture_sentinel = ""
+        self._capture_previous_text = ""
+        from .selection import try_notify
+
+        try_notify("Select text first", "Lexaloud: no selection found. Select text and press Meta+R again.")
 
     def _post_text(self, text: str) -> None:
         try:
