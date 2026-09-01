@@ -1,12 +1,16 @@
-"""Phase B setup command: post-install configuration.
+"""First-run setup command for source, venv, and AppImage installations.
 
-Runs AFTER scripts/install.sh has created the venv and installed the package.
+For a source/venv installation, this runs after ``scripts/install.sh`` has
+created the venv and installed the package.  For the AppImage, the Python
+runtime and application dependencies are already frozen into the image, so
+setup only downloads the external model files and writes the user service.
 Responsibilities:
 
-1. Resolve the absolute path to the `lexaloud` binary via `shutil.which`
-   (falling back to `sys.executable`'s directory). Print it prominently —
-   it's what the user pastes into GNOME Custom Shortcuts and into the
-   systemd unit.
+1. Resolve the absolute path to the `lexaloud` binary.  In an AppImage this
+   must be the stable AppImage file, not the temporary mounted AppDir; for a
+   venv install it is resolved via `shutil.which` or `sys.executable`'s
+   directory. Print it prominently — it's what the user pastes into GNOME
+   Custom Shortcuts and into the systemd unit.
 2. Run `lexaloud download-models` (idempotent).
 3. Detect session type and print the hotkey-binding walkthrough.
 4. Render a systemd `--user` unit file to
@@ -55,6 +59,11 @@ _RUNTIME_DEPS: dict[str, str] = {
 }
 
 
+def _is_bundled_runtime() -> bool:
+    """Return whether setup is running from the self-contained AppImage."""
+    return bool(os.environ.get("LEXALOUD_APPIMAGE")) or bool(getattr(sys, "frozen", False))
+
+
 def _missing_runtime_deps() -> list[str]:
     """Return the pyproject names of declared deps that can't be imported.
 
@@ -62,6 +71,9 @@ def _missing_runtime_deps() -> list[str]:
     we don't pay the startup cost of heavyweight modules (e.g. numpy)
     and don't risk partial module state when the user has a mixed venv.
     """
+    if _is_bundled_runtime():
+        return []
+
     missing: list[str] = []
     for pkg, module in _RUNTIME_DEPS.items():
         if importlib.util.find_spec(module) is None:
@@ -196,6 +208,10 @@ def _check_and_install_runtime_deps() -> int:
     Returns ``EXIT_OK`` on success (including when nothing was missing)
     or ``EXIT_GENERIC_ERROR`` if installation failed.
     """
+    if _is_bundled_runtime():
+        print("Bundled AppImage runtime: Python dependencies are already included.")
+        return EXIT_OK
+
     missing = _missing_runtime_deps()
     if not missing:
         return EXIT_OK
@@ -258,6 +274,21 @@ def _systemd_quote(s: str) -> str:
 
 
 def _resolve_binary() -> Path:
+    if _is_bundled_runtime():
+        appimage = os.environ.get("LEXALOUD_APPIMAGE")
+        if appimage:
+            candidate = Path(appimage).expanduser()
+            if not candidate.is_file():
+                raise RuntimeError(
+                    f"AppImage path from LEXALOUD_APPIMAGE does not exist: {candidate}"
+                )
+            return candidate.resolve()
+
+        # This branch is useful for local AppDir/AppRun smoke tests.  A real
+        # type-2 AppImage normally sets APPIMAGE, which AppRun exports as
+        # LEXALOUD_APPIMAGE above so systemd receives the stable image path.
+        return Path(sys.executable).resolve()
+
     which = shutil.which("lexaloud")
     if which:
         return Path(which).resolve()

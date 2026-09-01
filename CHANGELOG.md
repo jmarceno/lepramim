@@ -23,6 +23,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `[normalizer] enabled = true` in config.toml or the control window.
   Requires `pip install lexaloud[llm]`.
 
+## [0.3.1] - 2026-09-01
+
+### Added
+- **CPU AppImage distribution** — portable `x86_64` AppImage bundling the
+  application, a frozen Python 3.12 runtime, CPU ONNX Runtime, Kokoro TTS
+  with `espeak-ng-data` and `language_tags` data, PortAudio, and the
+  clipboard helpers (`wl-paste`, `xclip`) plus `notify-send`. No Python
+  packages are installed on the host and no system Python is required.
+- **Gitea release workflow** (`.gitea/workflows/release.yml`) — builds
+  source distributions and the CPU AppImage on tag push (`v*.*.*`) or
+  manual dispatch, then publishes both as release assets with notes
+  extracted from this changelog.
+- **`lexaloud uninstall`** — removes the user systemd unit, reloads the
+  user manager, and deletes the optional desktop launcher. Preserves
+  configuration and the model cache.
+- **AppImage-aware `setup`** — when running from an AppImage, `setup`
+  skips host dependency installation and points the systemd unit's
+  `ExecStart` at the AppImage file itself; a generic installer path is
+  kept for source/venv installs.
+- **`docs/install/appimage.md`** — AppImage installation and removal
+  guide, including Wayland/X11 requirements.
+
+### Fixed
+- Broken version pins in the CPU and CUDA lock files (`pydantic`/
+  `pydantic-core`, `sympy`/`mpmath`, `csvw`/`rfc3986`).
+- Frozen daemon audio negotiation with PipeWire/ALSA on the host
+  (bundled `libasound`/`libjack` copies are no longer shipped).
+- Frozen `python` executables patched with `patchelf` so AppImage
+  extraction paths resolve correctly at runtime.
+
 ## [0.3.0] - 2026-04-13
 
 ### Added

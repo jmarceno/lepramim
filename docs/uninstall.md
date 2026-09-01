@@ -1,5 +1,19 @@
 # Uninstall
 
+The easiest cleanup path is now:
+
+```bash
+lexaloud uninstall
+```
+
+This stops/disables `lexaloud.service`, removes the unit, reloads the user
+systemd manager, and removes the optional per-user desktop launcher. It keeps
+configuration and downloaded models. Delete the AppImage or source checkout
+separately if desired.
+
+The manual steps below are useful when the `lexaloud` command is no longer
+available.
+
 This guide completely removes Lexaloud and all its artifacts.
 
 ## 1. Stop and disable the daemon

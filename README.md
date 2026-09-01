@@ -121,6 +121,22 @@ The installer auto-detects your distro via `/etc/os-release` and prints
 the right package names if any are missing. For distros not in the table,
 file a PR against [`docs/install/`](docs/install/).
 
+### AppImage (CPU)
+
+The release page also provides a CPU-only AppImage with its own Python
+runtime and application dependencies. It does not require Python, CUDA, or
+distribution-specific package names on the host:
+
+```bash
+chmod +x Lexaloud-*-x86_64.AppImage
+./Lexaloud-*-x86_64.AppImage setup
+```
+
+The model is downloaded separately on first setup, so it can be updated
+without replacing the AppImage. See [`docs/install/appimage.md`](docs/install/appimage.md)
+for the uninstall command, host-session boundary, GUI/tray scope, and Wayland
+clipboard workflow.
+
 ### GPU backend
 
 The installer detects NVIDIA via `nvidia-smi` and picks the right
@@ -169,6 +185,7 @@ lexaloud stop                 # stop and clear the queue
 lexaloud status               # daemon state as JSON
 lexaloud download-models      # fetch model weights (~340 MB, once)
 lexaloud setup                # first-time configuration walkthrough
+lexaloud uninstall            # stop daemon and remove its user integration
 lexaloud bug-report           # system diagnostics for filing issues
 lexaloud daemon               # run the daemon (normally via systemd)
 ```

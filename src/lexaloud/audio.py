@@ -177,6 +177,17 @@ class SoundDeviceSink:
         import sounddevice as sd  # local import so the daemon can be imported without audio
 
         log.info("SoundDeviceSink: opening OutputStream sr=%d ch=%d", sample_rate, channels)
+        try:
+            default_output = sd.query_devices(kind="output")
+            log.info(
+                "SoundDeviceSink: default output index=%s name=%r hostapi=%s native_sr=%s",
+                sd.default.device[1],
+                default_output.get("name"),
+                default_output.get("hostapi"),
+                default_output.get("default_samplerate"),
+            )
+        except Exception as e:  # noqa: BLE001
+            log.debug("SoundDeviceSink: could not inspect default output: %s", e)
         # latency="low" maps to PortAudio's default_low_output_latency
         # (~20-50 ms on most devices) instead of "high" (~150+ ms), which
         # both tightens pause-response latency and reduces the

@@ -90,7 +90,7 @@ def build_components(cfg: Config | None = None) -> DaemonComponents:
     cfg = cfg or load_config()
 
     # Runtime guard: refuse to start if the ONNX Runtime environment is broken.
-    assert_onnxruntime_environment()
+    ort_distribution = assert_onnxruntime_environment()
 
     artifacts = ensure_artifacts(download_if_missing=False)
     provider = KokoroProvider(
@@ -99,6 +99,11 @@ def build_components(cfg: Config | None = None) -> DaemonComponents:
         voice=cfg.provider.voice,
         lang=cfg.provider.lang,
         speed=cfg.provider.speed,
+        # The CPU AppImage contains the CPU distribution by design.  Select
+        # the CUDA path only when the installed ORT distribution can provide
+        # it; otherwise skip CUDA probing entirely instead of emitting a
+        # misleading fallback warning on every startup.
+        prefer_cuda=ort_distribution == "onnxruntime-gpu",
     )
     sink: AudioSink = SoundDeviceSink()
     player = Player(provider=provider, sink=sink, ready_queue_depth=cfg.daemon.ready_queue_depth)

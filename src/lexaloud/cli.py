@@ -11,6 +11,7 @@ Subcommands:
     lexaloud status
     lexaloud download-models
     lexaloud setup
+    lexaloud uninstall       # stop daemon and remove the user unit
     lexaloud daemon             # run the FastAPI daemon
 
 Exit codes:
@@ -406,6 +407,13 @@ def cmd_daemon(args) -> int:
     return EXIT_OK
 
 
+def cmd_uninstall(args) -> int:
+    """Stop the daemon and remove the user systemd unit and launcher."""
+    from .uninstall import run_uninstall
+
+    return run_uninstall()
+
+
 def cmd_bug_report(args) -> int:
     """Print a markdown-formatted bug report to stdout for pasting into an issue.
 
@@ -447,6 +455,7 @@ def build_parser() -> argparse.ArgumentParser:
         ("back", cmd_back),
         ("status", cmd_status),
         ("daemon", cmd_daemon),
+        ("uninstall", cmd_uninstall),
     ]:
         sp = sub.add_parser(name, help=f"{name}")
         sp.set_defaults(func=handler)

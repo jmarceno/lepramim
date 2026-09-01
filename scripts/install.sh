@@ -310,8 +310,11 @@ $PIP install --upgrade pip >/dev/null
 # --- install the pinned runtime set -------------------------------------
 
 echo "installing pinned runtime dependencies from $(basename "$LOCK")"
-# Install --no-deps kokoro-onnx separately so pip doesn't re-resolve it and
-# pull in the broken [gpu]-extra coexistence state Spike 0 flagged.
+# Install the complete lock without dependency resolution.  The lock already
+# contains every transitive package and its hashes; resolving it again can
+# reject the pinned csvw/rfc3986 pair before installation starts.  Install
+# kokoro-onnx separately so pip doesn't interpret an optional GPU extra or
+# create the broken [gpu]-extra coexistence state Spike 0 flagged.
 #
 # The lockfiles contain --hash=sha256:... lines for supply-chain integrity.
 # With hashed lockfiles, each package entry spans multiple lines:
@@ -342,7 +345,7 @@ awk '/^kokoro-onnx==/{skip=1; next} /^[^ \t]/{skip=0} !skip' "$LOCK" > "$LOCK_NO
 KOKORO_REQ="$(mktemp)"
 awk '/^kokoro-onnx==/{found=1} found{print} found && !/\\$/{if(found) exit}' "$LOCK" > "$KOKORO_REQ"
 
-$PIP install --require-hashes -r "$LOCK_NO_KOKORO"
+$PIP install --no-deps --require-hashes -r "$LOCK_NO_KOKORO"
 $PIP install --no-deps --require-hashes -r "$KOKORO_REQ"
 
 # --- install the lexaloud package --------------------------------------

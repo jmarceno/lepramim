@@ -75,6 +75,12 @@ if `lexaloud setup` didn't have network access at first install.
 Run post-install configuration: models + systemd unit + hotkey
 walkthrough. Pass `--force` to overwrite an existing systemd unit.
 
+### `lexaloud uninstall`
+Stop and disable the Lexaloud user service, remove the rendered systemd
+unit, reload the user manager, and remove the optional per-user desktop
+launcher. Configuration and downloaded model files are intentionally kept;
+delete the AppImage/source checkout separately when you want those gone too.
+
 ### `lexaloud bug-report`
 Print a markdown-formatted diagnostic report to stdout. Paste into a
 GitHub issue. Default output redacts `$HOME` paths and TOML keys

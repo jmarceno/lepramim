@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Lexaloud
+GenericName=Text to Speech
+Comment=Local Kokoro text-to-speech tool
+Exec=lexaloud setup
+Icon=lexaloud
+Terminal=true
+Categories=AudioVideo;Audio;Accessibility;
+Keywords=tts;text-to-speech;kokoro;read;aloud;narrate;
+StartupNotify=true
