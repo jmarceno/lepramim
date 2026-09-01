@@ -126,17 +126,18 @@ def test_daemon_controller_start_and_stop(monkeypatch, tmp_path):
         return _FakePopen()
 
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
-    controller = DaemonController(binary=tmp_path / "lexaloud.AppImage")
+    with patch("lexaloud.app.daemon_alive", return_value=False):
+        controller = DaemonController(binary=tmp_path / "lexaloud.AppImage")
 
-    assert controller.running is False
-    assert controller.start() is True
-    assert started == [[sys.executable, "daemon"]]
-    assert controller.running is True
+        assert controller.running is False
+        assert controller.start() is True
+        assert started == [[sys.executable, "daemon"]]
+        assert controller.running is True
 
-    controller.stop()
-    assert controller.running is False
-    # stop() is idempotent.
-    controller.stop()
+        controller.stop()
+        assert controller.running is False
+        # stop() is idempotent.
+        controller.stop()
 
 
 def test_daemon_controller_source_uses_same_interpreter(monkeypatch, tmp_path):
@@ -148,10 +149,11 @@ def test_daemon_controller_source_uses_same_interpreter(monkeypatch, tmp_path):
         return _FakePopen()
 
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
-    controller = DaemonController(binary=tmp_path / "lexaloud.AppImage")
-    assert controller.start() is True
-    assert started[0][:3] == [__import__("sys").executable, "-m", "lexaloud"]
-    controller.stop()
+    with patch("lexaloud.app.daemon_alive", return_value=False):
+        controller = DaemonController(binary=tmp_path / "lexaloud.AppImage")
+        assert controller.start() is True
+        assert started[0][:3] == [__import__("sys").executable, "-m", "lexaloud"]
+        controller.stop()
 
 
 def test_daemon_controller_adopts_running_daemon(monkeypatch, tmp_path):
@@ -209,14 +211,69 @@ def test_ensure_default_keybindings_skips_unavailable_backend(monkeypatch):
 
 def test_ensure_kde_shortcuts_writes_native_actions(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
     monkeypatch.setattr(sys, "frozen", True, raising=False)
-    monkeypatch.setenv("APPIMAGE", "/tmp/Lexaloud.AppImage")
+    appimage = tmp_path / "Lexaloud.AppImage"
+    appimage.write_bytes(b"")
+    monkeypatch.setenv("APPIMAGE", str(appimage))
     desktop = type("Desktop", (), {"is_kde": True})()
     with patch("lexaloud.platform.detect_desktop", return_value=desktop):
-        with patch("subprocess.run"):
+        with patch(
+            "subprocess.run",
+            return_value=subprocess.CompletedProcess([], 0),
+        ) as run:
             assert ensure_kde_shortcuts() is True
+    assert run.call_count == 1
     content = kde_shortcuts_path().read_text()
     assert "Name=Lexaloud" in content
-    assert 'Exec="/tmp/Lexaloud.AppImage" speak-selection' in content
+    assert f'Exec="{appimage}" speak-selection' in content
     assert "X-KDE-Shortcuts=Meta+R" in content
     assert "X-KDE-Shortcuts=Meta+P" in content
+
+
+def test_ensure_kde_shortcuts_refuses_missing_binary(monkeypatch, tmp_path):
+    """Never register a desktop entry pointing at a nonexistent program."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("APPIMAGE", str(tmp_path / "missing.AppImage"))
+    desktop = type("Desktop", (), {"is_kde": True})()
+    with patch("lexaloud.platform.detect_desktop", return_value=desktop):
+        with patch("subprocess.run") as run:
+            assert ensure_kde_shortcuts() is False
+    assert run.call_count == 0
+    assert not kde_shortcuts_path().exists()
+
+
+def test_ensure_kde_shortcuts_reimports_when_exec_changes(monkeypatch, tmp_path):
+    """A changed Exec must trigger the delete/rebuild/re-import cycle,
+    otherwise KGlobalAccel keeps launching the stale cached command."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "runtime"))
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    appimage = tmp_path / "Lexaloud.AppImage"
+    appimage.write_bytes(b"")
+    monkeypatch.setenv("APPIMAGE", str(appimage))
+    desktop = type("Desktop", (), {"is_kde": True})()
+    with patch("lexaloud.platform.detect_desktop", return_value=desktop):
+        with patch(
+            "subprocess.run",
+            return_value=subprocess.CompletedProcess([], 0),
+        ) as run:
+            assert ensure_kde_shortcuts() is True
+            first_calls = run.call_count
+            assert ensure_kde_shortcuts() is True
+            # Synced state: no further kbuildsycoca runs.
+            assert run.call_count == first_calls
+            # Simulate a moved AppImage and a stale marker.
+            moved = tmp_path / "Moved.AppImage"
+            moved.write_bytes(b"")
+            monkeypatch.setenv("APPIMAGE", str(moved))
+            assert ensure_kde_shortcuts() is True
+    # First registration: 1 rebuild. After the move: unlink rebuild +
+    # write rebuild = 2 more.
+    assert run.call_count == first_calls + 2
+    content = kde_shortcuts_path().read_text()
+    assert f'Exec="{moved}"' in content
+    marker = tmp_path / "runtime" / "lexaloud" / "kde-shortcuts-registered.exec"
+    assert f'"{moved}"' in marker.read_text()

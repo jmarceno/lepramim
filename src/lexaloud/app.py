@@ -65,9 +65,16 @@ def binary_path() -> Path:
         which = _which("lexaloud")
     except Exception:  # noqa: BLE001
         pass
-    if which:
+    if which and Path(which).exists():
         return Path(which).resolve()
-    return Path(sys.executable).parent / "lexaloud"
+    # Fall back to the console script next to the current interpreter. Only
+    # trust it when it actually exists; registering a desktop entry that
+    # points at a missing binary makes KDE report "Could not find the
+    # program". Callers that persist the path must check existence.
+    fallback = Path(sys.executable).parent / "lexaloud"
+    if fallback.exists():
+        return fallback
+    return Path(which).resolve() if which else fallback
 
 
 def _xdg_config_home() -> Path:
@@ -84,10 +91,44 @@ def kde_shortcuts_path() -> Path:
     return _xdg_data_home() / "applications" / "lexaloud.desktop"
 
 
+def kde_sync_marker_path() -> Path:
+    """Record of the Exec command KGlobalAccel last imported.
+
+    Lives in the runtime dir (cleared on logout) so every session
+    re-verifies the import once; the expensive delete/rebuild cycle then
+    only runs when the Exec actually changed.
+    """
+    return runtime_dir() / "lexaloud" / "kde-shortcuts-registered.exec"
+
+
 def _desktop_exec(binary: Path, tail: str = "") -> str:
     """Return a safely quoted Desktop Entry Exec value."""
     escaped = str(binary).replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"{tail}'
+
+
+def _run_kbuildsycoca() -> bool:
+    """Refresh Plasma's service cache so desktop-file changes propagate.
+
+    KGlobalAccel only re-evaluates desktop components when KSycoca emits its
+    database-changed notification; an incremental no-op rebuild is not enough
+    after a file rewrite (KDE bug 487941). A forced full rebuild guarantees
+    both the cache update and the notification.
+    """
+    for command in ("kbuildsycoca6", "kbuildsycoca5"):
+        try:
+            result = subprocess.run(
+                [command, "--noincremental"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=30,
+            )
+        except (FileNotFoundError, subprocess.SubprocessError):
+            continue
+        if result.returncode == 0:
+            return True
+    return False
 
 
 def ensure_kde_shortcuts() -> bool:
@@ -96,6 +137,14 @@ def ensure_kde_shortcuts() -> bool:
     Plasma imports ``X-KDE-Shortcuts`` from desktop actions into KGlobalAccel,
     which makes the entries visible in System Settings and keeps activation
     independent of the GUI/daemon process.
+
+    KGlobalAccel never refreshes an already-imported component, so whenever
+    the Exec command changes (new build, moved AppImage) it would keep
+    launching the stale command. To avoid that, the desktop entry is removed
+    and re-imported: delete the file, rebuild the service cache (which drops
+    the component), write the fresh entry, rebuild again (which re-imports it
+    with the current Exec). A sync marker keeps track of the Exec string
+    KGlobalAccel last imported so the expensive cycle only runs on change.
     """
     try:
         from .platform import detect_desktop
@@ -104,6 +153,14 @@ def ensure_kde_shortcuts() -> bool:
             return False
         path = kde_shortcuts_path()
         executable = binary_path()
+        if not executable.exists():
+            log.error(
+                "KDE shortcut registration skipped: %s does not exist; "
+                "refusing to register a shortcut that would report "
+                "'Could not find the program'",
+                executable,
+            )
+            return False
         content = "\n".join(
             [
                 "[Desktop Entry]",
@@ -129,24 +186,31 @@ def ensure_kde_shortcuts() -> bool:
                 "",
             ]
         )
-        if path.exists() and path.read_text() == content:
+        imported_exec = _desktop_exec(executable)
+        marker = kde_sync_marker_path()
+        already_synced = (
+            path.exists()
+            and path.read_text() == content
+            and marker.exists()
+            and marker.read_text() == imported_exec
+        )
+        if already_synced:
             return True
+        marker.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         path.parent.mkdir(parents=True, exist_ok=True)
+        # Drop the old component first: KGlobalAccel caches the imported
+        # KService (with its Exec) and never re-reads an existing component,
+        # so rewriting the file alone keeps firing the previous command.
+        if path.exists():
+            path.unlink()
+            _run_kbuildsycoca()
         path.write_text(content)
-        # Refresh Plasma's service database now; otherwise discovery can lag
-        # until the next login. The desktop file remains the source of truth.
-        for command in ("kbuildsycoca6", "kbuildsycoca5"):
-            try:
-                subprocess.run(
-                    [command],
-                    check=False,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=15,
-                )
-                break
-            except FileNotFoundError:
-                continue
+        if not _run_kbuildsycoca():
+            log.warning(
+                "kbuildsycoca6 did not run successfully; KDE may not pick up "
+                "the shortcut entry until the next login"
+            )
+        marker.write_text(imported_exec)
         return True
     except (OSError, subprocess.SubprocessError) as e:
         log.error("KDE shortcut registration failed: %s", e)
