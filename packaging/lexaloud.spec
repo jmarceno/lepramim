@@ -104,8 +104,14 @@ a = Analysis(
 # The sounddevice PyInstaller hook can add these libraries after the explicit
 # package collection above.  Filter the completed analysis as the final
 # guard, otherwise they would still land beside the frozen executable.
+#
+# libqgtk3.so (Qt's optional GTK3 platform-theme plugin) is dropped too:
+# it links the host's GTK3 stack, which minimal build/runner images do
+# not ship, and the xdg-desktop-portal theme is the appropriate theme
+# integration for a Qt app anyway.
+_EXCLUDED_BINARIES = {"libasound.so.2", "libjack.so.0", "libqgtk3.so"}
 a.binaries = [
-    entry for entry in a.binaries if Path(entry[0]).name not in {"libasound.so.2", "libjack.so.0"}
+    entry for entry in a.binaries if Path(entry[0]).name not in _EXCLUDED_BINARIES
 ]
 
 pyz = PYZ(a.pure)
