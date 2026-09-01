@@ -1,4 +1,4 @@
-"""Tests for lexaloud.platform — distro / desktop / GPU / site-packages detection."""
+"""Tests for lexaloud.platform — distro / desktop / GPU detection."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from lexaloud.platform import (
     detect_desktop,
     detect_distro,
     detect_gpu,
-    system_site_packages_candidates,
 )
 
 # ---------- detect_distro ----------
@@ -136,30 +135,3 @@ def test_detect_gpu_none_when_no_drivers():
         info = detect_gpu()
     assert info.vendor == "none"
     assert info.device == ""
-
-
-# ---------- system_site_packages_candidates ----------
-
-
-def test_system_site_packages_returns_only_existing(tmp_path: Path):
-    existing = tmp_path / "usr" / "lib" / "python3" / "dist-packages"
-    existing.mkdir(parents=True)
-
-    def fake_is_dir(self: Path) -> bool:
-        return self == existing
-
-    with patch("lexaloud.platform.Path") as mock_path_cls:
-
-        def make_path(value: str) -> Path:
-            p = Path(str(value))
-            # Replace the Debian path candidate with our tmp_path one
-            if str(value) == "/usr/lib/python3/dist-packages":
-                p = existing
-            return p
-
-        mock_path_cls.side_effect = make_path
-        # Use the real Path.is_dir
-        with patch.object(Path, "is_dir", fake_is_dir):
-            candidates = system_site_packages_candidates()
-
-    assert existing in candidates

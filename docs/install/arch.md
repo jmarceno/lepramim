@@ -9,20 +9,15 @@ names. This guide is for Arch rolling as of early 2026.
 ```bash
 sudo pacman -S \
     python \
-    python-gobject \
-    gtk3 \
     wl-clipboard \
     xclip \
     portaudio \
     libnotify
 ```
 
-For the tray indicator, install `libayatana-appindicator` from the
-official repos:
-
-```bash
-sudo pacman -S libayatana-appindicator
-```
+The tray indicator and control window use Qt (PySide6), which is
+installed automatically with the package — no extra system GUI
+packages are needed.
 
 ## 2. NVIDIA GPU (optional)
 

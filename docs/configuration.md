@@ -60,7 +60,7 @@ character-substitution stage, so their ordering is fixed.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `overlay` | `false` | Show the floating overlay when speaking. The overlay is an always-on-top sentence caption bar. Enable via `overlay = true` under `[advanced]` or from the control window's Settings tab. On wlroots compositors and KWin, the overlay uses `gtk-layer-shell` for proper stacking; on X11 and GNOME Wayland it falls back to a `NOTIFICATION` type hint. |
+| `overlay` | `false` | Show the floating overlay when speaking. The overlay is an always-on-top sentence caption bar. Enable via `overlay = true` under `[advanced]` or from the control window's Settings tab. |
 
 ### `[sre_latex]`
 

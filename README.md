@@ -38,8 +38,7 @@ To hear what Kokoro sounds like before installing, try the
   configuration. Uses `dbus-fast` (optional dependency).
 - **Floating overlay** — an always-on-top sentence caption bar (off
   by default). Enable via `[advanced] overlay = true` in
-  `config.toml` or the control window's Settings tab. Supports both
-  `gtk-layer-shell` (wlroots/KWin) and X11/GNOME Wayland fallback.
+  `config.toml` or the control window's Settings tab.
 - **XDG GlobalShortcuts portal** — Wayland-native global hotkey
   binding on KDE Plasma 6+, Sway, and Hyprland via the
   `org.freedesktop.portal.GlobalShortcuts` portal. GNOME does not
@@ -53,10 +52,12 @@ To hear what Kokoro sounds like before installing, try the
 - **12 built-in voices** — American and British, male and female,
   from warm to serious. The control window lets you preview and switch
   voices; see the full list in [`docs/models.md`](docs/models.md).
-- **GTK3 tray indicator + control window** — visible on any desktop
-  that supports AppIndicator (GNOME with the `ubuntu-appindicators`
-  extension, KDE, Budgie, etc.). Voice, speed, and hotkey settings.
-  The CLI works without the tray on minimal setups.
+- **Qt tray indicator + control window** — visible on any desktop
+  whose tray supports the StatusNotifierItem protocol (GNOME with the
+  `ubuntu-appindicators` extension, KDE, XFCE, Budgie, etc.). Voice,
+  speed, and hotkey settings, plus service reinstall/remove actions,
+  straight from the tray menu. Built with PySide6 — no system GTK/PyGObject
+  packages needed. The CLI works without the tray on minimal setups.
 - **Privacy-first** — see the [Privacy](#privacy) section.
 - **Open-source** — MIT-licensed code, Apache-2.0-licensed model
   weights. See [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md).
@@ -78,8 +79,7 @@ To hear what Kokoro sounds like before installing, try the
 ### Ubuntu / Debian (Tier 1)
 
 ```bash
-sudo apt install python3-venv wl-clipboard xclip libportaudio2 libnotify-bin \
-                 python3-gi gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1
+sudo apt install python3-venv wl-clipboard xclip libportaudio2 libnotify-bin
 
 git clone https://github.com/Gustavjiversen01/lexaloud.git
 cd lexaloud
@@ -98,7 +98,7 @@ Full walkthrough: [`docs/install/ubuntu-debian.md`](docs/install/ubuntu-debian.m
 ### Fedora (Tier 2)
 
 ```bash
-sudo dnf install python3 python3-pip python3-gobject gtk3 \
+sudo dnf install python3 python3-pip \
                  wl-clipboard xclip portaudio libnotify
 ```
 
@@ -109,7 +109,7 @@ Then the same `git clone` → `./scripts/install.sh` → `lexaloud setup` →
 ### Arch / Manjaro (Tier 2)
 
 ```bash
-sudo pacman -S python python-gobject gtk3 wl-clipboard xclip portaudio libnotify
+sudo pacman -S python wl-clipboard xclip portaudio libnotify
 ```
 
 Then `git clone` → `./scripts/install.sh` → `lexaloud setup` → `systemctl`.
@@ -234,8 +234,8 @@ Full list: [`ROADMAP.md`](ROADMAP.md)
 ## Architecture
 
 A FastAPI daemon (systemd `--user`) owns the TTS provider and audio
-sink. A thin CLI sends HTTP requests over the Unix socket. A GTK3
-tray indicator polls daemon state for visual feedback.
+sink. A thin CLI sends HTTP requests over the Unix socket. A Qt
+(PySide6) tray icon polls daemon state for visual feedback.
 
 Component diagram + data-flow walkthrough:
 [`docs/architecture.md`](docs/architecture.md). Design decisions:
@@ -285,8 +285,8 @@ rather than public issues. See [`SECURITY.md`](SECURITY.md).
 - **[`phonemizer-fork`](https://github.com/kokoro-tts/phonemizer-fork)**,
   **[pysbd](https://github.com/nipunsadvilkar/pySBD)**, and
   **[`sounddevice`](https://python-sounddevice.readthedocs.io/)**.
-- The **GNOME** and **freedesktop.org** communities for GTK, libnotify,
-  systemd-user, and AppIndicator.
+- The **GNOME** and **freedesktop.org** communities for libnotify and
+  systemd-user, and **Qt**/**PySide6** for the desktop UI.
 
 Significant portions of this codebase were developed in collaboration
 with [Claude](https://claude.ai) (Anthropic) via Claude Code. Code

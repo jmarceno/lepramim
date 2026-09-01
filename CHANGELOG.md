@@ -5,9 +5,25 @@ All notable changes to Lexaloud are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.2] - 2026-09-01
 
 ### Added
+- **Qt system tray** — `lexaloud tray` (and `lexaloud-indicator`) shows a
+  persistent status-bar icon with: the current global shortcut, start/stop
+  daemon, playback controls, the control window, **Reinstall service…**
+  (re-runs setup), **Remove service…** (runs uninstall), and Quit. Built
+  with PySide6; bundled in the CPU AppImage so the tray works out of the
+  box on any distro.
+
+### Changed
+- **GTK → Qt migration** — the tray indicator, control window, overlay,
+  and hotkey-capture dialog were ported from GTK3/PyGObject to Qt 6
+  (PySide6-Essentials). All GTK/gi code paths, the system
+  `python3-gi`/`gir1.2-*` package requirements, and the
+  system-site-packages shim were removed. PySide6-Essentials is now a
+  core dependency and is bundled inside the CPU AppImage (~+80 MB).
+
+### Added (preprocessing)
 - **Expanded rule-based preprocessing** — academic abbreviation expansion
   (Fig., Eq., Sec., Thm., w.r.t., i.i.d., 25+ patterns), number-to-words
   normalization (ordinals, cardinals, decimals, percentages, currency,

@@ -156,24 +156,30 @@ abbreviations like `i.e.`). It's MIT-licensed and has no C extensions.
 We pair it with a small custom preprocessor that handles PDF-specific
 issues (hyphenation across line breaks, repeated whitespace, etc.).
 
-## Why GTK3 instead of GTK4 or Qt?
+## Why Qt (PySide6) instead of GTK?
 
-- **GTK3** has mature `AppIndicator3` / `AyatanaAppIndicator3`
-  bindings for the GNOME tray, which we need.
-- **GTK4** dropped AppIndicator support. Writing a GNOME Shell
+- **Qt's `QSystemTrayIcon`** speaks the StatusNotifierItem DBus
+  protocol out of the box, which GNOME (via the AppIndicator
+  extension), KDE, XFCE, Cinnamon, and MATE all support — one code
+  path for every tray.
+- **PySide6 ships inside the package and the AppImage.** The GTK
+  approach required the host's `python3-gi` and `gir1.2-*` typelib
+  packages (and a `sys.path` hack to reach them from inside the venv).
+  Qt removes that whole class of broken-install reports.
+- **GTK4** dropped AppIndicator support, and writing a GNOME Shell
   extension to replace the tray is a much larger scope.
-- **Qt** would double the binary size and pull in another theming
-  system for no clear benefit on GNOME (which doesn't match Qt's
-  default look).
+- **Licensing**: PySide6 is LGPL, which permits proprietary and
+  commercial redistribution of the AppImage.
 
-GTK3 is the most stable, smallest-blast-radius option for v0.1.0.
+The trade-off is bundle size: the AppImage grows by roughly 100 MB to
+carry the Qt runtime.
 
 ## Why no overlay / karaoke / browser extension?
 
 All three are genuinely useful. They're deferred to v0.2+ because
 each requires design work the maintainer wants to do right, not fast:
 
-- **Floating overlay**: GTK mouse-through + layer-shell behavior is
+- **Floating overlay**: mouse-through + stays-on-top behavior is
   compositor-dependent (Wayland layer protocol + X11 override-redirect
   + Mutter quirks). Getting this right takes a dedicated spike.
 - **Karaoke word-level**: Kokoro doesn't expose word timings. A forced

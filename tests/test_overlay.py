@@ -1,12 +1,12 @@
 """Tests for the overlay module logic.
 
 These tests exercise the state-driven logic (auto-hide, label text,
-button sensitivity) WITHOUT instantiating real GTK windows -- no display
+button sensitivity) WITHOUT instantiating real Qt windows — no display
 server required.
 
-Strategy: we import the OverlayWindow class (the module-level gi imports
-succeed because python3-gi is installed system-wide) but never call its
-__init__ (which needs a live display). Instead, we create a lightweight
+Strategy: we import the OverlayWindow class (the module-level PySide6
+imports succeed because PySide6 is a core dependency) but never call its
+__init__ (which needs a QApplication). Instead, we create a lightweight
 SimpleNamespace that carries the same attributes the methods expect, then
 call the *unbound* class methods with it as ``self``.
 """
@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 import httpx
 import pytest
 
-pytest.importorskip("lexaloud.overlay", reason="python3-gi not available for this Python version")
+pytest.importorskip("lexaloud.overlay", reason="PySide6 not available for this Python version")
 
 from lexaloud.overlay import (  # noqa: E402
     LABEL_PAUSE,
@@ -33,8 +33,6 @@ def _make_overlay() -> SimpleNamespace:
     mock_client = MagicMock()
     mock_client.is_closed = False  # prevent _ensure_client from replacing it
     ns = SimpleNamespace(
-        _desktop=MagicMock(is_wayland=False, is_gnome=True),
-        _use_layer=False,
         _client=mock_client,
         _last_state=None,
         _visible=False,
@@ -42,10 +40,12 @@ def _make_overlay() -> SimpleNamespace:
         _btn_pause=MagicMock(),
         _btn_skip=MagicMock(),
         _btn_stop=MagicMock(),
-        # GTK-level methods called by _update_visibility
-        show_all=MagicMock(),
+        # Qt-level methods called by _update_visibility
+        show=MagicMock(),
         hide=MagicMock(),
         _position_window=MagicMock(),
+        # _update_label elides via the real label font metrics; stub it.
+        _elide=lambda text, width: text,
     )
     # Bind internal methods that other methods call via self.xxx().
     # _post_action calls _ensure_client; _poll_state calls _fetch_state,
@@ -90,7 +90,7 @@ class TestAutoHide:
         ns = _make_overlay()
         _update_visibility(ns, "speaking")
         assert ns._visible is True
-        ns.show_all.assert_called_once()
+        ns.show.assert_called_once()
 
     def test_shows_when_paused(self):
         ns = _make_overlay()
@@ -115,8 +115,8 @@ class TestAutoHide:
         ns = _make_overlay()
         _update_visibility(ns, "speaking")
         _update_visibility(ns, "speaking")
-        # show_all should be called only once.
-        assert ns.show_all.call_count == 1
+        # show should be called only once.
+        assert ns.show.call_count == 1
 
     def test_no_double_hide(self):
         ns = _make_overlay()
@@ -132,27 +132,27 @@ class TestLabelText:
     def test_shows_sentence_text(self):
         ns = _make_overlay()
         _update_label(ns, "speaking", "Hello world")
-        ns._label.set_text.assert_called_with("Hello world")
+        ns._label.setText.assert_called_with("Hello world")
 
     def test_preparing_when_sentence_is_none(self):
         ns = _make_overlay()
         _update_label(ns, "speaking", None)
-        ns._label.set_text.assert_called_with("Preparing\u2026")
+        ns._label.setText.assert_called_with("Preparing\u2026")
 
     def test_preparing_when_sentence_is_empty(self):
         ns = _make_overlay()
         _update_label(ns, "speaking", "")
-        ns._label.set_text.assert_called_with("Preparing\u2026")
+        ns._label.setText.assert_called_with("Preparing\u2026")
 
     def test_paused_shows_sentence(self):
         ns = _make_overlay()
         _update_label(ns, "paused", "Some sentence")
-        ns._label.set_text.assert_called_with("Some sentence")
+        ns._label.setText.assert_called_with("Some sentence")
 
     def test_idle_clears_label(self):
         ns = _make_overlay()
         _update_label(ns, "idle", None)
-        ns._label.set_text.assert_called_with("")
+        ns._label.setText.assert_called_with("")
 
 
 # --- button state tests ---------------------------------------------------
@@ -162,26 +162,26 @@ class TestButtons:
     def test_buttons_active_when_speaking(self):
         ns = _make_overlay()
         _update_buttons(ns, "speaking")
-        ns._btn_pause.set_sensitive.assert_called_with(True)
-        ns._btn_skip.set_sensitive.assert_called_with(True)
-        ns._btn_stop.set_sensitive.assert_called_with(True)
+        ns._btn_pause.setEnabled.assert_called_with(True)
+        ns._btn_skip.setEnabled.assert_called_with(True)
+        ns._btn_stop.setEnabled.assert_called_with(True)
 
     def test_buttons_inactive_when_idle(self):
         ns = _make_overlay()
         _update_buttons(ns, "idle")
-        ns._btn_pause.set_sensitive.assert_called_with(False)
-        ns._btn_skip.set_sensitive.assert_called_with(False)
-        ns._btn_stop.set_sensitive.assert_called_with(False)
+        ns._btn_pause.setEnabled.assert_called_with(False)
+        ns._btn_skip.setEnabled.assert_called_with(False)
+        ns._btn_stop.setEnabled.assert_called_with(False)
 
     def test_pause_label_toggles_to_play_when_paused(self):
         ns = _make_overlay()
         _update_buttons(ns, "paused")
-        ns._btn_pause.set_label.assert_called_with(LABEL_PLAY)
+        ns._btn_pause.setText.assert_called_with(LABEL_PLAY)
 
     def test_pause_label_toggles_to_pause_when_speaking(self):
         ns = _make_overlay()
         _update_buttons(ns, "speaking")
-        ns._btn_pause.set_label.assert_called_with(LABEL_PAUSE)
+        ns._btn_pause.setText.assert_called_with(LABEL_PAUSE)
 
 
 # --- button POST path tests ----------------------------------------------
@@ -218,8 +218,7 @@ class TestPollState:
         ns = _make_overlay()
         ns._visible = True  # pretend it was showing
         ns._client.get.side_effect = httpx.ConnectError("refused")
-        result = _poll_state(ns)
-        assert result is True  # keeps polling
+        _poll_state(ns)
         assert ns._visible is False
 
     def test_poll_shows_on_speaking(self):
@@ -229,9 +228,12 @@ class TestPollState:
         ns._client.get.return_value = resp_mock
         _poll_state(ns)
         assert ns._visible is True
-        ns._label.set_text.assert_called_with("Test text")
+        ns._label.setText.assert_called_with("Test text")
 
-    def test_poll_returns_true_to_keep_polling(self):
+    def test_poll_survives_bad_json(self):
         ns = _make_overlay()
-        ns._client.get.side_effect = httpx.ConnectError("refused")
-        assert _poll_state(ns) is True
+        resp_mock = MagicMock()
+        resp_mock.json.side_effect = ValueError("not json")
+        ns._client.get.return_value = resp_mock
+        _poll_state(ns)  # must not raise
+        assert ns._visible is False

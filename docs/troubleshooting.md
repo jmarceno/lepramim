@@ -112,8 +112,9 @@ To launch the indicator manually:
 ~/.local/share/lexaloud/venv/bin/lexaloud-indicator
 ```
 
-Watch the terminal for errors — the most common is missing
-`gir1.2-ayatanaappindicator3-0.1` (or the Fedora/Arch equivalent).
+Watch the terminal for errors. On Fedora/Arch, also check that the
+desktop's tray extension (e.g. `ubuntu-appindicators` on GNOME) is
+enabled.
 
 ## `Selection too large for the daemon to accept` (exit 4)
 

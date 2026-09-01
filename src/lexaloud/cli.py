@@ -414,6 +414,13 @@ def cmd_uninstall(args) -> int:
     return run_uninstall()
 
 
+def cmd_tray(args) -> int:
+    """Run the Qt system-tray icon in the foreground."""
+    from .indicator import main as indicator_main
+
+    return indicator_main()
+
+
 def cmd_bug_report(args) -> int:
     """Print a markdown-formatted bug report to stdout for pasting into an issue.
 
@@ -455,6 +462,7 @@ def build_parser() -> argparse.ArgumentParser:
         ("back", cmd_back),
         ("status", cmd_status),
         ("daemon", cmd_daemon),
+        ("tray", cmd_tray),
         ("uninstall", cmd_uninstall),
     ]:
         sp = sub.add_parser(name, help=f"{name}")

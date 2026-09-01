@@ -10,23 +10,15 @@ names. This guide is for Fedora 41 Workstation.
 sudo dnf install \
     python3 \
     python3-pip \
-    python3-gobject \
-    gtk3 \
     wl-clipboard \
     xclip \
     portaudio \
     libnotify
 ```
 
-For the tray indicator, you additionally need the Ayatana AppIndicator
-support. Fedora's `libayatana-appindicator` is in the `rpmfusion` repo:
-
-```bash
-sudo dnf install https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm
-sudo dnf install libayatana-appindicator-gtk3
-```
-
-If you'd rather skip the tray, the CLI works without it.
+The tray indicator and control window use Qt (PySide6), which is
+installed automatically with the package — no AppIndicator/GTK packages
+are needed.
 
 ## 2. NVIDIA GPU (optional)
 

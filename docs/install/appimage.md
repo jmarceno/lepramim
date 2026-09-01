@@ -44,12 +44,10 @@ package names.  It still requires a running graphical session and its host
 Wayland/X11 and audio services; an AppImage cannot bundle or replace the
 compositor, clipboard ownership, PipeWire/PulseAudio, or ALSA session.
 
-This first CPU AppImage is intentionally headless. The source/venv
-installation also provides the optional GTK3 `lexaloud-indicator` tray
-process, `lexaloud-control` window, and overlay, but those require the host's
-GTK/PyGObject/AppIndicator packages and are not bundled in this portable
-image. The AppImage therefore uses the CLI and the desktop's own global
-shortcut configuration.
+The Qt 6 runtime (PySide6) is bundled, so `lexaloud tray` works out of
+the box: the tray icon offers start/stop daemon, playback controls, the
+control window, service reinstall/remove actions, and shows the global
+shortcut in use.
 
 On Wayland, the most reliable workflow for applications that do not publish a
 PRIMARY selection is:

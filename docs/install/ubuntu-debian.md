@@ -13,15 +13,12 @@ sudo apt install \
     wl-clipboard \
     xclip \
     libportaudio2 \
-    libnotify-bin \
-    python3-gi \
-    gir1.2-gtk-3.0 \
-    gir1.2-ayatanaappindicator3-0.1
+    libnotify-bin
 ```
 
-`python3-gi` and the two `gir1.2-*` packages are needed for the tray
-indicator and the control window. You can skip them if you only want the
-CLI.
+The tray indicator and control window use Qt (PySide6), which is
+installed automatically with the package — no extra system GUI
+packages are needed.
 
 ## 2. Clone and install
 

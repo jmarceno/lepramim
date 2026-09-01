@@ -6,7 +6,7 @@ Lexaloud is three things loosely coupled by a Unix domain socket:
    the TTS provider, the playback state machine, and the audio sink.
 2. A **CLI** (`lexaloud`) that captures selection text and sends
    HTTP requests to the daemon.
-3. A **GTK3 tray indicator + control window** for visual state
+3. A **Qt (PySide6) tray indicator + control window** for visual state
    feedback and voice/hotkey configuration.
 
 The binding between them is intentionally thin so each piece can be

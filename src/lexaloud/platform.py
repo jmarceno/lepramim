@@ -19,7 +19,6 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -213,30 +212,3 @@ def detect_gpu() -> GpuInfo:
             return GpuInfo(vendor=vendor_ids[vid], device="")
 
     return GpuInfo(vendor="none", device="")
-
-
-def system_site_packages_candidates() -> list[Path]:
-    """Return candidate paths for the system-wide python site-packages dir.
-
-    Different distros install python3-gi (and other C-extension modules)
-    into different site-packages directories:
-        - Debian/Ubuntu:  /usr/lib/python3/dist-packages
-        - Fedora/RHEL:    /usr/lib64/python3.X/site-packages
-        - Arch/Manjaro:   /usr/lib/python3.X/site-packages
-        - openSUSE:       /usr/lib64/python3.X/site-packages
-
-    Returns a list of *existing* paths in preference order. The
-    indicator and control-window modules iterate over this list and
-    append the first existing entry to `sys.path` to make the system
-    `gi` module importable from inside the project venv.
-    """
-    ver = sys.version_info
-    candidates: list[Path] = [
-        # Debian/Ubuntu convention — version-agnostic
-        Path("/usr/lib/python3/dist-packages"),
-        # Fedora/RHEL/openSUSE 64-bit convention
-        Path(f"/usr/lib64/python{ver.major}.{ver.minor}/site-packages"),
-        # Arch/Manjaro convention
-        Path(f"/usr/lib/python{ver.major}.{ver.minor}/site-packages"),
-    ]
-    return [p for p in candidates if p.is_dir()]

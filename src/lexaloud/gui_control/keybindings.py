@@ -2,6 +2,9 @@
 
 Supports GNOME (gsettings), XFCE (xfconf-query), KDE (read-only portal
 display), and a NullBackend for unsupported desktops.
+
+Only the gsettings/xfconf backends shell out to desktop tools; the key
+capture dialog is Qt (PySide6), matching the rest of the GUI.
 """
 
 from __future__ import annotations
@@ -13,7 +16,7 @@ import sys
 from pathlib import Path
 from typing import Protocol
 
-from ._gi_shim import Gdk, Gtk
+from PySide6 import QtCore, QtGui, QtWidgets
 
 log = logging.getLogger(__name__)
 
@@ -288,106 +291,144 @@ def detect_backend() -> KeybindingBackend:
 # --- shared helpers (used by CaptureDialog and control_window) ----------
 
 
+_GNOME_MOD_NAMES = {
+    "primary": "Ctrl",
+    "ctrl": "Ctrl",
+    "control": "Ctrl",
+    "alt": "Alt",
+    "shift": "Shift",
+    "super": "Meta",
+    "meta": "Meta",
+    "hyper": "Meta",
+}
+
+
 def _binding_to_human(raw: str) -> str:
-    """Convert gsettings binding syntax to a friendly display string."""
+    """Convert a gsettings binding string to a friendly display string.
+
+    gsettings uses GTK accelerator syntax (``<Primary><Alt>t``), while Qt
+    parses ``Ctrl+Alt+R``; convert between the two notations.
+    """
     if not raw:
         return "(unset)"
     try:
-        keyval, mods = Gtk.accelerator_parse(raw)
-        if keyval == 0:
+        mods: list[str] = []
+        rest = raw
+        while rest.startswith("<"):
+            end = rest.index(">")
+            mods.append(_GNOME_MOD_NAMES.get(rest[1:end].lower(), rest[1:end]))
+            rest = rest[end + 1 :]
+        if mods:
+            key = rest.upper() if len(rest) == 1 else rest
+            seq = QtGui.QKeySequence.fromString("+".join([*mods, key]))
+        else:
+            # Already Qt-style ("Meta+Shift+S") or a plain key name.
+            seq = QtGui.QKeySequence.fromString(raw)
+        if seq.isEmpty():
             return raw
-        label = Gtk.accelerator_get_label(keyval, mods)
+        label = seq.toString(QtGui.QKeySequence.SequenceFormat.NativeText)
         return label if label else raw
     except Exception:  # noqa: BLE001
         return raw
 
 
-def _event_to_binding(event) -> str | None:
-    """Turn a Gdk key-press event into a gsettings binding string."""
-    keyval = event.keyval
-    state = event.state
-    keyname = Gdk.keyval_name(keyval) or ""
+_MODIFIER_NAMES = {
+    QtCore.Qt.KeyboardModifier.ControlModifier: "<Primary>",
+    QtCore.Qt.KeyboardModifier.AltModifier: "<Alt>",
+    QtCore.Qt.KeyboardModifier.ShiftModifier: "<Shift>",
+    QtCore.Qt.KeyboardModifier.MetaModifier: "<Super>",
+}
 
-    if keyname in (
-        "Control_L",
-        "Control_R",
-        "Shift_L",
-        "Shift_R",
-        "Alt_L",
-        "Alt_R",
-        "Super_L",
-        "Super_R",
-        "Meta_L",
-        "Meta_R",
-        "Hyper_L",
-        "Hyper_R",
-        "ISO_Level3_Shift",
-        "ISO_Level5_Shift",
-    ):
+_MODIFIER_ONLY_KEYS = {
+    QtCore.Qt.Key.Key_Control,
+    QtCore.Qt.Key.Key_Shift,
+    QtCore.Qt.Key.Key_Alt,
+    QtCore.Qt.Key.Key_Meta,
+    QtCore.Qt.Key.Key_Super_L,
+    QtCore.Qt.Key.Key_Super_R,
+    QtCore.Qt.Key.Key_Hyper_L,
+    QtCore.Qt.Key.Key_Hyper_R,
+    QtCore.Qt.Key.Key_AltGr,
+    QtCore.Qt.Key.Key_Menu,
+}
+
+
+def _event_to_binding(event: QtGui.QKeyEvent) -> str | None:
+    """Turn a Qt key-press event into a gsettings binding string.
+
+    gsettings uses GTK accelerator syntax (``<Primary><Alt>t``), so the
+    result is rendered in that notation rather than Qt's own.
+    """
+    if event.key() in _MODIFIER_ONLY_KEYS or event.key() == QtCore.Qt.Key.Key_unknown:
         return None
 
-    mods = state & Gtk.accelerator_get_default_mod_mask()
+    mods = event.modifiers() & QtCore.Qt.KeyboardModifier.KeyboardModifierMask
+    parts = []
+    for modifier, name in _MODIFIER_NAMES.items():
+        if mods & modifier:
+            parts.append(name)
 
-    if not Gtk.accelerator_valid(keyval, mods):
+    # Render the key itself in GTK accelerator notation: letters are
+    # lowercase, special keys use their keysym-ish names ("Up", "F5").
+    text = event.text()
+    if text and text.isprintable() and not text.isspace():
+        key_part = text.lower() if len(text) == 1 else text
+    else:
+        key_part = QtGui.QKeySequence(int(event.key())).toString()
+        if not key_part:
+            return None
+        if len(key_part) == 1:
+            key_part = key_part.lower()
+
+    # GNOME ignores plain letters/digits without modifiers for global
+    # shortcuts; require at least one modifier.
+    if not parts:
         return None
 
-    name = Gtk.accelerator_name(keyval, mods)
-    return name if name else None
+    return "".join(parts) + key_part
 
 
 # --- capture dialog (shared across backends that support set_binding) ---
 
 
-class CaptureDialog(Gtk.Dialog):
+class CaptureDialog(QtWidgets.QDialog):
     """Modal dialog that captures the next keypress as a new binding."""
 
-    def __init__(self, parent: Gtk.Window, shortcut_id: str, backend: KeybindingBackend) -> None:
-        super().__init__(title="Press a new shortcut", transient_for=parent, flags=0)
-        self.set_default_size(360, 120)
+    def __init__(
+        self, parent: QtWidgets.QWidget, shortcut_id: str, backend: KeybindingBackend
+    ) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Press a new shortcut")
+        self.setModal(True)
+        self.resize(360, 120)
         self.shortcut_id = shortcut_id
         self._backend = backend
         self.captured_binding: str | None = None
         self.write_ok: bool = False
         self._captured = False
-        self.set_modal(True)
-        self.add_button("Cancel", Gtk.ResponseType.CANCEL)
 
-        box = self.get_content_area()
-        box.set_border_width(16)
-        box.set_spacing(8)
-        msg = Gtk.Label(
-            label="Press the new key combination.\n(Esc to cancel, or just press Cancel.)"
+        box = QtWidgets.QVBoxLayout(self)
+        box.setContentsMargins(16, 16, 16, 16)
+        box.setSpacing(8)
+        msg = QtWidgets.QLabel(
+            "Press the new key combination.\n(Esc to cancel, or just press Cancel.)"
         )
-        box.pack_start(msg, True, True, 0)
+        box.addWidget(msg, 1)
 
-        self.show_all()
-        self._handler_id = self.connect("key-press-event", self._on_key_press)
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Cancel)
+        buttons.rejected.connect(self.reject)
+        box.addWidget(buttons)
 
-    def _on_key_press(self, _widget, event) -> bool:
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:  # noqa: N802 (Qt naming)
         if self._captured:
-            return True
-        if event.keyval == Gdk.KEY_Escape:
-            self.response(Gtk.ResponseType.CANCEL)
-            return True
+            return
+        if event.key() == QtCore.Qt.Key.Key_Escape:
+            self.reject()
+            return
         binding = _event_to_binding(event)
         if binding is None:
-            return True
+            return
         self._captured = True
         self.captured_binding = binding
         self.write_ok = self._backend.set_binding(self.shortcut_id, binding)
-        self.disconnect(self._handler_id)
-        self.response(Gtk.ResponseType.OK)
-        return True
-
-
-# Legacy module-level functions for backwards compatibility with tests and
-# indicator imports. These delegate to GnomeBackend.
-_gnome = GnomeBackend()
-
-
-def get_shortcut_binding(path_suffix: str) -> str:
-    return _gnome.get_binding(path_suffix)
-
-
-def set_shortcut_binding(path_suffix: str, gsettings_binding: str) -> bool:
-    return _gnome.set_binding(path_suffix, gsettings_binding)
+        self.accept()

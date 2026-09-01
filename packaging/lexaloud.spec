@@ -31,6 +31,18 @@ hiddenimports: list[str] = [
     "lexaloud.shortcuts",
     "lexaloud.preprocessor.llm_normalize",
     "lexaloud.preprocessor.sre_latex",
+    # The CLI imports the GUI modules lazily (they need a display server),
+    # so PyInstaller cannot see them from the frozen entry point alone.
+    "lexaloud.indicator",
+    "lexaloud.overlay",
+    "lexaloud.gui_control",
+    "lexaloud.gui_control.control_window",
+    "lexaloud.gui_control.keybindings",
+    "PySide6.QtCore",
+    "PySide6.QtGui",
+    "PySide6.QtWidgets",
+    "PySide6.QtDBus",
+    "PySide6.QtSvg",
 ]
 
 for package in ("kokoro_onnx", "onnxruntime", "numpy", "espeakng_loader"):
@@ -42,7 +54,11 @@ for package in ("kokoro_onnx", "onnxruntime", "numpy", "espeakng_loader"):
 # The setup command renders the systemd unit from package data rather than a
 # Python string.  PyInstaller does not include setuptools package data unless
 # it is collected explicitly.
-datas.extend(collect_data_files("lexaloud", includes=["templates/*.template", "templates/*.toml"]))
+datas.extend(
+    collect_data_files(
+        "lexaloud", includes=["templates/*.template", "templates/*.toml", "icons/*.svg"]
+    )
+)
 
 # language_tags discovers its JSON catalogue at runtime.  Its hook reports
 # these files, but PyInstaller's final Analysis can discard that report when
