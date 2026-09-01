@@ -39,7 +39,9 @@ from .selection import (
     SelectionTimeout,
     SelectionToolMissing,
     read_clipboard,
+    read_clipboard_via_klipper,
     read_primary,
+    try_force_copy,
     try_notify,
 )
 
@@ -239,32 +241,57 @@ def cmd_speak_selection(args) -> int:
         try_notify("Lexaloud: capture tool missing", str(e))
         return EXIT_TOOL_MISSING_OR_TIMEOUT
 
-    # PRIMARY empty or unsupported — try CLIPBOARD as fallback.
-    try:
-        result = read_clipboard(max_bytes, timeout_s)
-    except SelectionEmpty:
+    # PRIMARY empty or unsupported — force a Ctrl+C to copy the current
+    # selection to CLIPBOARD so the user needs only Meta+R, not an extra
+    # Ctrl+C. On Wayland a background wl-paste cannot read the focused app's
+    # PRIMARY due to compositor security, so this is required for Kate and
+    # other Wayland apps.
+    try_force_copy(timeout_s=1.0)
+
+    # Try wl-paste first, then Klipper D-Bus (privileged, works from
+    # background even when wl-paste is denied).
+    readers = [
+        lambda: read_clipboard(max_bytes, timeout_s),
+        lambda: read_clipboard_via_klipper(max_bytes, timeout_s),
+    ]
+    last_error: Exception | None = None
+    for reader in readers:
+        try:
+            result = reader()
+            break
+        except SelectionEmpty as e:
+            last_error = e
+            continue
+        except SelectionDisplayUnavailable as e:
+            print(str(e), file=sys.stderr)
+            try_notify(
+                "Lexaloud: cannot reach display server",
+                "Is DISPLAY set? Are you running from a session that can talk to X/Wayland?",
+            )
+            return EXIT_TOOL_MISSING_OR_TIMEOUT
+        except (SelectionToolMissing, SelectionTimeout, SelectionError) as e:
+            last_error = e
+            continue
+    else:
         assert primary_error is not None
+        # Prefer the primary error for the user message, but include clipboard
+        # context if both were empty.
         print(str(primary_error), file=sys.stderr)
-        try_notify("Select text first", "Lexaloud: no selection found. Try selecting text or pressing Ctrl+C first.")
+        if isinstance(last_error, SelectionEmpty):
+            try_notify("Select text first", "Lexaloud: no selection found. Select text and press Meta+R again.")
+        else:
+            try_notify("Lexaloud: capture tool missing", str(last_error) if last_error else str(primary_error))
+            return EXIT_TOOL_MISSING_OR_TIMEOUT
         return EXIT_EMPTY_SELECTION
-    except SelectionDisplayUnavailable as e:
-        print(str(e), file=sys.stderr)
-        try_notify(
-            "Lexaloud: cannot reach display server",
-            "Is DISPLAY set? Are you running from a session that can talk to X/Wayland?",
-        )
-        return EXIT_TOOL_MISSING_OR_TIMEOUT
-    except (SelectionToolMissing, SelectionTimeout, SelectionError) as e:
-        print(str(e), file=sys.stderr)
-        try_notify("Lexaloud: capture tool missing", str(e))
-        return EXIT_TOOL_MISSING_OR_TIMEOUT
 
     if result.truncated:
         try_notify(
             "Selection truncated",
             f"Lexaloud captured the first {max_bytes} bytes of a larger selection.",
         )
-    try_notify("Lexaloud: used clipboard fallback", "PRIMARY was empty — spoke clipboard instead.")
+    # Only notify about fallback when we actually forced a copy; otherwise
+    # the clipboard read is the expected path for Wayland primary-less apps
+    # and would be noisy.
     _post_to_daemon("/speak", {"text": result.text, "mode": "replace"})
     return EXIT_OK
 

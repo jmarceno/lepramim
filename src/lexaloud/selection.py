@@ -218,6 +218,112 @@ def read_clipboard(max_bytes: int, timeout_s: float) -> CaptureResult:
     return _finalize(raw, max_bytes, source="clipboard", tool=" ".join(cmd))
 
 
+def try_force_copy(timeout_s: float = 1.0) -> bool:
+    """Best-effort synthetic Ctrl+C to copy current selection to clipboard.
+
+    On Wayland a background `wl-paste --primary` cannot read the focused
+    app's PRIMARY due to compositor security. Synthesizing Ctrl+C forces
+    the app to offer the selection on CLIPBOARD, which Klipper and
+    `wl-paste --no-newline` can then read. Returns True if an injector
+    was invoked, False if no injector is installed.
+    """
+    import time
+
+    # ydotool via uinput (daemon must be running, which it is on Plasma)
+    ydotool = shutil.which("ydotool")
+    if ydotool:
+        try:
+            subprocess.run(
+                [ydotool, "key", "29:1", "46:1", "46:0", "29:0"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout_s,
+                check=False,
+            )
+            time.sleep(0.35)
+            return True
+        except Exception as e:  # noqa: BLE001
+            log.debug("ydotool force-copy failed: %s", e)
+
+    dotool = shutil.which("dotool")
+    if dotool:
+        try:
+            subprocess.run(
+                [dotool],
+                input=b"key Ctrl_L+c\n",
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout_s,
+                check=False,
+            )
+            time.sleep(0.35)
+            return True
+        except Exception as e:  # noqa: BLE001
+            log.debug("dotool force-copy failed: %s", e)
+
+    wtype = shutil.which("wtype")
+    if wtype:
+        try:
+            subprocess.run(
+                [wtype, "-M", "ctrl", "-P", "c", "-m", "ctrl"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout_s,
+                check=False,
+            )
+            time.sleep(0.35)
+            return True
+        except Exception as e:  # noqa: BLE001
+            log.debug("wtype force-copy failed: %s", e)
+
+    xdotool = shutil.which("xdotool")
+    if xdotool:
+        try:
+            subprocess.run(
+                [xdotool, "key", "ctrl+c"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=timeout_s,
+                check=False,
+            )
+            time.sleep(0.35)
+            return True
+        except Exception as e:  # noqa: BLE001
+            log.debug("xdotool force-copy failed: %s", e)
+
+    return False
+
+
+def read_clipboard_via_klipper(max_bytes: int, timeout_s: float = 1.0) -> CaptureResult:
+    """Read CLIPBOARD via Klipper D-Bus (privileged, works from background).
+
+    Klipper runs as a trusted Plasma component and can read the clipboard
+    even when a background `wl-paste` is denied by the compositor.
+    """
+    qdbus = shutil.which("qdbus6") or shutil.which("qdbus")
+    if not qdbus:
+        raise SelectionToolMissing("qdbus is not installed; cannot query Klipper")
+    try:
+        proc = subprocess.run(
+            [qdbus, "org.kde.klipper", "/klipper", "org.kde.klipper.klipper.getClipboardContents"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout_s,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        raise SelectionTimeout(f"{qdbus} Klipper query timed out after {timeout_s}s")
+    if proc.returncode != 0:
+        stderr = (proc.stderr or b"").decode(errors="replace").strip()
+        raise SelectionError(f"Klipper D-Bus failed: {stderr}")
+    raw = (proc.stdout or b"").strip()
+    # Klipper returns image placeholders like "▨ 1594x717" for images;
+    # treat that as empty for TTS.
+    if raw.startswith(b"\xe2\x96\xa8"):  # ▨
+        raise SelectionEmpty("clipboard contains an image, not text")
+    return _finalize(raw, max_bytes, source="clipboard", tool="klipper")
+
+
 def try_notify(summary: str, body: str | None = None, timeout_s: float = 1.0) -> None:
     """Best-effort `notify-send`. Never raises; logs on failure."""
     notify = shutil.which("notify-send")
