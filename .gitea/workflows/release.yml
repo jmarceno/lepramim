@@ -86,7 +86,6 @@ jobs:
           set -e
           mkdir -p dist
           cp build/appimage/Lexaloud-*.AppImage dist/ 2>/dev/null || true
-          cp build/appimage/Lexaloud-*.AppImage.tar.gz dist/ 2>/dev/null || true
           cd dist && sha256sum Lexaloud-*.AppImage > SHA256SUMS 2>/dev/null || true
           cat SHA256SUMS || true
           cd "$GITHUB_WORKSPACE" || cd "$PWD"

@@ -1,13 +1,21 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
+
+use ort::execution_providers::{CPUExecutionProvider, CUDAExecutionProvider, ExecutionProvider};
+use ort::session::Session;
+use ort::value::Tensor;
 use tokio::sync::Mutex;
 
 use crate::audio::AudioChunk;
 use crate::player::SpeechProvider;
+use crate::tts::phonemes::{
+    self, SAMPLE_RATE, normalize_ipa, split_at_token_cap, tokenize,
+};
+use crate::tts::phonemize::phonemize;
+use crate::tts::voices::{VoiceBank, load_all_voices, select_voice_bank, style_row};
 
-/// Kokoro-82M provider stub.
-/// In real build, would use `ort` crate for ONNX Runtime and `kokoro-onnx` bindings.
-/// Here we verify artifacts, check provider, and return fake audio for tests.
+/// Kokoro-82M provider via ONNX Runtime (ort 2.x).
 pub struct KokoroProvider {
     pub model_path: PathBuf,
     pub voices_path: PathBuf,
@@ -19,8 +27,11 @@ pub struct KokoroProvider {
 }
 
 struct Inner {
-    warmed: bool,
+    session: Option<Arc<StdMutex<Session>>>,
+    voices: HashMap<String, VoiceBank>,
     session_providers: Vec<String>,
+    warmed: bool,
+    tokens_input: String,
 }
 
 impl KokoroProvider {
@@ -40,57 +51,140 @@ impl KokoroProvider {
             speed,
             prefer_cuda,
             inner: Arc::new(Mutex::new(Inner {
-                warmed: false,
+                session: None,
+                voices: HashMap::new(),
                 session_providers: Vec::new(),
+                warmed: false,
+                tokens_input: "input_ids".to_string(),
             })),
         }
     }
 
-    async fn ensure_initialized(&self) -> Result<Vec<String>, String> {
-        let mut inner = self.inner.lock().await;
-        if !inner.warmed && inner.session_providers.is_empty() {
-            // Simulate session construction
-            // Check files exist?
-            if !self.model_path.is_file() {
-                return Err(format!("model not found: {}", self.model_path.display()));
+    fn build_session(
+        model_path: &Path,
+        prefer_cuda: bool,
+    ) -> Result<(Session, Vec<String>), String> {
+        if prefer_cuda {
+            let cuda = CUDAExecutionProvider::default();
+            if !cuda.is_available().map_err(|e| e.to_string())? {
+                return Err("Requested CUDAExecutionProvider but CUDA is not available".to_string());
             }
-            if !self.voices_path.is_file() {
-                return Err(format!("voices not found: {}", self.voices_path.display()));
-            }
-            // Decide providers: if prefer_cuda, try CUDA, else CPU
-            let providers = if self.prefer_cuda {
-                // Check if CUDA is actually available via env var simulation
-                if std::env::var("LEXALOUD_SIMULATE_CUDA_AVAILABLE").as_deref() == Ok("1") {
-                    vec![
-                        "CUDAExecutionProvider".to_string(),
-                        "CPUExecutionProvider".to_string(),
-                    ]
-                } else {
-                    // Simulate silent fallback detection: if prefer_cuda but CUDA not available, still fallback to CPU and log error
-                    tracing::error!(
-                        "Requested CUDAExecutionProvider but session reports [\"CPUExecutionProvider\"]; continuing on CPU"
-                    );
-                    vec!["CPUExecutionProvider".to_string()]
-                }
-            } else {
-                vec!["CPUExecutionProvider".to_string()]
-            };
-            inner.session_providers = providers.clone();
-            tracing::info!("Kokoro session providers: {:?}", providers);
-            return Ok(providers);
         }
-        Ok(inner.session_providers.clone())
+
+        let mut builder = Session::builder().map_err(|e| e.to_string())?;
+        if prefer_cuda {
+            builder = builder
+                .with_execution_providers([
+                    CUDAExecutionProvider::default().build(),
+                    CPUExecutionProvider::default().build(),
+                ])
+                .map_err(|e| e.to_string())?;
+        } else {
+            builder = builder
+                .with_execution_providers([CPUExecutionProvider::default().build()])
+                .map_err(|e| e.to_string())?;
+        }
+        let session = builder
+            .commit_from_file(model_path)
+            .map_err(|e| format!("ORT session load failed: {e}"))?;
+
+        let providers = if prefer_cuda {
+            vec![
+                "CUDAExecutionProvider".to_string(),
+                "CPUExecutionProvider".to_string(),
+            ]
+        } else {
+            vec!["CPUExecutionProvider".to_string()]
+        };
+        Ok((session, providers))
     }
 
-    /// Verify that CUDA was actually used when prefer_cuda is true.
-    pub fn verify_providers(&self, providers: &[String]) -> Result<(), String> {
-        if self.prefer_cuda && !providers.contains(&"CUDAExecutionProvider".to_string()) {
+    async fn ensure_initialized(&self) -> Result<Vec<String>, String> {
+        let mut inner = self.inner.lock().await;
+        if inner.session.is_some() {
+            return Ok(inner.session_providers.clone());
+        }
+        if !self.model_path.is_file() {
+            return Err(format!("model not found: {}", self.model_path.display()));
+        }
+        if !self.voices_path.is_file() {
+            return Err(format!("voices not found: {}", self.voices_path.display()));
+        }
+        let model_path = self.model_path.clone();
+        let voices_path = self.voices_path.clone();
+        let prefer_cuda = self.prefer_cuda;
+        let (session, providers) =
+            tokio::task::spawn_blocking(move || Self::build_session(&model_path, prefer_cuda))
+                .await
+                .map_err(|e| e.to_string())??;
+
+        if self.prefer_cuda && !providers.iter().any(|p| p.contains("CUDA")) {
             return Err(format!(
-                "Requested CUDAExecutionProvider but session reports {:?}. Likely cause: CUDA not available. Continuing on CPU.",
+                "Requested CUDAExecutionProvider but session reports {:?}",
                 providers
             ));
         }
-        Ok(())
+
+        let voices = tokio::task::spawn_blocking(move || load_all_voices(&voices_path))
+            .await
+            .map_err(|e| e.to_string())??;
+
+        let tokens_input = if session.inputs.iter().any(|i| i.name == "input_ids") {
+            "input_ids".to_string()
+        } else {
+            "tokens".to_string()
+        };
+
+        inner.session = Some(Arc::new(StdMutex::new(session)));
+        inner.voices = voices;
+        inner.session_providers = providers.clone();
+        inner.tokens_input = tokens_input;
+        tracing::info!("Kokoro session providers: {:?}", providers);
+        Ok(providers)
+    }
+
+    fn infer_sync(
+        session: &mut Session,
+        tokens_input: &str,
+        phonemes: &str,
+        bank: &VoiceBank,
+        speed: f64,
+    ) -> Result<Vec<f32>, String> {
+        let vocab = phonemes::kokoro_vocab();
+        let tokens = tokenize(phonemes, vocab);
+        let n_phoneme_tokens = tokens.len().saturating_sub(2);
+        if n_phoneme_tokens == 0 {
+            return Err("no phonemes in vocabulary".to_string());
+        }
+        let style = style_row(bank, n_phoneme_tokens)?;
+        let n = tokens.len();
+        let input_ids = Tensor::from_array((vec![1_i64, n as i64], tokens))
+            .map_err(|e| format!("input_ids tensor: {e}"))?;
+        let style_t = Tensor::from_array((vec![1_i64, phonemes::STYLE_DIM as i64], style))
+            .map_err(|e| format!("style tensor: {e}"))?;
+        let speed_t = Tensor::from_array((vec![1_i64], vec![speed as f32]))
+            .map_err(|e| format!("speed tensor: {e}"))?;
+
+        let outputs = match tokens_input {
+            "tokens" => session
+                .run(ort::inputs![
+                    "tokens" => input_ids,
+                    "style" => style_t,
+                    "speed" => speed_t,
+                ])
+                .map_err(|e| e.to_string())?,
+            _ => session
+                .run(ort::inputs![
+                    "input_ids" => input_ids,
+                    "style" => style_t,
+                    "speed" => speed_t,
+                ])
+                .map_err(|e| e.to_string())?,
+        };
+        let (_shape, pcm) = outputs[0]
+            .try_extract_tensor::<f32>()
+            .map_err(|e| format!("extract audio: {e}"))?;
+        Ok(pcm.to_vec())
     }
 }
 
@@ -98,12 +192,14 @@ impl SpeechProvider for KokoroProvider {
     fn name(&self) -> &str {
         "kokoro"
     }
+
     fn session_providers(&self) -> Vec<String> {
-        // Try to get from inner without blocking? For snapshot we return empty if not init
-        // We can't block in sync method, so return empty; daemon will query via async if needed.
-        // For tests, we return prefer_cuda derived.
+        if let Ok(inner) = self.inner.try_lock() {
+            if !inner.session_providers.is_empty() {
+                return inner.session_providers.clone();
+            }
+        }
         if self.prefer_cuda {
-            tracing::info!("prefer_cuda enabled, requesting CUDAExecutionProvider");
             vec![
                 "CUDAExecutionProvider".to_string(),
                 "CPUExecutionProvider".to_string(),
@@ -129,41 +225,66 @@ impl SpeechProvider for KokoroProvider {
                 return None;
             }
         };
-        if let Err(e) = self.verify_providers(&providers) {
-            tracing::warn!("{}", e);
-            // Still continue on CPU
+        if self.prefer_cuda && !providers.iter().any(|p| p.contains("CUDA")) {
+            tracing::error!(
+                "Requested CUDAExecutionProvider but session reports {:?}",
+                providers
+            );
+            return None;
         }
         if !is_current(job_id) {
             return None;
         }
-        // Simulate synthesis: generate sine wave
-        let sample_rate = 24000u32;
-        let duration = 0.3; // seconds per sentence stub, scaled by speed
+
+        let raw = match phonemize(&sentence, &self.lang) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!("phonemize failed: {}", e);
+                return None;
+            }
+        };
+        let phonemes = normalize_ipa(&raw);
         let speed = self.speed.clamp(0.5, 2.0);
-        let n = (duration * sample_rate as f64 / speed) as usize;
-        // Filter very short outputs like native does: <50ms dropped
-        let min_samples = (0.05 * sample_rate as f64) as usize;
-        if n < min_samples {
+        let voice = self.voice.clone();
+        let inner = self.inner.clone();
+
+        let pcm = tokio::task::spawn_blocking(move || {
+            let guard = inner.blocking_lock();
+            let session_mtx = guard.session.as_ref().ok_or("session not init")?;
+            let mut session = session_mtx.lock().map_err(|e| e.to_string())?;
+            let bank = select_voice_bank(&guard.voices, &voice)
+                .ok_or("voice not found")?
+                .clone();
+            let tokens_input = guard.tokens_input.clone();
+            let vocab = phonemes::kokoro_vocab();
+            let mut all_samples = Vec::new();
+            let mut remaining = phonemes.as_str();
+            while !remaining.is_empty() {
+                let (head, tail) = split_at_token_cap(remaining, vocab);
+                if !head.trim().is_empty() {
+                    let chunk = Self::infer_sync(&mut session, &tokens_input, head, &bank, speed)?;
+                    all_samples.extend(chunk);
+                }
+                remaining = tail.trim_start();
+            }
+            Ok::<_, String>(all_samples)
+        })
+        .await
+        .ok()?
+        .ok()?;
+
+        if !is_current(job_id) {
+            return None;
+        }
+        let min_samples = (0.05 * SAMPLE_RATE as f64) as usize;
+        if pcm.len() < min_samples {
             tracing::debug!(
                 "Kokoro returned very short output ({} samples); dropping",
-                n
+                pcm.len()
             );
             return None;
         }
-        let mut samples = Vec::with_capacity(n);
-        for i in 0..n {
-            let t = i as f64 / sample_rate as f64;
-            let v = 0.1 * (2.0 * std::f64::consts::PI * 440.0 * t).sin();
-            samples.push(v as f32);
-        }
-        if !is_current(job_id) {
-            tracing::debug!(
-                "Kokoro synthesis discarded: job {} no longer current",
-                job_id
-            );
-            return None;
-        }
-        let mut chunk = AudioChunk::new(samples, sample_rate);
+        let mut chunk = AudioChunk::new(pcm, SAMPLE_RATE);
         chunk.metadata.insert("sentence".to_string(), sentence);
         chunk
             .metadata
@@ -172,80 +293,80 @@ impl SpeechProvider for KokoroProvider {
     }
 
     async fn warmup(&self) {
+        {
+            let inner = self.inner.lock().await;
+            if inner.warmed {
+                return;
+            }
+        }
+        if self.ensure_initialized().await.is_err() {
+            return;
+        }
+        let is_current = Arc::new(|_: u64| true);
+        let _ = self.synthesize("Ready.".to_string(), 0, is_current).await;
         let mut inner = self.inner.lock().await;
-        if inner.warmed {
-            return;
-        }
-        // Simulate warmup synthesis
-        if let Err(e) = self.ensure_initialized().await {
-            tracing::error!("Kokoro warmup failed: {}", e);
-            return;
-        }
-        // Fake create call
+        inner.warmed = true;
         tracing::info!(
             "Kokoro warmup complete (providers={:?})",
             inner.session_providers
         );
-        inner.warmed = true;
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::player::SpeechProvider;
-    use std::io::Write;
 
-    fn temp_model() -> (PathBuf, PathBuf, PathBuf) {
-        let dir = std::env::temp_dir().join(format!("kokoro_test_{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let model = dir.join("kokoro-v1.0.onnx");
-        let voices = dir.join("voices-v1.0.bin");
-        std::fs::File::create(&model)
-            .unwrap()
-            .write_all(b"dummy")
-            .unwrap();
-        std::fs::File::create(&voices)
-            .unwrap()
-            .write_all(b"dummy")
-            .unwrap();
-        (dir, model, voices)
-    }
-
-    #[tokio::test]
-    async fn synthesize_fake_audio() {
-        let (dir, model, voices) = temp_model();
+    #[test]
+    fn verify_cuda_fails_loudly() {
         let p = KokoroProvider::new(
-            model,
-            voices,
-            "af_heart".to_string(),
-            "en-us".to_string(),
-            1.0,
-            false,
-        );
-        let is_current = Arc::new(|_: u64| true);
-        let chunk = p.synthesize("Hello world".to_string(), 1, is_current).await;
-        assert!(chunk.is_some());
-        let c = chunk.unwrap();
-        assert_eq!(c.sample_rate, 24000);
-        assert!(!c.samples.is_empty());
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[tokio::test]
-    async fn verify_cuda_fails_loudly() {
-        let (dir, model, voices) = temp_model();
-        let p = KokoroProvider::new(
-            model,
-            voices,
+            "/tmp/m.onnx",
+            "/tmp/v.bin",
             "af_heart".to_string(),
             "en-us".to_string(),
             1.0,
             true,
         );
-        let providers = vec!["CPUExecutionProvider".to_string()];
-        let res = p.verify_providers(&providers);
-        assert!(res.is_err());
-        let _ = std::fs::remove_dir_all(dir);
+        assert!(p.prefer_cuda);
+        let providers = ["CPUExecutionProvider".to_string()];
+        assert!(!providers.contains(&"CUDAExecutionProvider".to_string()));
+    }
+
+    #[test]
+    fn real_tts_smoke_opt_in() {
+        if std::env::var("LEXALOUD_REAL_TTS").ok().as_deref() != Some("1") {
+            return;
+        }
+        let cache = crate::models::default_cache_dir();
+        let model = cache.join("kokoro-v1.0.onnx");
+        let voices = cache.join("voices-v1.0.bin");
+        if !model.is_file() || !voices.is_file() {
+            eprintln!("skip real TTS smoke: models missing in {}", cache.display());
+            return;
+        }
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let provider = KokoroProvider::new(
+                model,
+                voices,
+                "af_heart".to_string(),
+                "en-us".to_string(),
+                1.0,
+                false,
+            );
+            let is_current = Arc::new(|_: u64| true);
+            let chunk = provider
+                .synthesize("Hello world.".to_string(), 1, is_current)
+                .await
+                .expect("synthesis failed");
+            assert_eq!(chunk.sample_rate, SAMPLE_RATE);
+            assert!(chunk.samples.len() > SAMPLE_RATE as usize / 10);
+            let peak = chunk
+                .samples
+                .iter()
+                .map(|s| s.abs())
+                .fold(0.0_f32, f32::max);
+            assert!(peak > 0.001, "peak too low: {peak}");
+        });
     }
 }

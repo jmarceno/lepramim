@@ -3,6 +3,23 @@ use std::sync::OnceLock;
 
 static NUMERIC_BRACKET: OnceLock<Regex> = OnceLock::new();
 static PAREN_AUTHOR_YEAR: OnceLock<Regex> = OnceLock::new();
+static ACADEMIC_REF_BEFORE_BRACKET: OnceLock<Regex> = OnceLock::new();
+
+fn academic_ref_before_bracket() -> &'static Regex {
+    ACADEMIC_REF_BEFORE_BRACKET.get_or_init(|| {
+        Regex::new(
+            r"(?i)\b(?:Ref|Fig|Eq|Eqn|Sec|Thm|Chap|Ch|Tab|Vol|Def|Lem|Cor|Prop|Ex|Rem|Approx)\.\s*$",
+        )
+        .unwrap()
+    })
+}
+
+fn protected_academic_reference(text: &str, bracket_start: usize) -> bool {
+    if bracket_start == 0 {
+        return false;
+    }
+    academic_ref_before_bracket().is_match(text[..bracket_start].trim_end())
+}
 
 fn numeric_bracket() -> &'static Regex {
     // Simplified without lookbehind: match bracket citation anywhere, but caller checks preceding char
@@ -29,10 +46,23 @@ fn tidy(text: String) -> String {
         .unwrap()
         .replace_all(&t, "\n")
         .to_string();
-    Regex::new(r"[ \t]{2,}")
+    let t = Regex::new(r"[ \t]{2,}")
         .unwrap()
         .replace_all(&t, " ")
-        .to_string()
+        .to_string();
+    let t = Regex::new(r"\bin\s+and\b")
+        .unwrap()
+        .replace_all(&t, "in and")
+        .to_string();
+    let t = Regex::new(r"\band\s+,")
+        .unwrap()
+        .replace_all(&t, "and")
+        .to_string();
+    let t = Regex::new(r"\band,\s+the\b")
+        .unwrap()
+        .replace_all(&t, "and the")
+        .to_string();
+    t.trim().to_string()
 }
 
 pub fn strip_numeric_bracket_citations(text: &str) -> String {
@@ -42,7 +72,9 @@ pub fn strip_numeric_bracket_citations(text: &str) -> String {
     let mut last = 0usize;
     for m in re.find_iter(text) {
         let start = m.start();
-        let preceding_ok = if start == 0 {
+        let preceding_ok = if protected_academic_reference(text, start) {
+            false
+        } else if start == 0 {
             true
         } else {
             let prev = text[..start].chars().last().unwrap_or(' ');
@@ -89,5 +121,10 @@ mod tests {
     fn no_panic_unicode() {
         let t = strip_numeric_bracket_citations("Hello [1, 2–3] world");
         assert!(!t.is_empty());
+    }
+    #[test]
+    fn ref_bracket_preserved() {
+        let t = strip_numeric_bracket_citations("See Ref. [1].");
+        assert!(t.contains("[1]"), "got {}", t);
     }
 }

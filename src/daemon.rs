@@ -19,51 +19,28 @@ pub struct DaemonComponents {
 
 pub fn build_components(cfg: Option<Config>) -> Result<DaemonComponents, String> {
     let cfg = cfg.unwrap_or_else(|| load_config::<PathBuf>(None));
-    // Verify ORT env (stub)
-    match crate::models::assert_onnxruntime_environment() {
-        Ok(dist) => tracing::info!("ORT distribution: {}", dist),
-        Err(e) => {
-            tracing::warn!("ORT environment check failed: {}", e);
-            // Continue with CPU fallback for stub
-        }
-    }
 
-    // Try to ensure artifacts
-    let artifacts = match crate::models::ensure_artifacts(None, false) {
-        Ok(m) => m,
-        Err(e) => {
-            tracing::warn!("artifacts missing: {} - using stub provider", e);
-            // Use dummy paths for stub
-            let mut map = std::collections::HashMap::new();
-            let dir = std::env::temp_dir().join("lexaloud_stub_models");
-            let _ = std::fs::create_dir_all(&dir);
-            let model = dir.join("kokoro-v1.0.onnx");
-            let voices = dir.join("voices-v1.0.bin");
-            // Ensure dummy files exist
-            if !model.exists() {
-                let _ = std::fs::write(&model, b"stub");
-            }
-            if !voices.exists() {
-                let _ = std::fs::write(&voices, b"stub");
-            }
-            map.insert("kokoro-v1.0.onnx".to_string(), model);
-            map.insert("voices-v1.0.bin".to_string(), voices);
-            map
-        }
-    };
+    let ort_dist = crate::models::assert_onnxruntime_environment()
+        .map_err(|e| format!("ONNX Runtime check failed: {}", e.0))?;
+    tracing::info!("ORT distribution: {}", ort_dist);
+
+    let prefer_cuda = ort_dist.contains("gpu")
+        || std::env::var("LEXALOUD_ORT_DISTS")
+            .map(|s| s.contains("onnxruntime-gpu"))
+            .unwrap_or(false);
+
+    let artifacts = crate::models::ensure_artifacts(None, false).map_err(|e| {
+        format!("{e}. Run `lexaloud download-models` to fetch Kokoro model artifacts.")
+    })?;
 
     let model_path = artifacts
         .get("kokoro-v1.0.onnx")
         .cloned()
-        .unwrap_or_else(|| PathBuf::from("/tmp/kokoro.onnx"));
+        .ok_or_else(|| "kokoro-v1.0.onnx missing from artifact map".to_string())?;
     let voices_path = artifacts
         .get("voices-v1.0.bin")
         .cloned()
-        .unwrap_or_else(|| PathBuf::from("/tmp/voices.bin"));
-
-    let prefer_cuda = std::env::var("LEXALOUD_ORT_DISTS")
-        .map(|s| s.contains("onnxruntime-gpu"))
-        .unwrap_or(false);
+        .ok_or_else(|| "voices-v1.0.bin missing from artifact map".to_string())?;
 
     let provider = KokoroProvider::new(
         model_path,
@@ -125,17 +102,13 @@ pub fn build_components(cfg: Option<Config>) -> Result<DaemonComponents, String>
 }
 
 pub async fn run() -> Result<(), String> {
-    // Load config
     let cfg = load_config::<PathBuf>(None);
     tracing::info!("daemon starting with config: {:?}", cfg);
 
     let sock = socket_path();
     let rt = runtime_dir();
 
-    // Validate socket path
     socket_path_valid(&sock, &rt).map_err(|e| format!("socket validation failed: {}", e))?;
-
-    // Cleanup stale socket
     stale_socket_cleanup(&sock).map_err(|e| format!("socket cleanup failed: {}", e))?;
 
     let components = build_components(Some(cfg.clone()))?;
@@ -146,27 +119,25 @@ pub async fn run() -> Result<(), String> {
         normalizer: components.normalizer,
     });
 
-    // Warmup in background
+    let player_for_mpris = app_state.player.clone();
+    tokio::spawn(async move {
+        let _mpris = crate::platform::mpris::wire_mpris(player_for_mpris).await;
+    });
+
     let player_clone = app_state.player.clone();
-    let _warmup_handle = tokio::spawn(async move {
+    tokio::spawn(async move {
         player_clone.set_warming(true).await;
-        // Provider warmup via player? We'll call provider warmup directly if accessible
-        // For now, just sleep a bit and set warming false
-        // Real warmup would call provider.warmup and sink.warmup
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        player_clone.run_warmup().await;
         player_clone.set_warming(false).await;
         tracing::info!("warmup complete");
     });
 
     let router = create_router(app_state.clone());
 
-    // Bind UnixListener
     let listener = tokio::net::UnixListener::bind(&sock)
         .map_err(|e| format!("failed to bind UDS {}: {}", sock.display(), e))?;
     tracing::info!("daemon listening on {}", sock.display());
 
-    // Serve using hyper + tower. Each incoming UnixStream is handled as an HTTP/1.1 connection.
-    // We clone the router (which is a Service) for each connection.
     use hyper_util::rt::TokioIo;
     use hyper_util::service::TowerToHyperService;
 
@@ -185,23 +156,37 @@ pub async fn run() -> Result<(), String> {
             }
         });
     }
-    // unreachable, but keep warmup handle for lint
-    #[allow(unreachable_code)]
-    let _ = _warmup_handle.await;
-    #[allow(unreachable_code)]
-    Ok(())
-
-    // Warmup handle would be aborted on shutdown, but loop is infinite
-    // let _ = warmup_handle.await;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn build_components_stub() {
+    fn build_components_missing_models_fails() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let orig = std::env::var("XDG_CACHE_HOME").ok();
+        let tmp = std::env::temp_dir().join(format!("lexaloud_daemon_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        unsafe { std::env::set_var("XDG_CACHE_HOME", tmp.to_string_lossy().as_ref()) };
         let cfg = Config::default();
-        let comps = build_components(Some(cfg));
-        assert!(comps.is_ok());
+        let res = build_components(Some(cfg));
+        assert!(res.is_err());
+        let err = match res {
+            Err(e) => e,
+            Ok(_) => panic!("expected error without models"),
+        };
+        assert!(
+            err.contains("download-models") || err.contains("missing artifact"),
+            "unexpected error: {err}"
+        );
+        if let Some(v) = orig {
+            unsafe { std::env::set_var("XDG_CACHE_HOME", v) };
+        } else {
+            unsafe { std::env::remove_var("XDG_CACHE_HOME") };
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
     }
+
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 }

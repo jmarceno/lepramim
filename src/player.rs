@@ -223,6 +223,12 @@ where
         }
     }
 
+    pub async fn run_warmup(self: &Arc<Self>) {
+        self.provider.warmup().await;
+        let mut sink = self.sink.lock().await;
+        let _ = sink.warmup(24_000, 1).await;
+    }
+
     // ---- internal helpers ----
 
     async fn producer(self: Arc<Self>, job_id: u64) {

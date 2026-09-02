@@ -337,11 +337,17 @@ async fn is_daemon_healthy_quiet() -> bool {
 }
 
 async fn cmd_app() -> i32 {
-    println!("Lexaloud {} — local text-to-speech", env!("CARGO_PKG_VERSION"));
+    println!(
+        "Lexaloud {} — local text-to-speech",
+        env!("CARGO_PKG_VERSION")
+    );
     // Check daemon
     let daemon_running = is_daemon_healthy_quiet().await;
     if daemon_running {
-        println!("Daemon already running at {}", crate::config::socket_path().display());
+        println!(
+            "Daemon already running at {}",
+            crate::config::socket_path().display()
+        );
     } else {
         println!("Daemon not running, starting...");
         // Try systemctl first if available and user service exists
@@ -402,7 +408,9 @@ async fn cmd_app() -> i32 {
         match get_from_daemon("/healthz").await {
             Ok(_) => println!("Daemon is now running"),
             Err(code) => {
-                eprintln!("Daemon failed to start (status code {code}). Check journalctl --user -u lexaloud or run `lexaloud daemon` manually for logs.");
+                eprintln!(
+                    "Daemon failed to start (status code {code}). Check journalctl --user -u lexaloud or run `lexaloud daemon` manually for logs."
+                );
                 return code;
             }
         }
@@ -433,14 +441,21 @@ async fn cmd_app() -> i32 {
             }
         } else {
             println!("lexaloud-ui not found in PATH or build. Daemon is running.");
-            println!("Try: ./build/appdir/usr/bin/lexaloud-ui  or  cmake --preset release && ./build/ui-release/ui/lexaloud-ui");
+            println!(
+                "Try: ./build/appdir/usr/bin/lexaloud-ui  or  cmake --preset release && ./build/ui-release/ui/lexaloud-ui"
+            );
         }
     } else {
         println!("No display (DISPLAY/WAYLAND_DISPLAY not set). Daemon is running in background.");
-        println!("Use: lexaloud status  |  lexaloud speak-selection  |  lexaloud pause/resume/stop");
+        println!(
+            "Use: lexaloud status  |  lexaloud speak-selection  |  lexaloud pause/resume/stop"
+        );
         // Also show that CLI works
         if let Ok(v) = get_from_daemon("/state").await {
-            println!("Current state: {}", serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string()));
+            println!(
+                "Current state: {}",
+                serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
+            );
         }
     }
     0
@@ -772,67 +787,102 @@ async fn cmd_status() -> i32 {
 }
 
 async fn cmd_download_models(llm: bool, all: bool) -> i32 {
-    // Use models::ensure_artifacts with download stub (real download would be via HTTP)
-    // For now, just report status
     let cache = crate::models::default_cache_dir();
-    println!("Checking models in {}", cache.display());
-    let mut missing = false;
-    for art in crate::models::ARTIFACTS {
-        let p = cache.join(art.filename);
-        if p.is_file() {
-            match crate::models::sha256_of(&p) {
-                Ok(hash) if hash == art.sha256 => println!("{} present and verified", art.filename),
-                Ok(hash) => {
-                    println!(
-                        "{} present but SHA mismatch: got {} expected {}",
-                        art.filename, hash, art.sha256
-                    );
-                    missing = true;
-                }
-                Err(e) => {
-                    println!("{} error: {}", art.filename, e);
-                    missing = true;
-                }
+    println!("Downloading models to {}", cache.display());
+    match crate::models::ensure_artifacts(None, true) {
+        Ok(map) => {
+            for (name, path) in &map {
+                println!("{} verified at {}", name, path.display());
             }
-        } else {
-            println!(
-                "{} missing - run with network to download from {}",
-                art.filename, art.url
-            );
-            missing = true;
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            return 1;
         }
     }
     if llm || all {
-        println!(
-            "LLM model check: {}",
-            crate::config::load_config::<std::path::PathBuf>(None)
-                .normalizer
-                .model_file
-        );
+        let cfg = crate::config::load_config::<std::path::PathBuf>(None);
+        match crate::models::ensure_llm_model(None, &cfg.normalizer.model_file, true) {
+            Ok(p) => println!("LLM model at {}", p.display()),
+            Err(e) => {
+                eprintln!("LLM download failed: {e}");
+                return 1;
+            }
+        }
     }
-    if missing { 1 } else { 0 }
+    0
 }
 
 async fn cmd_setup(force: bool) -> i32 {
-    println!(
-        "Setup force={} - stub (would create systemd unit and download models)",
-        force
-    );
+    let binary = crate::platform::service::resolve_binary_path();
+    println!("Using binary: {}", binary.display());
+
+    if let Err(e) = crate::models::ensure_artifacts(None, true) {
+        eprintln!("Model download failed: {e}");
+        return 1;
+    }
+
     let cfg_path = crate::config::config_path();
     if let Some(parent) = cfg_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            eprintln!("Failed to create config dir: {e}");
+            return 1;
+        }
     }
     if !cfg_path.exists() || force {
         let default = crate::config::Config::default();
-        if let Ok(toml_str) = toml::to_string(&default) {
-            let _ = std::fs::write(&cfg_path, toml_str);
-            println!("Wrote config to {}", cfg_path.display());
+        match toml::to_string(&default) {
+            Ok(toml_str) => {
+                if let Err(e) = std::fs::write(&cfg_path, toml_str) {
+                    eprintln!("Failed to write config: {e}");
+                    return 1;
+                }
+                println!("Wrote config to {}", cfg_path.display());
+            }
+            Err(e) => {
+                eprintln!("Failed to serialize config: {e}");
+                return 1;
+            }
         }
     }
-    let unit = crate::platform::service::generate_systemd_unit(
-        &std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("/usr/bin/lexaloud")),
-    );
-    println!("Systemd unit preview:\n{}", unit);
+
+    let unit_dir = crate::platform::service::systemd_user_dir();
+    if let Err(e) = std::fs::create_dir_all(&unit_dir) {
+        eprintln!("Failed to create systemd user dir: {e}");
+        return 1;
+    }
+    let unit_path = unit_dir.join("lexaloud.service");
+    let unit_content = crate::platform::service::generate_systemd_unit(&binary);
+    if unit_path.is_file() && !force {
+        let existing = std::fs::read_to_string(&unit_path).unwrap_or_default();
+        if existing.trim() == unit_content.trim() {
+            println!("Systemd unit already up to date at {}", unit_path.display());
+        } else {
+            eprintln!(
+                "Systemd unit exists at {} and differs. Re-run with --force to overwrite.",
+                unit_path.display()
+            );
+            return 1;
+        }
+    } else {
+        if let Err(e) = std::fs::write(&unit_path, &unit_content) {
+            eprintln!("Failed to write systemd unit: {e}");
+            return 1;
+        }
+        println!("Wrote systemd unit to {}", unit_path.display());
+    }
+
+    println!();
+    println!("Hotkey setup (choose your desktop environment):");
+    println!("  GNOME: Settings → Keyboard → Custom Shortcuts → Meta+R → lexaloud speak-selection");
+    println!("  KDE:   System Settings → Shortcuts → Custom → Meta+R → lexaloud speak-selection");
+    println!("  Other: bind Meta+R to: lexaloud speak-selection");
+    println!();
+    println!("Enable and start the daemon:");
+    println!("  systemctl --user daemon-reload");
+    println!("  systemctl --user enable --now lexaloud.service");
+    println!("  systemctl --user status lexaloud.service");
+    println!("  {} status", binary.display());
     0
 }
 
@@ -848,13 +898,83 @@ async fn cmd_daemon() -> i32 {
 }
 
 async fn cmd_uninstall() -> i32 {
-    println!("Uninstall stub - would stop daemon and remove unit");
+    let unit_path = crate::platform::service::systemd_user_dir().join("lexaloud.service");
+    let desktop = crate::platform::service::desktop_file_path();
+
+    if unit_path.is_file() {
+        if which_systemctl().is_some() {
+            let disable = std::process::Command::new("systemctl")
+                .args(["--user", "disable", "--now", "lexaloud.service"])
+                .output();
+            match disable {
+                Ok(out) if out.status.success() || service_absent(&out.stderr) => {}
+                Ok(out) => {
+                    eprintln!(
+                        "Failed to disable lexaloud.service: {}",
+                        String::from_utf8_lossy(&out.stderr)
+                    );
+                    return 1;
+                }
+                Err(e) => {
+                    eprintln!("systemctl failed: {e}");
+                    return 1;
+                }
+            }
+            let reload = std::process::Command::new("systemctl")
+                .args(["--user", "daemon-reload"])
+                .status();
+            if let Ok(st) = reload {
+                if !st.success() {
+                    eprintln!("systemctl --user daemon-reload failed");
+                    return 1;
+                }
+            }
+        } else {
+            eprintln!("systemctl not found; cannot disable service safely");
+            return 1;
+        }
+        if let Err(e) = std::fs::remove_file(&unit_path) {
+            eprintln!("Failed to remove {}: {e}", unit_path.display());
+            return 1;
+        }
+        println!("Removed {}", unit_path.display());
+    } else {
+        println!("No user systemd unit at {}", unit_path.display());
+    }
+
+    if desktop.is_file() {
+        if let Err(e) = std::fs::remove_file(&desktop) {
+            eprintln!("Failed to remove {}: {e}", desktop.display());
+            return 1;
+        }
+        println!("Removed {}", desktop.display());
+    }
+
     let sock = crate::config::socket_path();
     if sock.exists() {
         let _ = std::fs::remove_file(&sock);
-        println!("Removed socket {}", sock.display());
     }
+
+    println!("Configuration and downloaded models were kept.");
     0
+}
+
+fn which_systemctl() -> Option<String> {
+    for dir in std::env::var("PATH").unwrap_or_default().split(':') {
+        let p = std::path::Path::new(dir).join("systemctl");
+        if p.is_file() {
+            return Some(p.to_string_lossy().to_string());
+        }
+    }
+    None
+}
+
+fn service_absent(stderr: &[u8]) -> bool {
+    let s = String::from_utf8_lossy(stderr).to_lowercase();
+    s.contains("not loaded")
+        || s.contains("not found")
+        || s.contains("does not exist")
+        || s.contains("not enabled")
 }
 
 async fn cmd_bug_report(full: bool) -> i32 {

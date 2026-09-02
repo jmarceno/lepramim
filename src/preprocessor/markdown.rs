@@ -47,6 +47,7 @@ pub fn markdown_to_tts_prose(text: &str) -> String {
     let mut in_table_cell = false;
     let mut cell_buf = String::new();
     let mut in_code_block = false;
+    let mut in_heading = false;
 
     // Simpler approach: iterate and build out directly, handling tags.
     // We'll do single pass with state machine similar to native but simplified.
@@ -61,6 +62,7 @@ pub fn markdown_to_tts_prose(text: &str) -> String {
             Event::Start(tag) => {
                 match tag {
                     Tag::Heading { .. } => {
+                        in_heading = true;
                         out.push_str("\n\n");
                     }
                     Tag::Paragraph => {}
@@ -105,90 +107,82 @@ pub fn markdown_to_tts_prose(text: &str) -> String {
                 // push to stack if needed
                 // Not pushing all
             }
-            Event::End(tag) => {
-                match tag {
-                    TagEnd::Heading(_) => {
-                        // ensure ends with period
-                        let trimmed = out.trim_end();
-                        if let Some(last) = trimmed.chars().last() {
-                            if !".!?:;".contains(last) {
-                                out.push('.');
-                            }
+            Event::End(tag) => match tag {
+                TagEnd::Heading(_) => {
+                    in_heading = false;
+                    out.push_str("\n\n");
+                }
+                TagEnd::Paragraph => {
+                    out.push_str("\n\n");
+                }
+                TagEnd::List(_) => {
+                    list_counter = None;
+                    out.push_str("\n\n");
+                }
+                TagEnd::Item => {
+                    let trimmed = out.trim_end();
+                    if let Some(last) = trimmed.chars().last() {
+                        if !".!?:;".contains(last) {
+                            out.push('.');
                         }
-                        out.push_str("\n\n");
                     }
-                    TagEnd::Paragraph => {
-                        out.push_str("\n\n");
-                    }
-                    TagEnd::List(_) => {
-                        list_counter = None;
-                        out.push_str("\n\n");
-                    }
-                    TagEnd::Item => {
-                        let trimmed = out.trim_end();
-                        if let Some(last) = trimmed.chars().last() {
-                            if !".!?:;".contains(last) {
-                                out.push('.');
-                            }
+                    out.push(' ');
+                }
+                TagEnd::BlockQuote(_) => {
+                    let trimmed = out.trim_end();
+                    if let Some(last) = trimmed.chars().last() {
+                        if !".!?:;".contains(last) {
+                            out.push('.');
                         }
+                    }
+                    out.push_str("\n\n");
+                }
+                TagEnd::CodeBlock => {
+                    in_code_block = false;
+                }
+                TagEnd::Table => {
+                    out.push_str("\n\n");
+                    headers.clear();
+                    table_state = 0;
+                }
+                TagEnd::TableHead => {
+                    table_state = 2;
+                }
+                TagEnd::TableRow => {
+                    let trimmed = out.trim_end();
+                    if let Some(last) = trimmed.chars().last() {
+                        if !".!?:;".contains(last) {
+                            out.push('.');
+                        }
+                    }
+                    out.push('\n');
+                }
+                TagEnd::TableCell => {
+                    let body = cell_buf.trim().to_string();
+                    cell_buf.clear();
+                    in_table_cell = false;
+                    if table_state == 1 {
+                        headers.push(body);
+                    } else if table_state == 2 {
+                        if col_idx < headers.len() && !headers[col_idx].is_empty() {
+                            out.push_str(&format!("{}: {}, ", headers[col_idx], body));
+                        } else {
+                            out.push_str(&format!("{}, ", body));
+                        }
+                        col_idx += 1;
+                    } else {
+                        out.push_str(&body);
                         out.push(' ');
                     }
-                    TagEnd::BlockQuote(_) => {
-                        let trimmed = out.trim_end();
-                        if let Some(last) = trimmed.chars().last() {
-                            if !".!?:;".contains(last) {
-                                out.push('.');
-                            }
-                        }
-                        out.push_str("\n\n");
-                    }
-                    TagEnd::CodeBlock => {
-                        in_code_block = false;
-                    }
-                    TagEnd::Table => {
-                        out.push_str("\n\n");
-                        headers.clear();
-                        table_state = 0;
-                    }
-                    TagEnd::TableHead => {
-                        table_state = 2;
-                    }
-                    TagEnd::TableRow => {
-                        let trimmed = out.trim_end();
-                        if let Some(last) = trimmed.chars().last() {
-                            if !".!?:;".contains(last) {
-                                out.push('.');
-                            }
-                        }
-                        out.push('\n');
-                    }
-                    TagEnd::TableCell => {
-                        let body = cell_buf.trim().to_string();
-                        cell_buf.clear();
-                        in_table_cell = false;
-                        if table_state == 1 {
-                            headers.push(body);
-                        } else if table_state == 2 {
-                            if col_idx < headers.len() && !headers[col_idx].is_empty() {
-                                out.push_str(&format!("{}: {}, ", headers[col_idx], body));
-                            } else {
-                                out.push_str(&format!("{}, ", body));
-                            }
-                            col_idx += 1;
-                        } else {
-                            out.push_str(&body);
-                            out.push(' ');
-                        }
-                    }
-                    TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough => {}
-                    TagEnd::Link => {}
-                    TagEnd::Image => {}
-                    TagEnd::HtmlBlock => {}
-                    _ => {}
                 }
-            }
+                TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough => {}
+                TagEnd::Link => {}
+                TagEnd::Image => {}
+                TagEnd::HtmlBlock => {}
+                _ => {}
+            },
             Event::Text(t) => {
-                if in_code_block {
+                if in_code_block || in_heading {
                     continue;
                 }
                 if in_table_cell {
@@ -260,7 +254,8 @@ mod tests {
     #[test]
     fn heading_stripped() {
         let t = markdown_to_tts_prose("# Title\n\nParagraph.");
-        assert!(t.contains("Title"), "got {}", t);
+        assert!(!t.contains("Title"), "headings should not be spoken: {}", t);
+        assert!(t.contains("Paragraph"), "got {}", t);
         assert!(!t.contains("#"), "got {}", t);
     }
     #[test]
@@ -269,6 +264,16 @@ mod tests {
         assert!(t.contains("example"), "got {}", t);
         assert!(!t.contains("https://"), "got {}", t);
     }
+    #[test]
+    fn fixture_markdown_sample() {
+        let t = markdown_to_tts_prose(
+            "# Introduction\n\nThis is **bold** and *italic* with `code` and [link](https://example.com).",
+        );
+        assert!(t.contains("bold"), "got {t}");
+        assert!(t.contains("link"), "got {t}");
+        assert!(!t.contains("Introduction"), "got {t}");
+    }
+
     #[test]
     fn unicode_valid() {
         let t = markdown_to_tts_prose("Hello **bold** world.");

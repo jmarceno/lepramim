@@ -151,6 +151,9 @@ pub fn normalize_math_symbols(text: &str) -> String {
         last = end;
     }
     result.push_str(&text[last..]);
+    // Function notation: rho(x) = 1 -> rho of x equals 1
+    let re_fn = Regex::new(r"([A-Za-z]+)\s*\(([^)]+)\)\s*=\s*").unwrap();
+    result = re_fn.replace_all(&result, "$1 of $2 equals ").to_string();
     result
 }
 

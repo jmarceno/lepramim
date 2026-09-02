@@ -10,8 +10,7 @@
 #         build/appdir/ (intermediate AppDir)
 #         build/stage/  (native stage via build-native.sh)
 #
-# Runnable on Ubuntu 24.04. Uses linuxdeploy/appimagetool if available;
-# otherwise falls back to a tar-based dummy AppImage for smoke testing.
+# Runnable on Ubuntu 24.04. Requires linuxdeploy + appimagetool (pinned URLs below).
 #
 set -euo pipefail
 
@@ -435,6 +434,12 @@ fi
 if [[ -z "$APPIMAGE_TOOL" ]]; then
   APPIMAGE_TOOL="$BUILD_ROOT/appimagetool-x86_64.AppImage"
 fi
+if [[ ! -x "$APPIMAGE_TOOL" ]] && [[ ! -f "$APPIMAGE_TOOL" ]]; then
+  echo "--- Downloading appimagetool ---"
+  mkdir -p "$(dirname "$APPIMAGE_TOOL")"
+  curl -fsSL "$APPIMAGE_TOOL_URL" -o "$APPIMAGE_TOOL"
+  chmod 0755 "$APPIMAGE_TOOL"
+fi
 APPIMAGE_TOOL_FOUND=0
 if [[ -x "$APPIMAGE_TOOL" ]]; then
   APPIMAGE_TOOL_FOUND=1
@@ -455,48 +460,22 @@ if [[ $APPIMAGE_TOOL_FOUND -eq 1 ]]; then
     echo "AppImage created: $OUTPUT"
     du -h "$OUTPUT" 2>/dev/null | sed 's/^/  /'
   else
-    echo "warning: appimagetool failed; falling back to tar dummy" >&2
-    APPIMAGE_TOOL_FOUND=0
+    echo "error: appimagetool failed for $APPDIR" >&2
+    exit 1
   fi
 fi
 
 if [[ $APPIMAGE_TOOL_FOUND -eq 0 ]]; then
-  echo "--- appimagetool not available; creating tar-based dummy AppImage for smoke test ---"
-  # Create a tarball and append AppImage magic placeholder so smoke script can still extract
-  # The smoke script handles both real AppImage and dummy tar fallback.
-  # We create a squashfs-root-like tar at OUTPUT for CI artifact compatibility.
-  DUMMY_TAR="$OUTPUT.tar.gz"
-  tar -czf "$DUMMY_TAR" -C "$(dirname "$APPDIR")" "$(basename "$APPDIR")" 2>/dev/null || tar -czf "$DUMMY_TAR" -C "$APPDIR" . 2>/dev/null || true
-  # Create a shell script wrapper that mimics AppImage --appimage-extract
-  cat > "$OUTPUT" <<WRAPPER
-#!/usr/bin/env bash
-# Dummy AppImage wrapper for CI smoke test (appimagetool not available).
-# Supports --appimage-extract and --version / runs.
-set -euo pipefail
-if [[ "\${1:-}" == "--appimage-extract" ]]; then
-  mkdir -p squashfs-root
-  tar -xzf "$DUMMY_TAR" -C . 2>/dev/null || tar -xzf "$DUMMY_TAR" 2>/dev/null || true
-  # Normalize: if tar contained appdir/, move its contents
-  if [[ -d "squashfs-root/$(basename "$APPDIR")" ]]; then
-    mv squashfs-root/$(basename "$APPDIR") squashfs-root.tmp
-    rmdir squashfs-root 2>/dev/null || rm -rf squashfs-root
-    mv squashfs-root.tmp squashfs-root
-  fi
-  # If we tared from inside APPDIR, squashfs-root already has usr/
-  if [[ ! -d "squashfs-root/usr" && -d "squashfs-root/$(basename "$APPDIR")/usr" ]]; then
-    mv "squashfs-root/$(basename "$APPDIR")"/* squashfs-root/ 2>/dev/null || true
-  fi
-  echo "Extracted dummy AppImage to squashfs-root/"
-  exit 0
+  die "appimagetool is required. Set APPIMAGETOOL to a valid appimagetool AppImage or install appimagetool on PATH. Download: $APPIMAGE_TOOL_URL"
 fi
-# Otherwise, delegate to AppRun
-HERE="\$(CDPATH='' cd -- "\$(dirname -- "\${BASH_SOURCE[0]}")" && pwd -P)"
-exec "\$HERE/AppRun" "\$@" 2>/dev/null || exec "$APPDIR/AppRun" "\$@"
-WRAPPER
-  chmod 0755 "$OUTPUT"
-  cp -a "$DUMMY_TAR" "$OUTPUT.tar.gz" 2>/dev/null || true
-  echo "Dummy AppImage wrapper created: $OUTPUT (tar: $DUMMY_TAR)"
-  ls -lh "$OUTPUT" "$DUMMY_TAR" 2>/dev/null | sed 's/^/  /'
+
+# Verify squashfs AppImage (not a dummy wrapper)
+if ! file "$OUTPUT" 2>/dev/null | grep -qiE 'squashfs|AppImage'; then
+  die "output is not a squashfs AppImage: $OUTPUT ($(file -b "$OUTPUT" 2>/dev/null || echo unknown))"
+fi
+
+if [[ -f "$OUTPUT.tar.gz" ]]; then
+  die "refusing to ship dummy tar wrapper alongside AppImage: $OUTPUT.tar.gz"
 fi
 
 # --- Manifests & reports --------------------------------------------------

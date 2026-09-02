@@ -6,9 +6,10 @@ static REPLACEMENTS: OnceLock<Vec<(Regex, &'static str)>> = OnceLock::new();
 fn replacements() -> &'static Vec<(Regex, &'static str)> {
     REPLACEMENTS.get_or_init(|| {
         vec![
-            (Regex::new(r#"\b[Ee]t\s+al\."#).unwrap(), "and colleagues"),
-            (Regex::new(r"(?i)\be\.\s*g\.,?").unwrap(), "for example,"),
-            (Regex::new(r"(?i)\bi\.\s*e\.,?").unwrap(), "that is,"),
+            (Regex::new(r"(?i)\be\.\s*g\.,?").unwrap(), "for example"),
+            (Regex::new(r"(?i)\bi\.\s*e\.,?").unwrap(), "that is"),
+            (Regex::new(r"(?i)\betc\.,?").unwrap(), "et cetera"),
+            (Regex::new(r#"(?i)\bet\s+al\.?"#).unwrap(), "et alia."),
             (Regex::new(r"(?i)\bcf\.").unwrap(), "compare"),
             (Regex::new(r"(?i)\bviz\.").unwrap(), "namely"),
             (Regex::new(r"(?i)\bibid\.").unwrap(), "same source"),
@@ -52,7 +53,7 @@ fn replacements() -> &'static Vec<(Regex, &'static str)> {
 
 pub fn expand_latin_abbreviations(text: &str) -> String {
     let mut t = text.to_string();
-    for (pat, repl) in replacements().iter().take(8) {
+    for (pat, repl) in replacements().iter().take(9) {
         t = pat.replace_all(&t, *repl).to_string();
     }
     t
@@ -60,7 +61,7 @@ pub fn expand_latin_abbreviations(text: &str) -> String {
 
 pub fn expand_academic_abbreviations(text: &str) -> String {
     let mut t = text.to_string();
-    for (pat, repl) in replacements().iter().skip(8) {
+    for (pat, repl) in replacements().iter().skip(9) {
         t = pat.replace_all(&t, *repl).to_string();
     }
     t

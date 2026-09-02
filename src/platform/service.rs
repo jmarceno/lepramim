@@ -23,11 +23,8 @@ pub fn socket_path_valid(sock: &Path, runtime_dir: &Path) -> Result<(), String> 
 pub fn stale_socket_cleanup(sock: &Path) -> Result<(), String> {
     let parent = sock.parent().ok_or("socket has no parent")?;
     std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    // Enforce 0700
     let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
-    // Remove stale socket if exists and owned by current user (check via metadata uid if possible)
     if sock.exists() || sock.is_symlink() {
-        // Check ownership via libc::stat
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
@@ -58,25 +55,79 @@ unsafe extern "C" {
     fn getuid() -> u32;
 }
 
+/// Shell-quote a path for systemd ExecStart.
+pub fn shell_quote(path: &str) -> String {
+    format!("\"{}\"", path.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// Resolve the lexaloud binary path for systemd/AppImage installs.
+pub fn resolve_binary_path() -> std::path::PathBuf {
+    if let Ok(appimage) = std::env::var("LEXALOUD_APPIMAGE") {
+        let p = std::path::PathBuf::from(appimage);
+        if p.is_file() {
+            return p;
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        return exe;
+    }
+    std::path::PathBuf::from("lexaloud")
+}
+
+/// User systemd unit directory.
+pub fn systemd_user_dir() -> std::path::PathBuf {
+    if let Ok(base) = std::env::var("XDG_CONFIG_HOME") {
+        if !base.is_empty() {
+            return std::path::PathBuf::from(base).join("systemd").join("user");
+        }
+    }
+    directories::BaseDirs::new()
+        .map(|d| d.home_dir().join(".config").join("systemd").join("user"))
+        .unwrap_or_else(|| std::path::PathBuf::from(".config/systemd/user"))
+}
+
+/// Desktop file path under XDG_DATA_HOME.
+pub fn desktop_file_path() -> std::path::PathBuf {
+    if let Ok(base) = std::env::var("XDG_DATA_HOME") {
+        if !base.is_empty() {
+            return std::path::PathBuf::from(base)
+                .join("applications")
+                .join("lexaloud.desktop");
+        }
+    }
+    directories::BaseDirs::new()
+        .map(|d| {
+            d.home_dir()
+                .join(".local")
+                .join("share")
+                .join("applications")
+                .join("lexaloud.desktop")
+        })
+        .unwrap_or_else(|| std::path::PathBuf::from(".local/share/applications/lexaloud.desktop"))
+}
+
 /// Generate systemd user unit file content.
 pub fn generate_systemd_unit(exec_path: &Path) -> String {
     format!(
         r#"[Unit]
 Description=Lexaloud TTS daemon
-After=graphical-session.target
+After=default.target
 
 [Service]
 Type=simple
 ExecStart={} daemon
 Restart=on-failure
 RestartSec=2
+TimeoutStopSec=10
+UnsetEnvironment=PYTHONPATH
 RuntimeDirectory=lexaloud
 RuntimeDirectoryMode=0700
+WorkingDirectory=%h
 
 [Install]
 WantedBy=default.target
 "#,
-        exec_path.display()
+        shell_quote(&exec_path.to_string_lossy())
     )
 }
 
@@ -84,15 +135,15 @@ WantedBy=default.target
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
     #[test]
     fn socket_valid_inside() {
         let rt = PathBuf::from("/run/user/1000");
         let sock = PathBuf::from("/run/user/1000/lexaloud/lexaloud.sock");
-        // Canonicalize will fail for non-existent, but our function uses fallback to non-canonical
-        // So it should pass prefix check via string
         let res = socket_path_valid(&sock, &rt);
         assert!(res.is_ok(), "got {:?}", res);
     }
+
     #[test]
     fn socket_invalid_outside() {
         let rt = PathBuf::from("/run/user/1000");
@@ -100,10 +151,11 @@ mod tests {
         let res = socket_path_valid(&sock, &rt);
         assert!(res.is_err());
     }
+
     #[test]
     fn generate_unit_contains_exec() {
         let unit = generate_systemd_unit(Path::new("/usr/bin/lexaloud"));
-        assert!(unit.contains("ExecStart=/usr/bin/lexaloud daemon"));
+        assert!(unit.contains("ExecStart=\"/usr/bin/lexaloud\" daemon"));
         assert!(unit.contains("RuntimeDirectory=lexaloud"));
     }
 }

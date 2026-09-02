@@ -52,8 +52,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcb-sync1 libxcb-xfixes0 libxcb-xkb1 libxcb-xinerama0 \
     libxkbcommon-x11-0 libxkbcommon0 libgl1 libegl1 \
     libwayland-client0 libwayland-cursor0 libwayland-egl1 \
-    # --- Audio ---
-    libportaudio2 portaudio19-dev \
+    # --- Audio / TTS runtime ---
+    libportaudio2 portaudio19-dev libasound2-dev \
+    espeak-ng \
     # --- Clipboard / notification helpers (bundled into AppImage) ---
     wl-clipboard xclip libnotify-bin \
     # --- ONNX Runtime / eSpeak runtime deps (optional, for future bundling) ---
@@ -77,7 +78,16 @@ RUN cmake --version \
     && qmake6 --version || qmake --version || echo "qmake not in PATH" \
     && pkg-config --modversion Qt6Core 2>/dev/null || echo "Qt6Core pkg-config not found"
 
-# Pre-create cache dirs for mounted volumes (cargo)
+# Pin AppImage tooling (URLs match scripts/build-appimage.sh defaults)
+ENV APPIMAGETOOL_URL=https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+ENV LINUXDEPLOY_URL=https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+RUN mkdir -p /opt/appimage-tools \
+    && curl -fsSL "$APPIMAGETOOL_URL" -o /opt/appimage-tools/appimagetool-x86_64.AppImage \
+    && curl -fsSL "$LINUXDEPLOY_URL" -o /opt/appimage-tools/linuxdeploy-x86_64.AppImage \
+    && chmod 0755 /opt/appimage-tools/*.AppImage
+ENV APPIMAGETOOL=/opt/appimage-tools/appimagetool-x86_64.AppImage
+ENV LINUXDEPLOY=/opt/appimage-tools/linuxdeploy-x86_64.AppImage
+
 RUN mkdir -p /root/.cargo/registry /root/.cargo/git /tmp/cargo-target
 
 # Cargo registry cache mount point for CI (keyed by Cargo.lock)
