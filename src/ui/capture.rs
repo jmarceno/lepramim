@@ -7,7 +7,7 @@ pub use crate::platform::selection::{CaptureResult, SelectionError, utf8_safe_tr
 
 const MAX_BYTES: usize = 200 * 1024;
 const TOOL_TIMEOUT_MS: u64 = 400;
-const INJECTOR_TIMEOUT_MS: u64 = 250;
+const INJECTOR_TIMEOUT_MS: u64 = 400;
 const CLIPBOARD_SETTLE_MS: u64 = 600;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,6 +91,16 @@ fn command_with_wayland(program: &str) -> Command {
     let mut command = Command::new(program);
     if let Ok(display) = std::env::var("LEXALOUD_WAYLAND_DISPLAY") {
         command.env("WAYLAND_DISPLAY", display);
+    }
+    if std::env::var("YDOTOOL_SOCKET").is_err() {
+        if let Ok(runtime) = std::env::var("XDG_RUNTIME_DIR") {
+            let sock = format!("{runtime}/.ydotool_socket");
+            if std::path::Path::new(&sock).exists() {
+                command.env("YDOTOOL_SOCKET", sock);
+            }
+        } else if std::path::Path::new("/tmp/.ydotool_socket").exists() {
+            command.env("YDOTOOL_SOCKET", "/tmp/.ydotool_socket");
+        }
     }
     command
 }

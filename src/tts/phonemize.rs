@@ -1,24 +1,10 @@
-use std::io::{BufRead, BufReader, Write};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::collections::HashMap;
+use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 
-struct PersistentEspeak {
-    child: Child,
-    stdin: ChildStdin,
-    stdout: BufReader<std::process::ChildStdout>,
-    voice: String,
-    exe: String,
-}
-
-impl Drop for PersistentEspeak {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
-static ESPEAK: Mutex<Option<PersistentEspeak>> = Mutex::new(None);
 static ESPEAK_EXE: OnceLock<Option<String>> = OnceLock::new();
+static PHONEME_CACHE: Mutex<Option<HashMap<(String, String), String>>> = Mutex::new(None);
+const MAX_CACHE_ENTRIES: usize = 1024;
 
 /// Map Lexaloud lang codes to espeak-ng voice names.
 fn espeak_voice(lang: &str) -> &str {
@@ -56,41 +42,12 @@ fn which_espeak() -> Option<String> {
     ESPEAK_EXE.get_or_init(find_espeak).clone()
 }
 
-fn spawn_persistent(exe: &str, voice: &str) -> Result<PersistentEspeak, String> {
-    let mut child = Command::new(exe)
-        .arg("-v")
-        .arg(voice)
-        .arg("--ipa")
-        .arg("-q")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("espeak-ng failed to start: {e}"))?;
-    let stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| "espeak-ng stdin missing".to_string())?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "espeak-ng stdout missing".to_string())?;
-    Ok(PersistentEspeak {
-        child,
-        stdin,
-        stdout: BufReader::new(stdout),
-        voice: voice.to_string(),
-        exe: exe.to_string(),
-    })
-}
-
 fn phonemize_oneshot(exe: &str, voice: &str, text: &str) -> Result<String, String> {
     let output = Command::new(exe)
         .arg("-v")
         .arg(voice)
         .arg("--ipa")
         .arg("-q")
-        .arg("--stdout")
         .arg(text)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -107,26 +64,6 @@ fn phonemize_oneshot(exe: &str, voice: &str, text: &str) -> Result<String, Strin
     Ok(ipa)
 }
 
-fn phonemize_line(proc: &mut PersistentEspeak, text: &str) -> Result<String, String> {
-    writeln!(proc.stdin, "{text}").map_err(|e| format!("espeak-ng stdin write: {e}"))?;
-    proc.stdin
-        .flush()
-        .map_err(|e| format!("espeak-ng stdin flush: {e}"))?;
-    let mut line = String::new();
-    let n = proc
-        .stdout
-        .read_line(&mut line)
-        .map_err(|e| format!("espeak-ng stdout read: {e}"))?;
-    if n == 0 {
-        return Err("espeak-ng stdout closed".to_string());
-    }
-    let ipa = line.trim().to_string();
-    if ipa.is_empty() {
-        return Err("espeak-ng returned empty phoneme string".to_string());
-    }
-    Ok(ipa)
-}
-
 /// Phonemize text to IPA using espeak-ng (matches kokoro-onnx phonemizer path).
 pub fn phonemize(text: &str, lang: &str) -> Result<String, String> {
     let t = text.trim().replace(['\n', '\r'], " ");
@@ -134,26 +71,31 @@ pub fn phonemize(text: &str, lang: &str) -> Result<String, String> {
     if t.is_empty() {
         return Err("empty text".to_string());
     }
+
+    let cache_key = (t.to_string(), lang.to_string());
+    if let Ok(guard) = PHONEME_CACHE.lock() {
+        if let Some(ref cache) = *guard {
+            if let Some(hit) = cache.get(&cache_key) {
+                return Ok(hit.clone());
+            }
+        }
+    }
+
     let exe = which_espeak().ok_or_else(|| {
         "espeak-ng not found; install espeak-ng or set PHONEMIZER_ESPEAK_LIBRARY".to_string()
     })?;
     let voice = espeak_voice(lang);
-    let mut slot = ESPEAK.lock().map_err(|e| e.to_string())?;
-    let reuse = slot
-        .as_ref()
-        .is_some_and(|p| p.voice == voice && p.exe == exe);
-    if !reuse {
-        *slot = None;
-        *slot = Some(spawn_persistent(&exe, voice)?);
-    }
-    match phonemize_line(slot.as_mut().expect("espeak spawned"), t) {
-        Ok(ipa) => Ok(ipa),
-        Err(e) => {
-            tracing::warn!("persistent espeak-ng failed ({e}); falling back to one-shot");
-            *slot = None;
-            phonemize_oneshot(&exe, voice, t)
+    let ipa = phonemize_oneshot(&exe, voice, t)?;
+
+    if let Ok(mut guard) = PHONEME_CACHE.lock() {
+        let cache = guard.get_or_insert_with(HashMap::new);
+        if cache.len() >= MAX_CACHE_ENTRIES {
+            cache.clear();
         }
+        cache.insert(cache_key, ipa.clone());
     }
+
+    Ok(ipa)
 }
 
 #[cfg(test)]
@@ -174,5 +116,17 @@ mod tests {
         assert!(!p.is_empty());
         let p2 = phonemize("Hello", "en-us").unwrap();
         assert_eq!(p, p2);
+    }
+
+    #[test]
+    fn phonemize_multi_clause_does_not_desync() {
+        if which_espeak().is_none() {
+            return;
+        }
+        let p1 = phonemize("Hello, world! What a wonderful day.", "en-us").unwrap();
+        let p2 = phonemize("Second sentence.", "en-us").unwrap();
+        assert!(!p1.is_empty());
+        assert!(!p2.is_empty());
+        assert_ne!(p1, p2);
     }
 }

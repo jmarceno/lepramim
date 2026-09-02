@@ -24,6 +24,14 @@ pub fn build_components(cfg: Option<Config>) -> Result<DaemonComponents, String>
         .map_err(|e| format!("ONNX Runtime check failed: {}", e.0))?;
     tracing::info!("ORT distribution: {}", ort_dist);
 
+    let prefer_cuda = (ort_dist.contains("gpu")
+        || std::env::var("LEXALOUD_ORT_DISTS")
+            .map(|s| s.contains("onnxruntime-gpu"))
+            .unwrap_or(false))
+        && std::env::var("LEXALOUD_PREFER_CUDA")
+            .map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+
     let artifacts = crate::models::ensure_artifacts(None, false).map_err(|e| {
         format!("{e}. Models download automatically when you open the Lexaloud AppImage.")
     })?;
@@ -43,7 +51,7 @@ pub fn build_components(cfg: Option<Config>) -> Result<DaemonComponents, String>
         cfg.provider.voice.clone(),
         cfg.provider.lang.clone(),
         cfg.provider.speed,
-        true,
+        prefer_cuda,
     );
     let sink = CpalSink::new();
     let player = Player::new(provider, sink, cfg.daemon.ready_queue_depth);
@@ -121,10 +129,10 @@ pub async fn run() -> Result<(), String> {
     });
 
     let player_clone = app_state.player.clone();
-    player_clone.begin_warmup().await;
     tokio::spawn(async move {
+        player_clone.set_warming(true).await;
         player_clone.run_warmup().await;
-        player_clone.end_warmup().await;
+        player_clone.set_warming(false).await;
         tracing::info!("warmup complete");
     });
 

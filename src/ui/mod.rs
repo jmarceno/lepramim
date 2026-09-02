@@ -888,6 +888,8 @@ fn handle_hotkey(ev: HotkeyEvent) -> Task<Message> {
     match ev {
         HotkeyEvent::SpeakSelection => Task::perform(
             async {
+                // Allow the user to release the physical Meta key so injecting
+                // Ctrl+C does not produce Meta+Ctrl+C.
                 tokio::time::sleep(Duration::from_millis(250)).await;
             },
             |_| Message::SpeakNow,
@@ -928,7 +930,7 @@ fn format_models_status(json: &serde_json::Value) -> String {
 
 fn subscription(app: &App) -> Subscription<Message> {
     let tick = time::every(Duration::from_secs(1)).map(|_| Message::Tick);
-    let input = time::every(Duration::from_millis(50)).map(|_| Message::InputPoll);
+    let input = time::every(Duration::from_millis(10)).map(|_| Message::InputPoll);
     let overlay = if app.overlay_visible {
         time::every(Duration::from_millis(200)).map(|_| Message::OverlayTick)
     } else {

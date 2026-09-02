@@ -96,8 +96,13 @@ impl KokoroProvider {
             }
         }
 
+        let cpu_threads = std::thread::available_parallelism()
+            .map(|n| (n.get() / 2).clamp(1, 8))
+            .unwrap_or(4);
         let builder = Session::builder().map_err(|e| e.to_string())?;
         let builder = builder
+            .with_intra_threads(cpu_threads)
+            .map_err(|e| e.to_string())?
             .with_execution_providers([CPUExecutionProvider::default().build()])
             .map_err(|e| e.to_string())?;
         let session = builder
@@ -294,16 +299,11 @@ impl SpeechProvider for KokoroProvider {
             }
         }
         let is_current = Arc::new(|_: u64| true);
-        // Spike 0: first infer after load is cold; second is still ~2× the third.
-        for pass in 1..=3 {
-            let chunk = self
-                .synthesize("Ready.".to_string(), 0, is_current.clone())
-                .await;
-            tracing::info!(
-                "Kokoro warmup pass {pass}/3 {}",
-                if chunk.is_some() { "ok" } else { "failed" }
-            );
-        }
+        let chunk = self.synthesize("Ready.".to_string(), 0, is_current).await;
+        tracing::info!(
+            "Kokoro warmup {}",
+            if chunk.is_some() { "ok" } else { "failed" }
+        );
         let mut inner = self.inner.lock().await;
         inner.warmed = true;
         tracing::info!(
@@ -343,7 +343,7 @@ mod tests {
                 "af_heart".to_string(),
                 "en-us".to_string(),
                 1.0,
-                true,
+                false,
             );
             let is_current = Arc::new(|_: u64| true);
             let chunk = provider

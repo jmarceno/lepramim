@@ -156,6 +156,7 @@ where
     ready_queue_depth: usize,
     warmup_complete: AtomicBool,
     queued_speak: Mutex<Option<(Vec<String>, String)>>,
+    early_stream_job: AtomicU64,
 }
 
 impl<P, S> Player<P, S>
@@ -186,6 +187,7 @@ where
             ready_queue_depth: depth,
             warmup_complete: AtomicBool::new(true),
             queued_speak: Mutex::new(None),
+            early_stream_job: AtomicU64::new(0),
         })
     }
 
@@ -342,9 +344,10 @@ where
 
     async fn consumer(self: Arc<Self>, job_id: u64) {
         tracing::debug!("consumer job={} starting", job_id);
-        let mut stream_open = false;
-        let mut stream_sr: Option<u32> = None;
-        let mut stream_ch: Option<u16> = None;
+        let early_active = self.early_stream_job.load(Ordering::SeqCst) == job_id;
+        let mut stream_open = early_active;
+        let mut stream_sr: Option<u32> = if early_active { Some(24_000) } else { None };
+        let mut stream_ch: Option<u16> = if early_active { Some(1) } else { None };
         let mut sentences_written = 0usize;
 
         loop {
@@ -575,6 +578,7 @@ where
 
     async fn full_stop_inner(&self) {
         self.current_job_id.fetch_add(1, Ordering::SeqCst);
+        self.early_stream_job.store(0, Ordering::SeqCst);
         self.cancel_tasks().await;
         let state = self.state.lock().await.clone();
         if state == State::Speaking || state == State::Paused {
@@ -646,6 +650,7 @@ where
         let cons = tokio::spawn(async move { self_c.consumer(job_id).await });
         *self.producer_handle.lock().await = Some(prod);
         *self.consumer_handle.lock().await = Some(cons);
+        self.early_stream_job.store(job_id, Ordering::SeqCst);
         let sink = self.sink.clone();
         tokio::spawn(async move {
             let mut sink = sink.lock().await;

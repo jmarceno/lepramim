@@ -444,8 +444,6 @@ fn run_audio_thread(rx: mpsc::Receiver<AudioCmd>) {
                             last_error.clone(),
                         )?);
                     }
-                    let mut pb = playback.lock().map_err(|e| e.to_string())?;
-                    pb.append_resampled(&vec![0.0; (sample_rate as usize * 2).min(48_000)]);
                     Ok(())
                 })();
                 let _ = reply.send(res);
