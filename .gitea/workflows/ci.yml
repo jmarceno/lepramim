@@ -1,0 +1,128 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+      - 'cursor/**'
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ gitea.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential libssl-dev libasound2-dev espeak-ng \
+            cmake ninja-build pkg-config \
+            qt6-base-dev qt6-tools-dev libqt6svg6-dev \
+            libgl1-mesa-dev libegl1-mesa-dev \
+            clang clang-format patchelf curl ca-certificates file binutils \
+            wl-clipboard xclip libnotify-bin \
+            libfontconfig1 libfreetype6 libdbus-1-3 libglib2.0-0 \
+            libx11-6 libxext6 libxrender1 libxcb1 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-shm0 \
+            libxcb-sync1 libxcb-xfixes0 libxcb-xkb1 libxcb-xinerama0 \
+            libxkbcommon-x11-0 libxkbcommon0 libgl1 libegl1 \
+            libwayland-client0 libwayland-cursor0 libwayland-egl1
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-ci-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-ci-${{ runner.os }}-
+
+      - name: Rust quality gate
+        run: |
+          cargo fmt --all -- --check
+          cargo check --locked --all-targets --all-features
+          cargo clippy --locked --all-targets --all-features -- -D warnings
+          cargo test --locked --all-targets --all-features
+
+  qt:
+    runs-on: ubuntu-latest
+    needs: rust
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            cmake ninja-build pkg-config \
+            qt6-base-dev qt6-tools-dev libqt6svg6-dev \
+            libgl1-mesa-dev libegl1-mesa-dev clang clang-format
+
+      - name: Qt format, build, test
+        run: |
+          find ui -type f \( -name '*.cpp' -o -name '*.hpp' \) -print0 | xargs -0 clang-format --dry-run --Werror
+          env -u LD_LIBRARY_PATH cmake --preset release
+          env -u LD_LIBRARY_PATH cmake --build --preset release --parallel
+          QT_QPA_PLATFORM=offscreen env -u LD_LIBRARY_PATH ctest --preset release --output-on-failure
+
+  appimage:
+    runs-on: ubuntu-latest
+    needs: [rust, qt]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential libssl-dev libasound2-dev espeak-ng \
+            cmake ninja-build pkg-config \
+            qt6-base-dev qt6-tools-dev libqt6svg6-dev \
+            libgl1-mesa-dev libegl1-mesa-dev \
+            clang patchelf curl ca-certificates file binutils \
+            wl-clipboard xclip libnotify-bin \
+            libfontconfig1 libfreetype6 libdbus-1-3 libglib2.0-0 \
+            libx11-6 libxext6 libxrender1 libxcb1 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-shm0 \
+            libxcb-sync1 libxcb-xfixes0 libxcb-xkb1 libxcb-xinerama0 \
+            libxkbcommon-x11-0 libxkbcommon0 libgl1 libegl1 \
+            libwayland-client0 libwayland-cursor0 libwayland-egl1
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-ci-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-ci-${{ runner.os }}-
+
+      - name: Build native stage and AppImage
+        run: |
+          ./scripts/build-native.sh --release --stage "$PWD/build/stage"
+          ./scripts/build-appimage.sh
+
+      - name: Smoke AppImage (daemon only; models not bundled)
+        run: ./scripts/smoke-appimage.sh build/appimage/Lexaloud-*.AppImage

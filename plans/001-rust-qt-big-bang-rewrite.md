@@ -8,7 +8,7 @@
 > **Drift check (run first):** `git diff --stat fcd9d01..HEAD -- .`
 > Reconcile changes to any in-scope file against this plan before implementation.
 
-**Status:** TODO  
+**Status:** DONE  
 **Priority:** P1  
 **Effort:** L (multi-week)  
 **Risk:** HIGH  

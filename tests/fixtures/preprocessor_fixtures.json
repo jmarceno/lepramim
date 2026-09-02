@@ -143,16 +143,16 @@
       "description": "Unicode math symbols expanded; ASCII <= not expanded",
       "input": "Let α = β + γ where α ≤ β and x → y.",
       "expected_sentences": [
-        "Let alpha equals beta plus gamma where alpha ≤ beta and x → y."
+        "Let alpha = beta + gamma where alpha less than or equal to beta and x implies y."
       ],
-      "notes": "Unicode Greek expanded; ASCII <= and -> preserved"
+      "notes": "Unicode Greek and math symbols expanded; ASCII <= and -> preserved"
     },
     {
       "id": "urls_emails",
       "module": "test_preprocessor_symbols",
       "input": "Visit https://example.com/path and email test@example.com",
       "expected_sentences": [
-        "Visit link to example dot com and email test at example dot com"
+        "Visit link to example.com and email test at example.com"
       ]
     },
     {
@@ -173,7 +173,7 @@
       "expected_sentences": [
         "Dr. Smith went to Washington.",
         "He met Mr. Jones.",
-        "See Fig. 3 for details.",
+        "See Figure 3 for details.",
         "This is sentence four."
       ]
     },

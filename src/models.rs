@@ -31,6 +31,19 @@ pub const ARTIFACTS: &[Artifact] = &[
     },
 ];
 
+#[derive(Debug, Clone)]
+pub struct LlmArtifact {
+    pub filename: &'static str,
+    pub url: &'static str,
+    pub sha256: Option<&'static str>,
+}
+
+pub const LLM_ARTIFACT: LlmArtifact = LlmArtifact {
+    filename: "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+    url: "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
+    sha256: None,
+};
+
 #[derive(thiserror::Error, Debug)]
 pub enum ArtifactError {
     #[error("missing artifact: {0}. Run `lexaloud download-models` to fetch it.")]
@@ -45,6 +58,8 @@ pub enum ArtifactError {
     },
     #[error("download of {url} exceeded {MAX_MODEL_DOWNLOAD_BYTES} bytes cap; aborting")]
     TooLarge { url: String },
+    #[error("download failed for {url}: {detail}")]
+    DownloadFailed { url: String, detail: String },
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -77,6 +92,51 @@ pub fn default_cache_dir() -> PathBuf {
     home.join(".cache").join("lexaloud").join("models")
 }
 
+fn resolve_cache_dir(cache_dir: Option<&Path>) -> PathBuf {
+    let cache = cache_dir
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(default_cache_dir);
+    let cache = if cache.starts_with("~") {
+        if let Some(home) = directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf()) {
+            home.join(cache.strip_prefix("~").unwrap_or(&cache))
+        } else {
+            cache
+        }
+    } else {
+        cache
+    };
+    if cache.is_absolute() {
+        cache
+    } else {
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(cache)
+    }
+}
+
+/// Ensure model_file stays inside cache_dir (path containment).
+pub fn model_file_in_cache(cache_dir: &Path, model_file: &str) -> Result<PathBuf, String> {
+    if model_file.is_empty() {
+        return Err("model_file is empty".to_string());
+    }
+    if model_file.contains("..") || model_file.starts_with('/') {
+        return Err(format!(
+            "model_file must be a relative name inside the cache: {model_file}"
+        ));
+    }
+    let path = cache_dir.join(model_file);
+    let canonical_cache = cache_dir
+        .canonicalize()
+        .unwrap_or_else(|_| cache_dir.to_path_buf());
+    let parent = path.parent().unwrap_or(cache_dir);
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let canonical_path = path.canonicalize().unwrap_or(path.clone());
+    if !canonical_path.starts_with(&canonical_cache) {
+        return Err(format!("model_file escapes cache dir: {}", model_file));
+    }
+    Ok(path)
+}
+
 /// Compute SHA256 hex of file.
 pub fn sha256_of(path: &Path) -> Result<String, std::io::Error> {
     use sha2::{Digest, Sha256};
@@ -94,33 +154,88 @@ pub fn sha256_of(path: &Path) -> Result<String, std::io::Error> {
     Ok(hex::encode(hasher.finalize()))
 }
 
+fn partial_path(dest: &Path) -> PathBuf {
+    let name = dest
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "download".to_string());
+    dest.parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(format!("{name}.partial"))
+}
+
+/// Stream-download a URL to dest with SHA256 verification after atomic rename.
+pub fn download_file(url: &str, dest: &Path) -> Result<(), ArtifactError> {
+    let partial = partial_path(dest);
+    if partial.exists() {
+        std::fs::remove_file(&partial)?;
+    }
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let response = ureq::get(url)
+        .call()
+        .map_err(|e| ArtifactError::DownloadFailed {
+            url: url.to_string(),
+            detail: e.to_string(),
+        })?;
+    if !(200..300).contains(&response.status()) {
+        return Err(ArtifactError::DownloadFailed {
+            url: url.to_string(),
+            detail: format!("HTTP {}", response.status()),
+        });
+    }
+
+    let mut file = std::fs::File::create(&partial)?;
+    let mut reader = response.into_reader();
+    let mut buf = [0u8; 1 << 20];
+    let mut downloaded: u64 = 0;
+    use std::io::{Read, Write};
+    loop {
+        let n = reader
+            .read(&mut buf)
+            .map_err(|e| ArtifactError::DownloadFailed {
+                url: url.to_string(),
+                detail: e.to_string(),
+            })?;
+        if n == 0 {
+            break;
+        }
+        downloaded += n as u64;
+        if downloaded > MAX_MODEL_DOWNLOAD_BYTES {
+            let _ = std::fs::remove_file(&partial);
+            return Err(ArtifactError::TooLarge {
+                url: url.to_string(),
+            });
+        }
+        file.write_all(&buf[..n])?;
+    }
+    file.sync_all()?;
+    drop(file);
+    std::fs::rename(&partial, dest)?;
+    Ok(())
+}
+
+fn verify_artifact(path: &Path, art: &Artifact) -> Result<(), ArtifactError> {
+    let digest = sha256_of(path).map_err(ArtifactError::Io)?;
+    if digest != art.sha256 {
+        return Err(ArtifactError::ShaMismatch {
+            path: path.to_path_buf(),
+            expected: art.sha256.to_string(),
+            got: digest,
+        });
+    }
+    Ok(())
+}
+
 /// Ensure artifacts are present and hash-verified.
 /// Returns mapping filename -> absolute path.
 pub fn ensure_artifacts(
     cache_dir: Option<&Path>,
     download_if_missing: bool,
 ) -> Result<HashMap<String, PathBuf>, ArtifactError> {
-    let cache = cache_dir
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(default_cache_dir);
-    // Expand ~ if present
-    let cache = if cache.starts_with("~") {
-        if let Some(home) = directories::BaseDirs::new().map(|d| d.home_dir().to_path_buf()) {
-            home.join(cache.strip_prefix("~").unwrap_or(&cache))
-        } else {
-            cache
-        }
-    } else {
-        cache
-    };
-    // Resolve as absolute (canonicalize if exists, otherwise join with current dir if relative)
-    let cache = if cache.is_absolute() {
-        cache
-    } else {
-        std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join(cache)
-    };
+    let cache = resolve_cache_dir(cache_dir);
     std::fs::create_dir_all(&cache)?;
 
     let mut out = HashMap::new();
@@ -130,29 +245,45 @@ pub fn ensure_artifacts(
             if !download_if_missing {
                 return Err(ArtifactError::Missing(path));
             }
-            // In Rust port, we don't actually download in tests; return Missing if download requested but not implemented?
-            // For now, raise Missing with instruction; real download is via CLI.
-            // Download stub (real download via CLI).
-            return Err(ArtifactError::Missing(path));
+            tracing::info!("Downloading {} from {}", art.filename, art.url);
+            download_file(art.url, &path)?;
         }
-        let digest = sha256_of(&path).map_err(ArtifactError::Io)?;
-        if digest != art.sha256 {
-            return Err(ArtifactError::ShaMismatch {
-                path: path.clone(),
-                expected: art.sha256.to_string(),
-                got: digest,
-            });
-        }
+        verify_artifact(&path, art)?;
         out.insert(art.filename.to_string(), path);
     }
     Ok(out)
 }
 
-/// Verify ONNX Runtime environment.
-/// Verify ONNX Runtime environment via env var simulation.
-/// If LEXALOUD_ORT_DISTS is set (colon-separated), use it to simulate installed dists for tests.
+/// Download optional LLM model when requested.
+pub fn ensure_llm_model(
+    cache_dir: Option<&Path>,
+    model_file: &str,
+    download_if_missing: bool,
+) -> Result<PathBuf, ArtifactError> {
+    let cache = resolve_cache_dir(cache_dir);
+    std::fs::create_dir_all(&cache)?;
+    let path =
+        model_file_in_cache(&cache, model_file).map_err(|e| ArtifactError::DownloadFailed {
+            url: LLM_ARTIFACT.url.to_string(),
+            detail: e,
+        })?;
+    if path.is_file() {
+        return Ok(path);
+    }
+    if !download_if_missing {
+        return Err(ArtifactError::Missing(path));
+    }
+    if model_file != LLM_ARTIFACT.filename {
+        return Err(ArtifactError::Missing(path));
+    }
+    tracing::info!("Downloading LLM model from {}", LLM_ARTIFACT.url);
+    download_file(LLM_ARTIFACT.url, &path)?;
+    Ok(path)
+}
+
+/// Verify ONNX Runtime environment via ort session builder.
+/// Test hooks: LEXALOUD_ORT_SIMULATE_ERROR, LEXALOUD_ORT_DISTS.
 pub fn assert_onnxruntime_environment() -> Result<String, OnnxruntimeEnvironmentError> {
-    // Check for simulation env vars
     if let Ok(sim) = std::env::var("LEXALOUD_ORT_SIMULATE_ERROR") {
         if sim == "none" {
             return Err(OnnxruntimeEnvironmentError(
@@ -197,8 +328,11 @@ pub fn assert_onnxruntime_environment() -> Result<String, OnnxruntimeEnvironment
         return Ok(name);
     }
 
-    // Default: pretend onnxruntime CPU is available.
-    // Return "onnxruntime" as the installed distribution.
+    ort::session::Session::builder().map_err(|e| {
+        OnnxruntimeEnvironmentError(format!(
+            "ONNX Runtime is not available: {e}. Install via scripts/install.sh or ensure ort can load its bundled runtime."
+        ))
+    })?;
     Ok("onnxruntime".to_string())
 }
 
@@ -243,7 +377,6 @@ mod tests {
         f.write_all(b"hello").unwrap();
         drop(f);
         let digest = sha256_of(&path).unwrap();
-        // sha256("hello") = 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
         assert_eq!(
             digest,
             "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
@@ -269,7 +402,6 @@ mod tests {
             std::process::id()
         ));
         std::fs::create_dir_all(&tmp).unwrap();
-        // Create a file with wrong hash
         let path = tmp.join("kokoro-v1.0.onnx");
         std::fs::write(&path, b"wrong content").unwrap();
         let res = ensure_artifacts(Some(&tmp), false);
@@ -285,7 +417,16 @@ mod tests {
     }
 
     #[test]
-    fn assert_onnxruntime_environment_default_ok() {
+    fn model_file_containment_rejects_traversal() {
+        let tmp = std::env::temp_dir().join(format!("lexaloud_contain_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        assert!(model_file_in_cache(&tmp, "../evil.gguf").is_err());
+        assert!(model_file_in_cache(&tmp, "/etc/passwd").is_err());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn assert_onnxruntime_environment_ok() {
         let _guard = ENV_LOCK.lock().unwrap();
         let orig = std::env::var("LEXALOUD_ORT_DISTS").ok();
         let orig2 = std::env::var("LEXALOUD_ORT_SIMULATE_ERROR").ok();
@@ -293,7 +434,6 @@ mod tests {
         unsafe { std::env::remove_var("LEXALOUD_ORT_SIMULATE_ERROR") };
         let res = assert_onnxruntime_environment();
         assert!(res.is_ok());
-        assert_eq!(res.unwrap(), "onnxruntime");
         if let Some(v) = orig {
             unsafe { std::env::set_var("LEXALOUD_ORT_DISTS", v) };
         } else {

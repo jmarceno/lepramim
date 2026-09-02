@@ -114,7 +114,12 @@ pub fn dedupe_mathjax_selection(text: &str) -> String {
                 }
             }
             if stacked.len() >= 2 {
-                // check if stacked are all ascii letters -> not math, keep
+                // Drop identical stacked single-character lines (MathJax duplicate).
+                if stacked.windows(2).all(|w| w[0] == w[1])
+                    || stacked.iter().all(|&c| c == stacked[0])
+                {
+                    continue;
+                }
                 if stacked.iter().all(|c| c.is_ascii_alphabetic()) {
                     for line in &lines[run_start..i] {
                         result.push((*line).to_string());
@@ -164,7 +169,27 @@ pub fn dedupe_mathjax_selection(text: &str) -> String {
     out.lines()
         .map(|l| l.trim_end())
         .collect::<Vec<_>>()
-        .join("\n")
+        .join("\n");
+
+    // Drop consecutive duplicate lines (e.g. u∈U stacked twice).
+    let mut lines: Vec<&str> = out
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    let mut deduped: Vec<&str> = Vec::new();
+    for line in lines.drain(..) {
+        if deduped.last().copied() == Some(line) {
+            continue;
+        }
+        deduped.push(line);
+    }
+    // Drop short MathJax debris lines (single symbols / compact tokens).
+    deduped.retain(|line| {
+        let t = line.trim();
+        t.split_whitespace().count() >= 4 || t.chars().count() > 12
+    });
+    deduped.join("\n")
 }
 
 pub fn preprocess(text: &str, config: Option<&PreprocessorConfig>) -> Vec<String> {
@@ -323,5 +348,188 @@ mod tests {
     async fn preprocess_with_llm_no_normalizer() {
         let s = preprocess_with_llm("Hello world. Test.".to_string(), None, None).await;
         assert!(!s.is_empty());
+    }
+
+    #[test]
+    fn markdown_fixture_pipeline() {
+        let cfg = PreprocessorConfig {
+            dedupe_mathjax_selection: true,
+            strip_markdown: true,
+            strip_numeric_bracket_citations: true,
+            strip_parenthetical_citations: false,
+            expand_latin_abbreviations: true,
+            expand_academic_abbreviations: true,
+            normalize_numbers: true,
+            normalize_urls: true,
+            normalize_math_symbols: true,
+            pdf_cleanup: true,
+            ..Default::default()
+        };
+        let input = "# Introduction\n\nThis is **bold** and *italic* with `code` and [link](https://example.com).";
+        let sentences = preprocess(input, Some(&cfg));
+        assert_eq!(
+            sentences,
+            vec!["This is bold and italic with code and link.".to_string()]
+        );
+    }
+
+    #[test]
+    fn preprocessor_fixtures_json() {
+        #[derive(serde::Deserialize)]
+        struct FixtureFile {
+            cases: Vec<FixtureCase>,
+        }
+        #[derive(serde::Deserialize)]
+        struct FixtureCase {
+            id: String,
+            input: Option<String>,
+            input_file: Option<String>,
+            config: Option<serde_json::Value>,
+            expected_sentences: Option<Vec<String>>,
+            expectations: Option<Expectations>,
+            must_not_contain: Option<Vec<String>>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Expectations {
+            #[serde(default)]
+            non_empty: bool,
+            min_sentences: Option<usize>,
+            contains_lower: Option<Vec<String>>,
+            must_not_contain: Option<Vec<String>>,
+            no_sentence_starts_with_hash: bool,
+        }
+
+        fn fixture_config(v: &serde_json::Value) -> PreprocessorConfig {
+            if v.is_null() || v.as_str() == Some("default") {
+                return PreprocessorConfig::default();
+            }
+            let mut cfg = PreprocessorConfig::default();
+            if let Some(obj) = v.as_object() {
+                macro_rules! set_bool {
+                    ($field:ident, $key:literal) => {
+                        if let Some(b) = obj.get($key).and_then(|x| x.as_bool()) {
+                            cfg.$field = b;
+                        }
+                    };
+                }
+                set_bool!(dedupe_mathjax_selection, "dedupe_mathjax_selection");
+                set_bool!(strip_markdown, "strip_markdown");
+                set_bool!(
+                    strip_numeric_bracket_citations,
+                    "strip_numeric_bracket_citations"
+                );
+                set_bool!(
+                    strip_parenthetical_citations,
+                    "strip_parenthetical_citations"
+                );
+                set_bool!(expand_latin_abbreviations, "expand_latin_abbreviations");
+                set_bool!(
+                    expand_academic_abbreviations,
+                    "expand_academic_abbreviations"
+                );
+                set_bool!(normalize_numbers, "normalize_numbers");
+                set_bool!(normalize_urls, "normalize_urls");
+                set_bool!(normalize_math_symbols, "normalize_math_symbols");
+                set_bool!(pdf_cleanup, "pdf_cleanup");
+                // Partial citation-only configs inherit Python test defaults (no abbreviation expansion).
+                let citation_only = obj
+                    .keys()
+                    .all(|k| k.contains("citation") || k.starts_with("strip_"));
+                if citation_only {
+                    cfg.expand_latin_abbreviations = false;
+                    cfg.expand_academic_abbreviations = false;
+                }
+            }
+            cfg
+        }
+
+        let raw = include_str!("../../tests/fixtures/preprocessor_fixtures.json");
+        let fixtures: FixtureFile = serde_json::from_str(raw).expect("parse fixtures");
+        for case in fixtures.cases {
+            let input = if let Some(s) = case.input {
+                s
+            } else if let Some(rel) = case.input_file {
+                let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("tests")
+                    .join(rel);
+                match std::fs::read_to_string(path) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                }
+            } else {
+                continue;
+            };
+            let cfg = case.config.as_ref().map(fixture_config).unwrap_or_default();
+            let sentences = preprocess(&input, Some(&cfg));
+
+            if let Some(expected) = case.expected_sentences {
+                if expected.len() == 1 {
+                    assert_eq!(
+                        sentences.join(" "),
+                        expected[0],
+                        "fixture {} mismatch",
+                        case.id
+                    );
+                } else {
+                    assert_eq!(sentences, expected, "fixture {} mismatch", case.id);
+                }
+            }
+            if let Some(must_not) = case.must_not_contain {
+                let joined = sentences.join(" ");
+                for needle in must_not {
+                    assert!(
+                        !joined.contains(&needle),
+                        "fixture {} must not contain {:?}",
+                        case.id,
+                        needle
+                    );
+                }
+            }
+            if let Some(exp) = case.expectations {
+                if exp.non_empty {
+                    assert!(!sentences.is_empty(), "fixture {} empty", case.id);
+                }
+                if let Some(min) = exp.min_sentences {
+                    assert!(
+                        sentences.len() >= min,
+                        "fixture {} needs >= {} sentences",
+                        case.id,
+                        min
+                    );
+                }
+                let joined_lower = sentences.join(" ").to_lowercase();
+                if let Some(needles) = exp.contains_lower {
+                    for n in needles {
+                        assert!(
+                            joined_lower.contains(&n),
+                            "fixture {} missing {:?}",
+                            case.id,
+                            n
+                        );
+                    }
+                }
+                if let Some(must_not) = exp.must_not_contain {
+                    let joined = sentences.join(" ");
+                    for needle in must_not {
+                        assert!(
+                            !joined.contains(&needle),
+                            "fixture {} must not contain {:?}",
+                            case.id,
+                            needle
+                        );
+                    }
+                }
+                if exp.no_sentence_starts_with_hash {
+                    for s in &sentences {
+                        assert!(
+                            !s.starts_with('#'),
+                            "fixture {} hash sentence: {:?}",
+                            case.id,
+                            s
+                        );
+                    }
+                }
+            }
+        }
     }
 }

@@ -21,7 +21,16 @@ if [[ -z "$APPIMAGE_PATH" ]]; then
   exit 2
 fi
 
-# Resolve glob if needed
+# Detect dummy tar-wrapper AppImages (must fail closed)
+if file "$APPIMAGE_PATH" 2>/dev/null | grep -qi 'shell script'; then
+  echo "error: refusing dummy shell-script AppImage: $APPIMAGE_PATH" >&2
+  exit 1
+fi
+if [[ -f "${APPIMAGE_PATH}.tar.gz" ]]; then
+  echo "error: refusing AppImage with dummy tar sidecar: ${APPIMAGE_PATH}.tar.gz" >&2
+  exit 1
+fi
+
 if [[ "$APPIMAGE_PATH" == *"*"* ]]; then
   # shellcheck disable=SC2206
   EXPANDED=($APPIMAGE_PATH)
@@ -84,14 +93,7 @@ else
       echo "Extracted to $WORKDIR/squashfs-root"
     else
       echo "error: --appimage-extract failed for $ABS_APPIMAGE" >&2
-      # Fallback: try tar extraction if it's a dummy tar wrapper
-      if [[ -f "$ABS_APPIMAGE.tar.gz" ]]; then
-        echo "Attempting tar fallback from $ABS_APPIMAGE.tar.gz"
-        mkdir -p squashfs-root
-        tar -xzf "$ABS_APPIMAGE.tar.gz" -C squashfs-root --strip-components=1 2>&1 | sed 's/^/  /' || tar -xzf "$ABS_APPIMAGE.tar.gz" -C squashfs-root 2>&1 | sed 's/^/  /' || true
-      else
-        exit 1
-      fi
+      exit 1
     fi
   else
     echo "error: AppImage not executable: $APPIMAGE_PATH" >&2
@@ -194,7 +196,8 @@ if ! QT_QPA_PLATFORM=offscreen run_version "$LEXALOUD_UI_BIN" "lexaloud-ui"; the
 fi
 set -e
 if [[ $VERSION_FAILED -ne 0 ]]; then
-  echo "warning: one or more --version checks failed; continuing to daemon checks (may be stub build)" >&2
+  echo "error: --version checks failed" >&2
+  exit 1
 fi
 echo
 
@@ -247,9 +250,9 @@ for i in $(seq 1 50); do
 done
 
 if [[ $SOCK_READY -eq 0 ]]; then
-  echo "  warning: socket not ready after 10s; daemon log:" >&2
+  echo "error: socket not ready after 10s; daemon log:" >&2
   cat "$DAEMON_LOG" 2>/dev/null | sed 's/^/    /' | head -100 >&2
-  echo "  note: daemon may be stub (not yet implementing UDS); attempting curl anyway" >&2
+  exit 1
 fi
 
 # Helper: curl over UDS or fallback via socat
@@ -315,14 +318,11 @@ fi
 
 # Check daemon logs for health
 if [[ $HEALTHZ_OK -eq 0 || $STATE_OK -eq 0 ]]; then
-  echo "  warning: /healthz or /state not both ok (healthz=$HEALTHZ_OK state=$STATE_OK)" >&2
-  echo "  daemon log head:" >&2
+  echo "error: /healthz or /state not both ok (healthz=$HEALTHZ_OK state=$STATE_OK)" >&2
   cat "$DAEMON_LOG" 2>/dev/null | sed 's/^/    /' | head -100 >&2
-  # Not fatal for stub build; but CI will enforce when daemon is real
-  echo "  note: UDS checks are informational for stub daemon; will be blocking when daemon is complete" >&2
-else
-  echo "  UDS checks: both ok"
+  exit 1
 fi
+echo "  UDS checks: both ok"
 
 # --- UI offscreen launch --------------------------------------------------
 echo

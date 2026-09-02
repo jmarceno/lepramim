@@ -1,58 +1,89 @@
-/// Phonemize stub: would call espeak-ng in real implementation.
-/// For now, simple mapping that logs and returns a pseudo-phoneme string for tests.
-pub fn phonemize(text: &str, lang: &str) -> Result<String, String> {
-    if text.trim().is_empty() {
-        return Err("empty text".to_string());
+use std::process::{Command, Stdio};
+use std::sync::Mutex;
+
+static ESPEAK_LOCK: Mutex<()> = Mutex::new(());
+
+/// Map Lexaloud lang codes to espeak-ng voice names.
+fn espeak_voice(lang: &str) -> &str {
+    match lang {
+        "en-gb" => "en-gb",
+        "es" => "es",
+        "fr-fr" | "fr" => "fr",
+        "hi" => "hi",
+        "it" => "it",
+        "ja" => "ja",
+        "pt-br" => "pt-br",
+        "zh" => "cmn",
+        _ => "en-us",
     }
-    // Check if espeak-ng is available
-    let espeak = which_espeak();
-    if let Some(path) = espeak {
-        tracing::debug!("phonemize using {} for lang {}", path, lang);
-        // In real impl, we'd spawn espeak-ng --pho --ipa etc.
-        // For stub, just return lowercased text with phoneme markers
-        return Ok(text.to_lowercase());
-    }
-    // Fallback: simple ascii mapping
-    tracing::warn!(
-        "espeak-ng not found; using stub phonemizer for lang {}",
-        lang
-    );
-    Ok(text
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphabetic() {
-                c.to_ascii_lowercase()
-            } else {
-                c
-            }
-        })
-        .collect())
 }
 
 fn which_espeak() -> Option<String> {
-    for dir in std::env::var("PATH").unwrap_or_default().split(':') {
-        let p = std::path::Path::new(dir).join("espeak-ng");
-        if p.is_file() {
-            return Some(p.to_string_lossy().to_string());
+    if let Ok(lib) = std::env::var("PHONEMIZER_ESPEAK_LIBRARY") {
+        if std::path::Path::new(&lib).is_file() {
+            return Some(lib);
         }
-        let p2 = std::path::Path::new(dir).join("espeak");
-        if p2.is_file() {
-            return Some(p2.to_string_lossy().to_string());
+    }
+    for dir in std::env::var("PATH").unwrap_or_default().split(':') {
+        for name in ["espeak-ng", "espeak"] {
+            let p = std::path::Path::new(dir).join(name);
+            if p.is_file() {
+                return Some(p.to_string_lossy().to_string());
+            }
         }
     }
     None
 }
 
+/// Phonemize text to IPA using espeak-ng (matches kokoro-onnx phonemizer path).
+pub fn phonemize(text: &str, lang: &str) -> Result<String, String> {
+    let t = text.trim();
+    if t.is_empty() {
+        return Err("empty text".to_string());
+    }
+    let exe = which_espeak().ok_or_else(|| {
+        "espeak-ng not found; install espeak-ng or set PHONEMIZER_ESPEAK_LIBRARY".to_string()
+    })?;
+    let voice = espeak_voice(lang);
+    let _guard = ESPEAK_LOCK.lock().map_err(|e| e.to_string())?;
+    let output = Command::new(&exe)
+        .arg("-v")
+        .arg(voice)
+        .arg("--ipa")
+        .arg("-q")
+        .arg("--stdout")
+        .arg(t)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("espeak-ng failed to start: {e}"))?;
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("espeak-ng exited {}: {err}", output.status));
+    }
+    let ipa = String::from_utf8_lossy(&output.stdout).to_string();
+    let ipa = ipa.trim().to_string();
+    if ipa.is_empty() {
+        return Err("espeak-ng returned empty phoneme string".to_string());
+    }
+    Ok(ipa)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn phonemize_basic() {
-        let p = phonemize("Hello world", "en-us").unwrap();
-        assert!(!p.is_empty());
-    }
+
     #[test]
     fn phonemize_empty_fails() {
         assert!(phonemize("", "en-us").is_err());
+    }
+
+    #[test]
+    fn phonemize_basic_when_espeak_available() {
+        if which_espeak().is_none() {
+            return;
+        }
+        let p = phonemize("Hello", "en-us").unwrap();
+        assert!(!p.is_empty());
     }
 }
