@@ -1,15 +1,17 @@
 //! StatusNotifier tray via ksni (no GTK). The app must not start without a tray.
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use ksni::menu::{CheckmarkItem, MenuItem, StandardItem};
 use ksni::{Handle, Tray, TrayService};
 
 use super::tray_state::{
     MENU_AUTOSTART, MENU_CONTROL, MENU_CPU_FALLBACK, MENU_PAUSE, MENU_QUIT, MENU_SHORTCUT,
-    MENU_SPEAK, MENU_STOP,
+    MENU_SPEAK, MENU_STOP, TrayIconPhase, tray_icon_mix,
 };
 use crate::ui::icon;
 
@@ -27,6 +29,9 @@ pub enum TrayEvent {
 #[derive(Debug, Clone)]
 pub struct TraySharedState {
     pub icon_running: bool,
+    pub icon_phase: TrayIconPhase,
+    /// Written by the breath thread while `icon_phase == Preparing`.
+    pub breath_mix: f32,
     pub tooltip: String,
     pub toggle_label: String,
     pub speak_enabled: bool,
@@ -41,6 +46,8 @@ impl Default for TraySharedState {
     fn default() -> Self {
         Self {
             icon_running: false,
+            icon_phase: TrayIconPhase::Idle,
+            breath_mix: 0.0,
             tooltip: "Lexaloud: stopped".into(),
             toggle_label: "Start daemon".into(),
             speak_enabled: false,
@@ -60,6 +67,13 @@ struct LexaloudTray {
 impl LexaloudTray {
     fn send(&self, ev: TrayEvent) {
         let _ = self.tx.send(ev);
+    }
+
+    fn icon_mix(&self) -> f32 {
+        if !self.state.icon_running {
+            return 0.0;
+        }
+        tray_icon_mix(self.state.icon_phase, self.state.breath_mix)
     }
 }
 
@@ -81,7 +95,7 @@ impl Tray for LexaloudTray {
     }
 
     fn icon_pixmap(&self) -> Vec<ksni::Icon> {
-        icon::render_tray_icon_argb32(self.state.icon_running)
+        icon::render_tray_icon_argb32_with_mix(self.state.icon_running, self.icon_mix())
             .into_iter()
             .collect()
     }
@@ -179,10 +193,12 @@ impl Tray for LexaloudTray {
 pub struct TrayHandle {
     pub rx: Receiver<TrayEvent>,
     handle: Handle<LexaloudTray>,
+    breath_stop: Arc<AtomicBool>,
 }
 
 impl Drop for TrayHandle {
     fn drop(&mut self) {
+        self.breath_stop.store(true, Ordering::Relaxed);
         self.handle.shutdown();
     }
 }
@@ -219,12 +235,45 @@ impl TrayHandle {
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
         }
 
-        Ok(Self { rx, handle })
+        let breath_stop = Arc::new(AtomicBool::new(false));
+        let breath_handle = handle.clone();
+        let breath_flag = Arc::clone(&breath_stop);
+        thread::Builder::new()
+            .name("lexaloud-tray-breath".into())
+            .spawn(move || tray_breath_loop(breath_handle, breath_flag))
+            .map_err(|e| format!("failed to start tray breath thread: {e}"))?;
+
+        Ok(Self {
+            rx,
+            handle,
+            breath_stop,
+        })
     }
 
     pub fn update(&self, state: &TraySharedState) {
         self.handle.update(|tray| {
+            let keep_mix = tray.state.breath_mix;
             tray.state = state.clone();
+            if tray.state.icon_phase == TrayIconPhase::Preparing {
+                tray.state.breath_mix = keep_mix;
+            }
+        });
+    }
+}
+
+fn tray_breath_loop(handle: Handle<LexaloudTray>, stop: Arc<AtomicBool>) {
+    let start = Instant::now();
+    while !stop.load(Ordering::Relaxed) {
+        thread::sleep(Duration::from_millis(100));
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        let t = start.elapsed().as_secs_f32();
+        let mix = 0.5 * (1.0 + (std::f32::consts::TAU * t / 2.0).sin());
+        handle.update(|tray| {
+            if tray.state.icon_running && tray.state.icon_phase == TrayIconPhase::Preparing {
+                tray.state.breath_mix = mix;
+            }
         });
     }
 }

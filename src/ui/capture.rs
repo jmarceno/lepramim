@@ -304,24 +304,23 @@ pub fn capture_highlighted_text() -> SelectionCapture {
     resolve_capture("", &before, &after)
 }
 
-pub fn speak_captured_selection() {
-    let cap = capture_highlighted_text();
-    if cap.text.is_empty() {
-        crate::platform::notifications::try_notify(
-            "Select text first",
-            Some("Lexaloud could not capture a selection. Copy the text (Ctrl+C) and try again."),
-            3.0,
-        );
-        return;
-    }
-    if cap.truncated {
-        crate::platform::notifications::try_notify(
-            "Selection truncated",
-            Some("Lexaloud captured the first part of a larger selection."),
-            3.0,
-        );
-    }
-    let r = crate::ui::client::post_speak(&cap.text, "replace");
+pub fn notify_empty_selection() {
+    crate::platform::notifications::try_notify(
+        "Select text first",
+        Some("Lexaloud could not capture a selection. Copy the text (Ctrl+C) and try again."),
+        3.0,
+    );
+}
+
+pub fn notify_truncated_selection() {
+    crate::platform::notifications::try_notify(
+        "Selection truncated",
+        Some("Lexaloud captured the first part of a larger selection."),
+        3.0,
+    );
+}
+
+pub fn notify_speak_result(r: &crate::ui::client::ApiResult) {
     if r.is_daemon_down() {
         crate::platform::notifications::try_notify(
             "Lexaloud",
@@ -335,6 +334,19 @@ pub fn speak_captured_selection() {
             3.0,
         );
     }
+}
+
+pub fn speak_captured_selection() {
+    let cap = capture_highlighted_text();
+    if cap.text.is_empty() {
+        notify_empty_selection();
+        return;
+    }
+    if cap.truncated {
+        notify_truncated_selection();
+    }
+    let r = crate::ui::client::post_speak(&cap.text, "replace");
+    notify_speak_result(&r);
 }
 
 pub fn toggle_playback() {

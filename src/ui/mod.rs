@@ -19,11 +19,11 @@ use iced::{Alignment, Element, Length, Subscription, Task, Theme, window};
 
 use crate::config::Config;
 use crate::models;
-use crate::ui::capture::{speak_captured_selection, toggle_playback};
+use crate::ui::capture::{toggle_playback, SelectionCapture};
 use crate::ui::client::ApiResult;
 use crate::ui::hotkeys::{HotkeyEvent, HotkeyManager};
 use crate::ui::tray_service::{TrayEvent, TrayHandle, TraySharedState};
-use crate::ui::tray_state::tray_state_for_daemon;
+use crate::ui::tray_state::{tray_icon_phase, tray_state_for_daemon, TrayIconPhase};
 use crate::ui::voices::{
     ControlForm, KOKORO_VOICES, LANGUAGES, speed_from_slider, speed_hint_for_value,
 };
@@ -64,6 +64,7 @@ struct DownloadProgress {
 enum Message {
     Tick,
     OverlayTick,
+    PlaybackPoll,
     Tray(TrayEvent),
     Hotkey(HotkeyEvent),
     DaemonSpawned(Result<(), String>),
@@ -104,6 +105,8 @@ enum Message {
     SurfaceOpened(window::Id),
     WindowClosed(window::Id),
     SpeakNow,
+    SelectionCaptured(SelectionCapture),
+    SelectionPosted(Result<ApiResult, ()>),
     Quit,
     ShowWarning(String),
     CloseWarning,
@@ -131,6 +134,7 @@ struct App {
     download_progress: DownloadProgress,
     warning_text: Option<String>,
     quit_requested: bool,
+    preparing_speech: bool,
 }
 
 impl App {
@@ -171,11 +175,29 @@ impl App {
             },
             warning_text: None,
             quit_requested: false,
+            preparing_speech: false,
         }
     }
 
     fn refresh_tray(&self) {
         self.tray.update(&self.tray_state);
+    }
+
+    fn set_preparing_speech(&mut self, preparing: bool) {
+        self.preparing_speech = preparing;
+        if !self.tray_state.icon_running {
+            return;
+        }
+        let icon_phase = tray_icon_phase(
+            &self.playback.state,
+            self.preparing_speech,
+            &self.playback.current_sentence,
+        );
+        self.tray_state.icon_phase = icon_phase;
+        if icon_phase != TrayIconPhase::Preparing {
+            self.tray_state.breath_mix = 0.0;
+        }
+        self.refresh_tray();
     }
 
     fn apply_playback(&mut self, active: bool, state_str: &str) {
@@ -185,18 +207,35 @@ impl App {
                 .session_providers
                 .iter()
                 .any(|p| p.contains("CUDA"));
-        self.tray_state = {
-            let s = tray_state_for_daemon(state_str, active, cpu_fallback);
-            TraySharedState {
-                icon_running: s.icon_running,
-                tooltip: s.tooltip,
-                toggle_label: s.toggle_label,
-                speak_enabled: s.speak_enabled,
-                pause_enabled: s.pause_enabled,
-                stop_enabled: s.stop_enabled,
-                autostart_checked: crate::platform::service::autostart_path().is_file(),
-                cpu_fallback: s.cpu_fallback,
-            }
+        let s = tray_state_for_daemon(state_str, active, cpu_fallback);
+        let icon_phase = if s.icon_running {
+            tray_icon_phase(
+                state_str,
+                self.preparing_speech,
+                &self.playback.current_sentence,
+            )
+        } else {
+            TrayIconPhase::Idle
+        };
+        if icon_phase == TrayIconPhase::Speaking {
+            self.preparing_speech = false;
+        }
+        let breath_mix = if icon_phase == TrayIconPhase::Preparing {
+            self.tray_state.breath_mix
+        } else {
+            0.0
+        };
+        self.tray_state = TraySharedState {
+            icon_running: s.icon_running,
+            icon_phase,
+            breath_mix,
+            tooltip: s.tooltip,
+            toggle_label: s.toggle_label,
+            speak_enabled: s.speak_enabled,
+            pause_enabled: s.pause_enabled,
+            stop_enabled: s.stop_enabled,
+            autostart_checked: crate::platform::service::autostart_path().is_file(),
+            cpu_fallback: s.cpu_fallback,
         };
         self.refresh_tray();
     }
@@ -406,6 +445,21 @@ fn spawn_daemon_task(daemon_child: Arc<Mutex<Option<std::process::Child>>>) -> T
     Task::perform(spawn_daemon_async(daemon_child), Message::DaemonSpawned)
 }
 
+fn poll_daemon_state() -> Task<Message> {
+    Task::perform(async { client::get_healthz() }, |r| {
+        if r.is_success() {
+            Message::StatePolled(Ok(client::get_state()))
+        } else {
+            Message::StatePolled(Ok(ApiResult {
+                status_code: 0,
+                json: serde_json::json!({ "state": "idle" }),
+                error: String::new(),
+                raw_body: Vec::new(),
+            }))
+        }
+    })
+}
+
 fn update(app: &mut App, message: Message) -> Task<Message> {
     match message {
         Message::InputPoll => {
@@ -442,25 +496,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                     }
                 }
             }
-            let poll = Task::perform(async { client::get_healthz() }, |r| {
-                let active = r.is_success();
-                let state = if active {
-                    client::get_state()
-                        .json
-                        .get("state")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("idle")
-                        .to_string()
-                } else {
-                    String::new()
-                };
-                Message::StatePolled(Ok(ApiResult {
-                    status_code: if active { 200 } else { 0 },
-                    json: serde_json::json!({ "state": state }),
-                    error: String::new(),
-                    raw_body: Vec::new(),
-                }))
-            });
+            let poll = poll_daemon_state();
             Task::batch([pending, poll])
         }
         Message::OverlayTick => {
@@ -472,6 +508,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 Message::OverlayPolled(Ok(r))
             })
         }
+        Message::PlaybackPoll => poll_daemon_state(),
         Message::Tray(ev) => {
             let task = handle_tray(app, ev);
             if app.quit_requested {
@@ -634,16 +671,21 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::SettingsApplied(Err(_)) => Task::none(),
-        Message::TestSpeak => Task::perform(
-            async { client::post_speak("Hello from Lexaloud. This is a test.", "replace") },
-            |r| Message::TestSpeakDone(Ok(r)),
-        ),
+        Message::TestSpeak => {
+            app.set_preparing_speech(true);
+            Task::perform(
+                async { client::post_speak("Hello from Lexaloud. This is a test.", "replace") },
+                |r| Message::TestSpeakDone(Ok(r)),
+            )
+        }
         Message::TestSpeakDone(Ok(r)) if r.is_success() => {
             app.control_form.status = "Test speak sent.".into();
             Task::none()
         }
         Message::TestSpeakDone(Ok(r)) => {
+            app.set_preparing_speech(false);
             app.control_form.status = format!("Test speak failed: {}", r.error);
+            capture::notify_speak_result(&r);
             Task::none()
         }
         Message::TestSpeakDone(Err(_)) => Task::none(),
@@ -788,8 +830,34 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             }
             window::change_mode(id, window::Mode::Hidden)
         }
-        Message::SpeakNow => {
-            speak_captured_selection();
+        Message::SpeakNow => Task::perform(
+            async { crate::ui::capture::capture_highlighted_text() },
+            Message::SelectionCaptured,
+        ),
+        Message::SelectionCaptured(cap) => {
+            if cap.text.is_empty() {
+                crate::ui::capture::notify_empty_selection();
+                return Task::none();
+            }
+            if cap.truncated {
+                crate::ui::capture::notify_truncated_selection();
+            }
+            app.set_preparing_speech(true);
+            let text = cap.text;
+            Task::perform(
+                async move { client::post_speak(&text, "replace") },
+                |r| Message::SelectionPosted(Ok(r)),
+            )
+        }
+        Message::SelectionPosted(Ok(r)) => {
+            if !r.is_success() || r.is_daemon_down() {
+                app.set_preparing_speech(false);
+                capture::notify_speak_result(&r);
+            }
+            Task::none()
+        }
+        Message::SelectionPosted(Err(_)) => {
+            app.set_preparing_speech(false);
             Task::none()
         }
         Message::WindowClosed(id) => {
@@ -936,8 +1004,16 @@ fn subscription(app: &App) -> Subscription<Message> {
     } else {
         Subscription::none()
     };
+    let playback_watch = if app.preparing_speech
+        || app.playback.state == "speaking"
+        || app.playback.state == "paused"
+    {
+        time::every(Duration::from_millis(200)).map(|_| Message::PlaybackPoll)
+    } else {
+        Subscription::none()
+    };
     let opened = window::open_events().map(Message::SurfaceOpened);
-    Subscription::batch([tick, input, overlay, opened])
+    Subscription::batch([tick, input, overlay, playback_watch, opened])
 }
 
 fn title(app: &App, id: window::Id) -> String {

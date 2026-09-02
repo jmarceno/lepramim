@@ -237,6 +237,9 @@ enum AudioCmd {
     Stop {
         reply: mpsc::Sender<Result<(), String>>,
     },
+    BufferStatus {
+        reply: mpsc::Sender<Result<(usize, u32), String>>,
+    },
     Shutdown,
 }
 
@@ -304,6 +307,10 @@ impl PlaybackState {
         } else {
             0.0
         }
+    }
+
+    fn remaining_samples(&self) -> usize {
+        self.pending.len().saturating_sub(self.read_pos)
     }
 }
 
@@ -508,6 +515,13 @@ fn run_audio_thread(rx: mpsc::Receiver<AudioCmd>) {
                 }
                 let _ = reply.send(Ok(()));
             }
+            AudioCmd::BufferStatus { reply } => {
+                let res = playback
+                    .lock()
+                    .map(|pb| (pb.remaining_samples(), pb.device_sample_rate.max(1)))
+                    .map_err(|e| e.to_string());
+                let _ = reply.send(res);
+            }
             AudioCmd::Shutdown => break,
         }
     }
@@ -520,6 +534,15 @@ fn send_cmd(
 ) -> Result<(), String> {
     let (reply_tx, reply_rx) = mpsc::channel();
     tx.send(build(reply_tx))
+        .map_err(|e| format!("audio thread gone: {e}"))?;
+    reply_rx
+        .recv()
+        .map_err(|e| format!("audio thread reply failed: {e}"))?
+}
+
+fn send_cmd_status(tx: &mpsc::Sender<AudioCmd>) -> Result<(usize, u32), String> {
+    let (reply_tx, reply_rx) = mpsc::channel();
+    tx.send(AudioCmd::BufferStatus { reply: reply_tx })
         .map_err(|e| format!("audio thread gone: {e}"))?;
     reply_rx
         .recv()
@@ -604,6 +627,33 @@ impl AudioSink for CpalSink {
     }
 
     async fn end_stream(&mut self) -> Result<(), String> {
+        // Writes only enqueue into the CPAL callback buffer. Stay in this call
+        // until those samples have actually been played, so player state (and
+        // the tray icon) do not go idle while speech is still audible.
+        let (remaining, rate) = send_cmd_status(&self.tx)?;
+        if remaining == 0 {
+            return Ok(());
+        }
+        let deadline = std::time::Instant::now()
+            + std::time::Duration::from_secs_f64(remaining as f64 / f64::from(rate) + 3.0);
+        let mut last = remaining;
+        let mut stagnant = 0u32;
+        while std::time::Instant::now() < deadline {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            let (left, _) = send_cmd_status(&self.tx)?;
+            if left == 0 {
+                return Ok(());
+            }
+            if left >= last {
+                stagnant += 1;
+                if stagnant >= 40 {
+                    break;
+                }
+            } else {
+                stagnant = 0;
+            }
+            last = left;
+        }
         Ok(())
     }
 
@@ -655,6 +705,19 @@ mod tests {
         assert_eq!(sink.written_files.len(), 1);
         assert!(sink.written_files[0].exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn remaining_samples_tracks_unread_buffer() {
+        let mut pb = PlaybackState {
+            pending: vec![1.0, 2.0, 3.0],
+            read_pos: 0,
+            stream_sample_rate: 24_000,
+            device_sample_rate: 24_000,
+        };
+        assert_eq!(pb.remaining_samples(), 3);
+        let _ = pb.pop_sample();
+        assert_eq!(pb.remaining_samples(), 2);
     }
 
     #[test]

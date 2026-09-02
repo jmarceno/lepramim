@@ -1,5 +1,39 @@
 //! Tray state machine (ported from Qt `tray.cpp`).
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrayIconPhase {
+    Idle,
+    Preparing,
+    Speaking,
+}
+
+/// Resolve tray icon phase from daemon playback state and local preparing flag.
+///
+/// `speaking` without a current sentence is still synthesis / queueing, not
+/// audible playback — keep the preparing (breath) look until a sentence starts.
+pub fn tray_icon_phase(
+    state_str: &str,
+    preparing_speech: bool,
+    current_sentence: &str,
+) -> TrayIconPhase {
+    match state_str {
+        "paused" => TrayIconPhase::Speaking,
+        "speaking" if !current_sentence.is_empty() => TrayIconPhase::Speaking,
+        "speaking" => TrayIconPhase::Preparing,
+        _ if preparing_speech => TrayIconPhase::Preparing,
+        _ => TrayIconPhase::Idle,
+    }
+}
+
+/// Map phase (+ breath animation mix) to blue↔green interpolation.
+pub fn tray_icon_mix(phase: TrayIconPhase, breath_mix: f32) -> f32 {
+    match phase {
+        TrayIconPhase::Idle => 0.0,
+        TrayIconPhase::Preparing => breath_mix.clamp(0.0, 1.0),
+        TrayIconPhase::Speaking => 1.0,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrayActionState {
     pub speak_enabled: bool,
@@ -113,5 +147,53 @@ mod tests {
         assert!(s.cpu_fallback);
         let hidden = tray_state_for_daemon("idle", false, true);
         assert!(!hidden.cpu_fallback);
+    }
+
+    #[test]
+    fn icon_phase_idle_while_preparing_false() {
+        assert_eq!(tray_icon_phase("idle", false, ""), TrayIconPhase::Idle);
+    }
+
+    #[test]
+    fn icon_phase_preparing_while_idle_and_flag_set() {
+        assert_eq!(
+            tray_icon_phase("idle", true, ""),
+            TrayIconPhase::Preparing
+        );
+    }
+
+    #[test]
+    fn icon_phase_speaking_without_sentence_stays_preparing() {
+        assert_eq!(
+            tray_icon_phase("speaking", true, ""),
+            TrayIconPhase::Preparing
+        );
+        assert_eq!(
+            tray_icon_phase("speaking", false, ""),
+            TrayIconPhase::Preparing
+        );
+    }
+
+    #[test]
+    fn icon_phase_speaking_with_sentence_is_solid_green() {
+        assert_eq!(
+            tray_icon_phase("speaking", true, "Hello."),
+            TrayIconPhase::Speaking
+        );
+    }
+
+    #[test]
+    fn icon_phase_paused_is_speaking() {
+        assert_eq!(
+            tray_icon_phase("paused", false, ""),
+            TrayIconPhase::Speaking
+        );
+    }
+
+    #[test]
+    fn icon_mix_by_phase() {
+        assert_eq!(tray_icon_mix(TrayIconPhase::Idle, 0.8), 0.0);
+        assert_eq!(tray_icon_mix(TrayIconPhase::Speaking, 0.2), 1.0);
+        assert!((tray_icon_mix(TrayIconPhase::Preparing, 0.42) - 0.42).abs() < f32::EPSILON);
     }
 }
