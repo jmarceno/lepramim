@@ -20,13 +20,13 @@ workable alternative is:
 That sentence describes the happy path. Every other design choice is
 downstream of making it robust.
 
-## Why a FastAPI daemon, not a library or a script?
+## Why a native daemon, not a library or a script?
 
 A CLI-only design would face three blocking problems:
 
-1. **Model load cost**: Kokoro's first `create()` after
-   `InferenceSession` construction takes ~30 seconds on an RTX 5080
-   because CUDA kernels are JIT-compiled on first use. A hotkey
+1. **Model load cost**: Kokoro's first synthesis after
+   session construction takes ~30 seconds on an RTX 5080
+   because kernels are compiled on first use. A hotkey
    workflow that pays this cost every time is unusable. A daemon
    amortizes it across the whole session.
 
@@ -36,35 +36,28 @@ A CLI-only design would face three blocking problems:
    per-invocation subprocess — the subprocess has no durable state to
    cancel.
 
-3. **GNOME hotkey ergonomics**: GNOME Custom Shortcuts fork a fresh
+3. **Hotkey ergonomics**: GNOME Custom Shortcuts fork a fresh
    subprocess per keystroke. That subprocess must exit cleanly, fast.
-   Putting the audio loop inside the subprocess would hang the GNOME
-   keygrab until audio finishes, which destroys the point.
+   Putting the audio loop inside the subprocess would hang the keygrab until audio finishes.
 
 So we have a daemon that owns all the expensive state, and a thin CLI
-that speaks HTTP to it.
+that speaks HTTP to it over a Unix socket.
 
-## Why HTTP at all? Why not a bespoke socket protocol?
+## Why HTTP over UDS? Why not a bespoke socket protocol?
 
-- **FastAPI + httpx give us well-tested JSON, timeouts, and error
+- **Axum + native client give us well-tested JSON, timeouts, and error
   handling** for free.
-- **The daemon can be curl'd** during debugging — no custom client
+- **The daemon can be curl'd or socat'd** during debugging — no custom client
   needed to poke `/state`.
-- **`httpx.HTTPTransport(uds=)` on the CLI side** means we get all the
-  HTTP niceness over a Unix domain socket, closing the attack surface
+- **HTTP over Unix socket** means we get all the HTTP niceness over a Unix domain socket, closing the attack surface
   without rewriting the protocol.
 
 ## Why Unix domain socket instead of TCP loopback?
 
-The pre-rename daemon bound `127.0.0.1:5487`. Switching to UDS closes
-two risks:
-
-- **Local unprivileged attacker**: any process running as the same
-  user can send `/speak` requests to a loopback port. Low severity
-  (the most they can do is waste your CPU/GPU), but unnecessary.
-- **Misconfigured `host`**: `DaemonConfig.host` was a user-editable
-  field that could bind 0.0.0.0 if a user edited `config.toml`
-  without reading the docs. UDS eliminates the footgun entirely.
+The daemon binds `$XDG_RUNTIME_DIR/lexaloud/lexaloud.sock` via
+systemd's `RuntimeDirectory=lexaloud` + `RuntimeDirectoryMode=0700`.
+Only the owner user's processes can reach it. There's no port to
+firewall, no cross-user attack surface.
 
 The systemd user unit uses `RuntimeDirectory=lexaloud` +
 `RuntimeDirectoryMode=0700`, so `$XDG_RUNTIME_DIR/lexaloud/` is
@@ -83,9 +76,8 @@ Three alternatives were considered:
    job finishes.
 
 2. **Sample-granularity streaming** — emit audio samples as they're
-   produced. Kokoro doesn't work this way: `create()` returns the
-   whole sentence as a numpy array, not a generator. We'd have to
-   monkey-patch the model interface.
+   produced. Kokoro doesn't work this way: synthesis returns the
+   whole sentence as an audio buffer, not a stream.
 
 3. **Sentence-granularity streaming** (chosen) — split the text into
    sentences, synthesize each in the background, play them in order
@@ -100,79 +92,49 @@ keeping the synthesis pipeline at sentence granularity.
 
 ## Why a bounded ready queue?
 
-`asyncio.Queue(maxsize=3)` between the producer and the consumer is
+Bounded channel (`capacity 3`) between the producer and the consumer is
 what makes "pause for 15 minutes mid-article, then resume" work
 without unbounded memory. When the consumer stops pulling, the
-producer blocks on `put()` after 3 chunks have queued. Memory during a
+producer blocks on send after 3 chunks have queued. Memory during a
 long pause is bounded at 3 sentences of audio + 1 in-flight synthesis
 result.
 
-## Why onnxruntime-gpu with CUDA EP, not some other inference backend?
+## Why ONNX Runtime with CUDA EP, not some other inference backend?
 
-Spike 0 tried four install shapes on the target Ubuntu 24.04 + RTX
-5080 machine:
+The native provider uses ONNX Runtime directly (linked via the `ort` crate or
+system lib). The install detects NVIDIA via `nvidia-smi`; if present, the
+session is built with CUDA EP, otherwise CPU. Silent fallback is detected
+via `session_providers` in `/state`.
 
-1. `pip install kokoro-onnx` → CPU only.
-2. `pip install kokoro-onnx[gpu]` → installs BOTH `onnxruntime` and
-   `onnxruntime-gpu`, which silently shadow each other because they
-   share the `onnxruntime/` package directory. Result: a session that
-   reports `['CPUExecutionProvider']` even though `onnxruntime-gpu` is
-   on disk.
-3. `pip install onnxruntime-gpu && pip install --no-deps kokoro-onnx`
-   → works IF and only if `onnxruntime.preload_dlls(cuda=True,
-   cudnn=True)` is called before session construction. Otherwise
-   session construction silently falls back to CPU, with only a
-   stderr warning.
-4. System-wide CUDA 12.8 install → too brittle for a side project.
+## Why pinned lockfiles and toolchain?
 
-The production install is (3), with two layers of defense:
-- `scripts/install.sh` refuses to proceed if both `onnxruntime` and
-  `onnxruntime-gpu` are already in the venv.
-- `assert_onnxruntime_environment()` in `src/lexaloud/models.py`
-  checks the same at daemon startup.
+`Cargo.lock` is committed for reproducible builds; `cargo build --locked`
+enforces exact dependencies. The toolchain is pinned to Rust 1.85 via
+`rust-toolchain.toml` and `Cargo.toml` `rust-version`. Qt 6.4+ is the minimum
+supported, as provided by Ubuntu 24.04 LTS.
 
-The exact failure modes and workarounds are documented in
-`spikes/spike0_results.md` for posterity.
+## Why sentence segmentation with custom rules + pulldown-cmark?
 
-## Why pinned lockfiles?
+The preprocessor uses a markdown-aware pipeline (pulldown-cmark) paired
+with custom normalization: academic abbreviations, number-to-words, URL/email
+handling, and Unicode math symbol expansion. It's tuned for academic prose
+including citations and math.
 
-`requirements-lock.cuda12.txt` and `requirements-lock.cpu.txt` pin
-every transitive dependency to a specific version. Without this, pip
-resolution on the user's machine can pull in a kokoro-onnx or
-onnxruntime update that changes the silent-fallback behavior, and the
-user has no way to debug it.
+## Why Qt 6 instead of GTK?
 
-The morning-checklist for the release includes regenerating both
-lockfiles with `--generate-hashes` for supply-chain integrity, but the
-initial public release ships with unhashed pins because the audit
-flagged hash regeneration of ~90 packages as potentially surfacing
-transitive bugs that need human judgment.
-
-## Why sentence segmentation with pysbd?
-
-`pysbd` is a pure-Python sentence boundary detector tuned for academic
-prose (including citations like `(Smith 2023)` and Latin
-abbreviations like `i.e.`). It's MIT-licensed and has no C extensions.
-We pair it with a small custom preprocessor that handles PDF-specific
-issues (hyphenation across line breaks, repeated whitespace, etc.).
-
-## Why Qt (PySide6) instead of GTK?
-
-- **Qt's `QSystemTrayIcon`** speaks the StatusNotifierItem DBus
-  protocol out of the box, which GNOME (via the AppIndicator
+- **Qt's `QSystemTrayIcon` + `QSystemTrayIcon::isSystemTrayAvailable()`** speaks the StatusNotifierItem protocol out of the box, which GNOME (via the AppIndicator
   extension), KDE, XFCE, Cinnamon, and MATE all support — one code
   path for every tray.
-- **PySide6 ships inside the package and the AppImage.** The GTK
-  approach required the host's `python3-gi` and `gir1.2-*` typelib
-  packages (and a `sys.path` hack to reach them from inside the venv).
-  Qt removes that whole class of broken-install reports.
+- **Qt 6 ships as native C++** — no runtime interpreter needed. The AppImage bundles
+  only the needed Qt plugins (platform, imageformats, iconengines) via an allowlist,
+  keeping size controlled.
 - **GTK4** dropped AppIndicator support, and writing a GNOME Shell
   extension to replace the tray is a much larger scope.
-- **Licensing**: PySide6 is LGPL, which permits proprietary and
-  commercial redistribution of the AppImage.
+- **Licensing**: Qt 6 is LGPLv3 / GPLv3, which permits distribution with
+  proper attribution; see `THIRD_PARTY_LICENSES.md`.
 
-The trade-off is bundle size: the AppImage grows by roughly 100 MB to
-carry the Qt runtime.
+The trade-off is bundle size: the AppImage grows to carry the Qt runtime,
+but native system installs use the host Qt.
 
 ## Why no overlay / karaoke / browser extension?
 
@@ -183,25 +145,18 @@ each requires design work the maintainer wants to do right, not fast:
   compositor-dependent (Wayland layer protocol + X11 override-redirect
   + Mutter quirks). Getting this right takes a dedicated spike.
 - **Karaoke word-level**: Kokoro doesn't expose word timings. A forced
-  aligner (e.g., `whisper-timestamped` or `mfa`) has its own model,
-  licensing, and integration work.
+  aligner has its own model, licensing, and integration work.
 - **Browser extension**: three store listings, cross-origin messaging,
-  Manifest v3, clipboard vs. selection API differences. A separate
-  project that happens to talk to the Lexaloud daemon.
+  Manifest v3, clipboard vs. selection API differences.
 
 See `ROADMAP.md` for the full deferred list.
 
 ## What would you change if you were starting over?
 
-- **Don't use kokoro-onnx[gpu] extras at all** — the
-  `pip install kokoro-onnx[gpu]` syntax looks natural but produces the
-  broken coexistence state. The install shape should be explicit.
-- **Settle on UDS from day one.** The TCP loopback design left
-  cobwebs (the `DaemonConfig.host/port` fields) that took a dedicated
-  migration commit to clean up.
+- **Settle on UDS from day one.** Early TCP loopback designs left
+  config fields that took a migration to clean up.
 - **Start with the distro-neutral installer.** Hardcoding apt made
-  Tier 2 support (Fedora / Arch) a bigger rewrite than it should have
-  been.
+  Tier 2 support (Fedora / Arch) a bigger rewrite.
 
 Most of this document is "here's what I'd tell v0-me". Lexaloud itself
 is small enough that you can read all of it in an afternoon — the

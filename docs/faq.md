@@ -28,17 +28,15 @@ sentence replace the content with a SHA-1 fingerprint + length, so
 
 ## Can I use a different TTS backend?
 
-Not in v0.1.0. The `SpeechProvider` protocol (see
-`src/lexaloud/providers/base.py`) is designed to support multiple
-backends — additional providers (Piper, Chatterbox, etc.) are on the
+Not in v0.1.0. The provider trait in Rust (`src/tts/`) is designed to support multiple
+backends — additional providers (Piper, etc.) are on the
 v0.2+ roadmap.
 
-## Why not pip install?
+## Why not a simple install command?
 
-`pip install lexaloud` won't give you a working installation because
-the TTS stack requires a specific `kokoro-onnx` + `onnxruntime-gpu`
-install sequence that can't be expressed in a single `pip install`.
-`scripts/install.sh` is the only supported install path for v0.1.x.
+The native build requires a Rust toolchain and Qt for source installs;
+the AppImage avoids that by bundling. `scripts/install.sh` handles both paths
+and is the supported entry point. See `README.md` for the commands.
 
 ## Why no mid-sentence pause?
 
@@ -47,7 +45,7 @@ Kokoro synthesizes one sentence at a time. Pause takes effect within
 but the trailing ~100-150 ms of the current sub-chunk may still come
 out of the OS audio buffer after you press pause.
 
-## Why a FastAPI daemon instead of a library?
+## Why a native daemon instead of a library?
 
 Three reasons:
 
@@ -65,7 +63,8 @@ Three reasons:
 
 ## Will there be a floating overlay?
 
-Yes — planned for v0.2. See `ROADMAP.md`.
+Yes — planned for v0.2. See `ROADMAP.md`. The overlay is a Qt-based
+always-on-top caption bar, off by default.
 
 ## Will there be a browser extension?
 
@@ -78,7 +77,7 @@ is stable.
 
 No. Lexaloud is Linux-only by design. It depends on XDG
 runtime directories, `systemd --user`, PortAudio via ALSA/PipeWire,
-and GNOME-style custom shortcuts. Porting to Windows or macOS would
+and Qt platform integration. Porting to Windows or macOS would
 be a near-total rewrite.
 
 ## Can I use Lexaloud on a remote server?
@@ -101,8 +100,8 @@ optional karaoke word-level highlighting).
 
 ## Why does the daemon take ~30 seconds to warm up?
 
-CUDA kernels are JIT-compiled on first use. The daemon runs a warmup
-synthesis as a background task during lifespan startup. You can
+CUDA kernels are compiled on first use. The daemon runs a warmup
+synthesis as a background task during startup. You can
 observe this via `lexaloud status` during startup — the state will
 show `warming` until the first synthesis completes. Subsequent
 requests are ~1 second per sentence.

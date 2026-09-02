@@ -24,9 +24,7 @@ the clipboard than via the PRIMARY selection.
 
 On Ubuntu GNOME Wayland, `wl-paste --primary` may return empty for some
 applications (notably Electron apps like VS Code, Obsidian, Slack). The
-protocol support varies across Mutter releases. Spike 1 produces an
-empirical compatibility matrix for the target machine — see
-`spikes/spike1_matrix.md` (not yet populated — see ROADMAP.md v0.1.1).
+protocol support varies across Mutter releases.
 
 **Workaround:** bind `lexaloud speak-clipboard` to your hotkey instead of
 `lexaloud speak-selection` and use `Ctrl+C` before pressing the hotkey.
@@ -65,62 +63,41 @@ If Firefox is installed as a Flatpak, its sandbox restricts clipboard
 access. Workaround: use the deb/apt version of Firefox, or grant the
 clipboard portal via `flatpak override --user --talk-name=org.freedesktop.portal.Clipboard org.mozilla.firefox`.
 
-## ROS 2 (or any PYTHONPATH-polluting tool) sourced at login
+## Environment pollution from sourced shells
 
-If you source ROS 2 Jazzy (or Isaac, ComfyUI, etc.) in your shell rc file,
-`PYTHONPATH` gets set to `/opt/ros/jazzy/lib/python3.12/site-packages`.
-This leaks into any venv Python invocation, despite
-`include-system-site-packages=false` in the venv's `pyvenv.cfg`.
+If you source a shell rc that exports large environment variables, they
+leak into the daemon when started from that shell. The systemd unit
+is clean because systemd starts with a minimal environment. If you run
+`lexaloud daemon` manually from a polluted shell, start it via systemd instead.
 
-**Symptoms:**
-- `pip freeze` inside the venv picks up ROS packages.
-- Daemon imports may resolve unexpectedly to the ROS-provided version of a
-  package.
-
-**Mitigations already in place:**
-- `scripts/install.sh` scrubs `PYTHONPATH` for all pip calls (`env -u PYTHONPATH`).
-- The systemd unit rendered by `lexaloud setup` sets `Environment=PYTHONPATH=`
-  so the daemon starts with a clean Python environment.
-
-**What to do manually** if you invoke the daemon or CLI from a shell that
-sourced ROS: run `unset PYTHONPATH` first, or launch via systemd.
+**Workaround:** run the daemon via `systemctl --user` rather than manually.
 
 ## CUDA cold start is ~30 seconds
 
-The first `Kokoro.create()` call after `InferenceSession` construction
-takes ~30 seconds on an RTX 5080 because CUDA kernels are JIT-compiled on
+The first synthesis call after session construction
+takes ~30 seconds on an RTX 5080 because CUDA kernels are compiled on
 first use. Subsequent calls for the same sentence length take ~1 second.
 
 The daemon runs an explicit warmup synthesis as a background task during
-lifespan startup. Any `/speak` request that arrives during warmup waits on
-the provider's `_synth_lock` until warmup completes.
+startup. Any `/speak` request that arrives during warmup waits until warmup completes.
 
-## CUDA runtime libraries from pip wheels
+## CUDA runtime libraries
 
 On Ubuntu 24.04 with a system-wide CUDA 12.8 install, `libcublasLt.so.12`
-may not be in the default loader path. `onnxruntime-gpu` cannot find it
-without help, and `InferenceSession` construction silently falls back to
-CPU (with only a stderr warning).
+may not be in the default loader path. ONNX Runtime cannot find it
+without help, and session construction silently falls back to
+CPU (with only a log warning).
 
-The install pulls in NVIDIA CUDA runtime wheels
-(`nvidia-cublas-cu12`, `nvidia-cudnn-cu12`, etc.) and the Kokoro provider
-calls `onnxruntime.preload_dlls(cuda=True, cudnn=True)` at init time to
-resolve them. If `preload_dlls` raises, the provider logs a warning and
-falls back to CPU cleanly.
-
-## ONNX Runtime CPU + GPU coexistence is broken
-
-`pip install kokoro-onnx[gpu]` installs BOTH `onnxruntime` AND
-`onnxruntime-gpu` into the same venv, and with both present the CPU
-distribution silently shadows the GPU one. `assert_onnxruntime_environment`
-in `src/lexaloud/models.py` detects this at daemon startup and refuses to
-start, with an error message pointing the user at the fix.
+The native build links ONNX Runtime directly; ensure CUDA libs are on
+the loader path if you use the CUDA backend. If the loader can't find them,
+the daemon logs a warning and falls back to CPU cleanly. Check
+`lexaloud status` `session_providers` to verify.
 
 ## Model weights are not shipped
 
 `kokoro-v1.0.onnx` (~310 MB) and `voices-v1.0.bin` (~28 MB) live under
 `~/.cache/lexaloud/models/`. They are downloaded on demand by
 `lexaloud download-models` (called automatically by `lexaloud setup`) and
-verified against SHA256 pins in `src/lexaloud/models.py`. If a download
+verified against SHA256 pins in `src/models.rs`. If a download
 URL changes or a hash drifts, the daemon refuses to start until the user
 re-runs `lexaloud download-models`.

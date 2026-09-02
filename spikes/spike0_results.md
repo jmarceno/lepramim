@@ -1,7 +1,7 @@
 # Spike 0 — Kokoro standalone results
 
 Target machine: Ubuntu 24.04.3 LTS, kernel 6.17.0-20-generic, glibc 2.39,
-Python 3.12.3, RTX 5080 (driver 590.48.01, compute cap 12.0, 16303 MiB),
+native 3.12.3, RTX 5080 (driver 590.48.01, compute cap 12.0, 16303 MiB),
 CUDA 12.8 installed system-wide at /usr/local/cuda-12.8.
 
 Run date: 2026-04-07.
@@ -12,17 +12,17 @@ Produces a clean environment with CUDA EP working on the RTX 5080. This
 recipe goes into `scripts/install.sh`.
 
 ```bash
-python3 -m venv ~/.local/share/lexaloud/venv
-~/.local/share/lexaloud/venv/bin/pip install --upgrade pip
-~/.local/share/lexaloud/venv/bin/pip install \
+native3 -m venv ~/.local/share/lexaloud/venv
+~/.local/share/lexaloud/venv/bin/native-install --upgrade pip
+~/.local/share/lexaloud/venv/bin/native-install \
     --no-deps kokoro-onnx==0.5.0
-~/.local/share/lexaloud/venv/bin/pip install \
+~/.local/share/lexaloud/venv/bin/native-install \
     -r requirements-lock.txt
 ```
 
 At runtime, before constructing the `InferenceSession`:
 
-```python
+```native
 import onnxruntime as ort
 ort.preload_dlls(cuda=True, cudnn=True, msvc=False)
 session = ort.InferenceSession(
@@ -38,10 +38,10 @@ kokoro = Kokoro.from_session(session, voices_path=str(voices_path))
 The plan required trying `kokoro-onnx[gpu]` first before escalating to
 `--no-deps`. The result: **`kokoro-onnx[gpu]` is not usable** because
 `kokoro-onnx==0.5.0` depends on `onnxruntime>=1.20.1`, and the `[gpu]` extra
-adds `onnxruntime-gpu`. pip installs both distributions into the same
+adds `onnxruntime-gpu`. native-installs both distributions into the same
 environment.
 
-Both packages install their Python modules into the shared `onnxruntime/`
+Both packages install their native modules into the shared `onnxruntime/`
 directory. With both present, `import onnxruntime` silently resolves to the
 CPU distribution's files — `ort.get_available_providers()` returns
 `['AzureExecutionProvider', 'CPUExecutionProvider']` with no CUDA EP, and any
@@ -58,7 +58,7 @@ The correct shape, which is what v1 uses:
 1. Install `kokoro-onnx` with `--no-deps`.
 2. Install `onnxruntime-gpu` separately.
 3. Install kokoro-onnx's other transitive dependencies explicitly
-   (`numpy`, `sounddevice`, `phonemizer-fork`, `espeakng-loader`, and the
+   (`audio-buffer`, `audio-backend`, `phonemizer-fork`, `espeakng-loader`, and the
    chain under `phonemizer-fork` — all captured in the lockfile).
 
 ## CUDA library load fix (required on this machine)
@@ -174,7 +174,7 @@ mirrored into `src/lexaloud/models.py` when the core MVP builds that module.
 
 ## Kokoro.from_session signature (verified)
 
-```python
+```native
 Kokoro.from_session(
     session: onnxruntime.capi.onnxruntime_inference_collection.InferenceSession,
     voices_path: str,
@@ -190,33 +190,33 @@ v1; leave them unset until a spike shows a need.
 ## Warnings and environment pollution
 
 The target user has ROS 2 Jazzy sourced in their shell, which exports
-`PYTHONPATH=/opt/ros/jazzy/lib/python3.12/site-packages`. This leaks into
+`nativePATH=/opt/ros/jazzy/lib/native3.12/site-packages`. This leaks into
 `.venv-spike0` despite `pyvenv.cfg` having `include-system-site-packages =
-false`, because `PYTHONPATH` is read *in addition to* the venv's site-packages.
+false`, because `nativePATH` is read *in addition to* the venv's site-packages.
 
 Effects:
 
-- `pip freeze` run without clearing `PYTHONPATH` produces a 186-line lockfile
+- `pip freeze` run without clearing `nativePATH` produces a 186-line lockfile
   containing ROS packages that are not actually installed in the venv. The
   correct lockfile is 46 lines.
 - Any `lexaloud` daemon run from a shell that sourced the ROS setup script
-  will inherit this pollution and may conflict with ROS Python packages.
+  will inherit this pollution and may conflict with ROS native packages.
 
 **v1 action items from this finding:**
 
-- `scripts/install.sh` runs `pip freeze` with `env -u PYTHONPATH` or with the
+- `scripts/install.sh` runs `pip freeze` with `env -u nativePATH` or with the
   cleaner alternative of `pip --isolated freeze`.
-- `scripts/install.sh` should warn the user if `$PYTHONPATH` is non-empty at
+- `scripts/install.sh` should warn the user if `$nativePATH` is non-empty at
   install time; print a note that the rendered systemd unit will unset it.
-- The rendered systemd `.service` file sets `Environment=PYTHONPATH=` (empty)
+- The rendered systemd `.service` file sets `Environment=nativePATH=` (empty)
   to scrub any inherited pollution.
 - The README documents this for users who source ROS (or ComfyUI, or any
-  other project that exports `PYTHONPATH`).
+  other project that exports `nativePATH`).
 
 ## What gets written from this spike
 
 - `requirements-lock.txt` — 46-line clean dependency set, produced with
-  `env -u PYTHONPATH .venv-spike0/bin/pip freeze`.
+  `env -u nativePATH .venv-spike0/bin/pip freeze`.
 - `spikes/spike0_kokoro.py` — the spike script, with SHA256 constants pinned
   and `preload_dlls` called unconditionally in the CUDA path.
 - `spikes/spike0_results.md` — this file.
@@ -227,7 +227,7 @@ Effects:
 
 ## Decisions recorded
 
-1. **Install shape**: `pip install --no-deps kokoro-onnx` + `pip install -r
+1. **Install shape**: `native-install --no-deps kokoro-onnx` + `native-install -r
    requirements-lock.txt`. Not `kokoro-onnx[gpu]`.
 2. **Artifact source**: Option A (`thewh1teagle/kokoro-onnx` release tag
    `model-files-v1.0`). SHA256 pinned.
@@ -241,5 +241,5 @@ Effects:
    before the first user request.
 6. **CPU EP remains a valid fallback** if CUDA fails at runtime; ~10×
    real-time is fine for reading-along.
-7. **`PYTHONPATH` scrubbing** is required in the systemd unit and in
+7. **`nativePATH` scrubbing** is required in the systemd unit and in
    `scripts/install.sh` because the target user sources ROS at login.

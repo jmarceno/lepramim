@@ -4,9 +4,8 @@
 > hotkey, hear it read by a neural voice running on your own machine.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![test](https://github.com/Gustavjiversen01/lexaloud/actions/workflows/test.yml/badge.svg)](https://github.com/Gustavjiversen01/lexaloud/actions/workflows/test.yml)
-[![lint](https://github.com/Gustavjiversen01/lexaloud/actions/workflows/lint.yml/badge.svg)](https://github.com/Gustavjiversen01/lexaloud/actions/workflows/lint.yml)
+[![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
+[![Qt](https://img.shields.io/badge/Qt-6.4+-green.svg)](https://www.qt.io/)
 
 <!-- Record a demo with: ./scripts/record-demo.sh -->
 <!-- ![demo](docs/demo.gif) -->
@@ -17,7 +16,7 @@
 2. **Press a global hotkey** (e.g., `Ctrl+0`)
 3. **Hear it spoken** sentence by sentence, with pause / skip / rewind controls
 
-Lexaloud runs a small daemon on your machine that synthesizes speech
+Lexaloud runs a small native daemon on your machine that synthesizes speech
 using [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M), an
 open-weights neural voice model. Nothing leaves your computer — no
 cloud API, no account, no telemetry.
@@ -35,7 +34,7 @@ To hear what Kokoro sounds like before installing, try the
 - **MPRIS2 / media keys** — desktop media keys, GNOME's top-bar
   media indicator, KDE's media widget, Bluetooth headphone buttons,
   and `playerctl` all control Lexaloud playback with zero
-  configuration. Uses `dbus-fast` (optional dependency).
+  configuration.
 - **Floating overlay** — an always-on-top sentence caption bar (off
   by default). Enable via `[advanced] overlay = true` in
   `config.toml` or the control window's Settings tab.
@@ -43,9 +42,8 @@ To hear what Kokoro sounds like before installing, try the
   binding on KDE Plasma 6+, Sway, and Hyprland via the
   `org.freedesktop.portal.GlobalShortcuts` portal. GNOME does not
   support this portal and continues using the gsettings path.
-- **GPU-accelerated neural TTS** — Kokoro-82M via `kokoro-onnx` on
-  `onnxruntime-gpu` with NVIDIA CUDA. CPU fallback runs at ~10x
-  real-time, which is fine for reading along.
+- **GPU-accelerated neural TTS** — Kokoro-82M via ONNX Runtime with
+  CUDA. CPU fallback runs at ~10x real-time, which is fine for reading along.
 - **Sentence-granularity streaming** with bounded backpressure and
   cooperative cancellation. Pause, skip, rewind, or stop mid-article
   without audio clipping.
@@ -56,7 +54,7 @@ To hear what Kokoro sounds like before installing, try the
   whose tray supports the StatusNotifierItem protocol (GNOME with the
   `ubuntu-appindicators` extension, KDE, XFCE, Budgie, etc.). Voice,
   language, speed, and hotkey settings are available straight from the
-  tray menu. Built with PySide6 — no system GTK/PyGObject
+  tray menu. Built with Qt 6 — no system GTK/PyGObject
   packages needed. The CLI works without the tray on minimal setups.
 - **Privacy-first** — see the [Privacy](#privacy) section.
 - **Open-source** — MIT-licensed code, Apache-2.0-licensed model
@@ -68,7 +66,7 @@ To hear what Kokoro sounds like before installing, try the
 |-------------|---------|
 | **OS** | Linux only. Tier 1: Ubuntu 24.04, Debian 13. Tier 2: Fedora 41, Arch, Mint, Pop!_OS. Not supported: Windows, macOS. |
 | **Init system** | systemd (for the `--user` daemon unit). Non-systemd distros (Artix, Void) can run `lexaloud daemon` manually. |
-| **Python** | 3.11 or newer |
+| **Toolchain (source build)** | Rust 1.85+ (via rustup), CMake 3.21+, Ninja, Qt 6.4+ dev packages, C++ compiler (g++ 13+ or clang++ 18+). AppImage users do not need the toolchain. |
 | **GPU (optional)** | NVIDIA with CUDA 12-compatible driver. AMD ROCm and Intel Arc are **not yet supported** — the daemon falls back to CPU, which runs at ~10x real-time and is fine for reading along. |
 | **Audio** | PipeWire, PulseAudio, or bare ALSA (via PortAudio/`libportaudio2`). Most desktop Linux distros ship PipeWire by default. |
 | **Disk** | ~400 MB for model weights (downloaded once on first setup) |
@@ -79,13 +77,15 @@ To hear what Kokoro sounds like before installing, try the
 ### Ubuntu / Debian (Tier 1)
 
 ```bash
-sudo apt install python3-venv wl-clipboard xclip libportaudio2 libnotify-bin
+sudo apt install wl-clipboard xclip libportaudio2 libnotify-bin \
+                 qt6-base-dev qt6-tools-dev libqt6svg6-dev
 
 git clone https://github.com/Gustavjiversen01/lexaloud.git
 cd lexaloud
-./scripts/install.sh
+./scripts/build-native.sh --release
+sudo ./scripts/install.sh --from-source
 
-~/.local/share/lexaloud/venv/bin/lexaloud setup
+lexaloud setup
 systemctl --user daemon-reload
 systemctl --user enable --now lexaloud.service
 ```
@@ -98,21 +98,21 @@ Full walkthrough: [`docs/install/ubuntu-debian.md`](docs/install/ubuntu-debian.m
 ### Fedora (Tier 2)
 
 ```bash
-sudo dnf install python3 python3-pip \
-                 wl-clipboard xclip portaudio libnotify
+sudo dnf install wl-clipboard xclip portaudio libnotify \
+                 qt6-qtbase-devel qt6-qtsvg-devel cmake ninja-build
 ```
 
-Then the same `git clone` → `./scripts/install.sh` → `lexaloud setup` →
+Then the same `git clone` → `./scripts/build-native.sh --release` → `./scripts/install.sh --from-source` → `lexaloud setup` →
 `systemctl` flow. Full walkthrough:
 [`docs/install/fedora.md`](docs/install/fedora.md)
 
 ### Arch / Manjaro (Tier 2)
 
 ```bash
-sudo pacman -S python wl-clipboard xclip portaudio libnotify
+sudo pacman -S wl-clipboard xclip portaudio libnotify qt6-base qt6-svg cmake ninja
 ```
 
-Then `git clone` → `./scripts/install.sh` → `lexaloud setup` → `systemctl`.
+Then `git clone` → `./scripts/build-native.sh --release` → `./scripts/install.sh --from-source` → `lexaloud setup` → `systemctl`.
 Full walkthrough: [`docs/install/arch.md`](docs/install/arch.md)
 
 ### Other distros
@@ -123,9 +123,9 @@ file a PR against [`docs/install/`](docs/install/).
 
 ### AppImage (CPU)
 
-The release page also provides a CPU-only AppImage with its own Python
-runtime, Qt GUI, and application dependencies. It does not require Python,
-CUDA, or distribution-specific package names on the host:
+The release page also provides a CPU-only AppImage with native binaries,
+Qt GUI, and application dependencies. It does not require a toolchain
+or distribution-specific package names on the host:
 
 ```bash
 chmod +x Lexaloud-*-x86_64.AppImage
@@ -139,15 +139,28 @@ An optional "Start with desktop" autostart entry replaces the need for a
 systemd service. See [`docs/install/appimage.md`](docs/install/appimage.md)
 for details, the host-session boundary, and the Wayland clipboard workflow.
 
-### GPU backend
-
-The installer detects NVIDIA via `nvidia-smi` and picks the right
-lockfile automatically. To force a backend:
+### Native build from source
 
 ```bash
-./scripts/install.sh --backend cuda12   # NVIDIA GPU
-./scripts/install.sh --backend cpu      # CPU only (AMD, Intel, or no GPU)
+# Debug build (fast compile, for development)
+cargo build --locked
+cmake --preset dev
+cmake --build --preset dev --parallel
+ctest --preset dev
+
+# Release build (optimized, for install / AppImage)
+cargo build --locked --release
+cmake --preset release
+cmake --build --preset release --parallel
+ctest --preset release
+
+# Or use the orchestrator (Cargo + CMake + staging)
+./scripts/build-native.sh --release
+./scripts/build-appimage.sh
+./scripts/smoke-appimage.sh build/appimage/Lexaloud-*.AppImage
 ```
+
+See `scripts/build-native.sh --help` for options.
 
 ### Wayland users: read this
 
@@ -162,16 +175,6 @@ workflow is:
 Both commands are in the CLI — bind whichever suits your workflow, or
 bind both to different keys. Details in
 [`docs/gotchas.md`](docs/gotchas.md).
-
-### Not via `pip install`
-
-`pip install lexaloud` does **not** give you a working installation.
-The TTS runtime requires a specific install sequence for `kokoro-onnx`
-+ `onnxruntime-gpu` that `pip` cannot express in one command (the two
-packages share an internal directory and silently break each other if
-both are installed normally — see
-[`docs/design-rationale.md`](docs/design-rationale.md) for the full
-story). `scripts/install.sh` is the only supported install path.
 
 ## CLI
 
@@ -190,6 +193,7 @@ lexaloud setup                # first-time configuration walkthrough
 lexaloud uninstall            # stop daemon and remove its user integration
 lexaloud bug-report           # system diagnostics for filing issues
 lexaloud daemon               # run the daemon (normally via systemd)
+lexaloud-ui                   # run the Qt control UI (also lexaloud app)
 ```
 
 Exit codes: 0 success, 1 error, 2 empty selection, 3 daemon down,
@@ -204,7 +208,7 @@ statistics are transmitted anywhere. The only outbound network calls
 are the one-time model downloads on first setup, fetched over HTTPS
 from the [`kokoro-onnx`](https://github.com/thewh1teagle/kokoro-onnx)
 GitHub releases page and SHA256-verified against pins in
-[`src/lexaloud/models.py`](src/lexaloud/models.py).
+[`src/models.rs`](src/models.rs).
 
 The daemon listens on a **Unix domain socket** at
 `$XDG_RUNTIME_DIR/lexaloud/lexaloud.sock` (mode 0700 enforced by
@@ -235,9 +239,10 @@ Full list: [`ROADMAP.md`](ROADMAP.md)
 
 ## Architecture
 
-A FastAPI daemon (systemd `--user`) owns the TTS provider and audio
-sink. A thin CLI sends HTTP requests over the Unix socket. A Qt
-(PySide6) tray icon polls daemon state for visual feedback.
+A native Rust daemon (Tokio + Axum, `systemd --user`) owns the TTS provider and audio
+sink. A thin CLI sends HTTP requests over the Unix socket. A Qt 6
+tray indicator + control window connects via QLocalSocket and polls daemon state for visual feedback.
+Two processes: `lexaloud` (daemon+CLI) and `lexaloud-ui` (Qt UI), communicating over UDS.
 
 Component diagram + data-flow walkthrough:
 [`docs/architecture.md`](docs/architecture.md). Design decisions:
@@ -246,23 +251,22 @@ Component diagram + data-flow walkthrough:
 ## Tests
 
 ```bash
-# Set up a dev environment (one-time)
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e .[test]
+# Rust core
+cargo fmt --check
+cargo check --locked
+cargo clippy --locked -- -D warnings
+cargo test --locked
 
-# Run the suite
-python -m pytest tests/ --ignore=tests/test_real_kokoro_smoke.py -q
+# Qt UI
+cmake --preset ci
+cmake --build --preset ci --parallel
+ctest --preset ci --output-on-failure
+
+# Or via orchestrator
+./scripts/build-native.sh --release
 ```
 
-206 tests, ~2.5 seconds. No GPU or audio device required — tests use
-`FakeProvider` + `NullSink` + `ASGITransport`.
-
-There is also an optional integration test that uses the real Kokoro
-model and `sounddevice` (1 extra test, 207 total):
-
-```bash
-LEXALOUD_REAL_TTS=1 python -m pytest tests/test_real_kokoro_smoke.py -s
-```
+No GPU or audio device required — tests use stub providers and null sinks.
 
 ## Contributing
 
@@ -283,12 +287,10 @@ rather than public issues. See [`SECURITY.md`](SECURITY.md).
 - **[`kokoro-onnx`](https://github.com/thewh1teagle/kokoro-onnx)** by
   thewh1teagle — the ONNX wrapper.
 - **[ONNX Runtime](https://onnxruntime.ai/)** + NVIDIA CUDA for
-  GPU-accelerated inference from Python.
-- **[`phonemizer-fork`](https://github.com/kokoro-tts/phonemizer-fork)**,
-  **[pysbd](https://github.com/nipunsadvilkar/pySBD)**, and
-  **[`sounddevice`](https://python-sounddevice.readthedocs.io/)**.
+  GPU-accelerated inference.
+- **[eSpeak NG](https://github.com/espeak-ng/espeak-ng)** for phonemization.
 - The **GNOME** and **freedesktop.org** communities for libnotify and
-  systemd-user, and **Qt**/**PySide6** for the desktop UI.
+  systemd-user, and **Qt** for the desktop UI.
 
 Significant portions of this codebase were developed in collaboration
 with [Claude](https://claude.ai) (Anthropic) via Claude Code. Code
@@ -299,4 +301,4 @@ review and final editorial decisions are the author's.
 MIT. See [`LICENSE`](LICENSE) for the full text and
 [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) for runtime
 dependency disclosures (the TTS stack includes GPL-3.0 dynamic
-dependencies via `phonemizer-fork` → `espeakng-loader` → `espeak-ng`).
+dependencies via eSpeak NG).

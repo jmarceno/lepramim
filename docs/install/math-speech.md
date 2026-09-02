@@ -24,7 +24,7 @@ Markdown stripping (when enabled) protects the `\(...\)` / `\[...\]`
 delimiters from CommonMark's backslash-escape rule so they survive
 into the SRE stage — you don't need to disable `strip_markdown` to
 use them in a mixed-content document.
-SRE is the same Apache-2.0 engine that powers MathJax and ChromeVox.
+SRE is the same Apache-2.0 engine that powers MathJax.
 Examples of what it produces under the default `clearspeak` domain:
 
 | LaTeX | Spoken |
@@ -40,7 +40,7 @@ It is opt-in because it requires Node.js ≥18 at runtime and adds
 
 ## Install
 
-Prerequisite: a working Lexaloud venv from `scripts/install.sh`.
+Prerequisite: a working native Lexaloud install (`scripts/install.sh`).
 
 ```bash
 # Install Node.js + npm (one-time)
@@ -58,7 +58,7 @@ The `--with-math-speech` flag:
 - Enforces Node.js major ≥ 18
 - Runs `npm install --prefix ~/.local/share/lexaloud/sre speech-rule-engine@4.1.3`
   (exact version pin; the latest npm tag may point at a beta release)
-- Symlinks the installed `sre` binary into the venv's `bin/` so the
+- Links the installed `sre` binary into `~/.local/bin/` so the
   daemon can resolve it under systemd without any PATH configuration
 
 ## Enable
@@ -84,17 +84,16 @@ systemctl --user restart lexaloud.service
 Check whether the daemon can see the `sre` binary:
 
 ```bash
-~/.local/share/lexaloud/venv/bin/python -c "
-from lexaloud.preprocessor.sre_latex import is_sre_available, sre_executable_path
-print('available:', is_sre_available())
-print('path:', sre_executable_path())
-"
+which sre
+sre --help 2>&1 | head
+ls -l ~/.local/share/lexaloud/sre/node_modules/.bin/sre
+node --version
 ```
 
-If `is_sre_available()` prints `False`, verify:
+If `sre` is not found, verify:
 
 1. The symlink exists and is executable:
-   `ls -l ~/.local/share/lexaloud/venv/bin/sre`
+   `ls -l ~/.local/bin/sre`
 2. The target exists and is executable:
    `ls -l ~/.local/share/lexaloud/sre/node_modules/.bin/sre`
 3. Node is working: `node --version` reports ≥18
@@ -103,4 +102,4 @@ If `is_sre_available()` prints `False`, verify:
 
 `speech-rule-engine@4.1.3` is distributed under the Apache-2.0 license.
 See [`THIRD_PARTY_LICENSES.md`](../../THIRD_PARTY_LICENSES.md#optional-runtime-dependencies)
-for Lexaloud's disclosure.
+for disclosure.

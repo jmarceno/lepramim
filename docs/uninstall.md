@@ -23,18 +23,33 @@ systemctl --user disable --now lexaloud.service
 systemctl --user daemon-reload
 ```
 
-## 2. Remove the venv
+## 2. Remove the install prefix
+
+For default `~/.local` installs:
 
 ```bash
 rm -rf ~/.local/share/lexaloud
+rm -f ~/.local/bin/lexaloud ~/.local/bin/lexaloud-ui
 ```
 
-This deletes the CPython venv and everything pip installed into it.
+For AppImage installs, also remove the AppImage:
+
+```bash
+rm -f ~/.local/bin/Lexaloud-*.AppImage
+```
+
+For system installs (`/usr/local`):
+
+```bash
+sudo rm -rf /usr/local/share/lexaloud
+sudo rm -f /usr/local/bin/lexaloud /usr/local/bin/lexaloud-ui
+```
 
 ## 3. Remove the systemd unit
 
 ```bash
 rm -f ~/.config/systemd/user/lexaloud.service
+systemctl --user daemon-reload
 ```
 
 ## 4. Remove the tray `.desktop` file

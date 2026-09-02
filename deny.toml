@@ -1,0 +1,63 @@
+# cargo deny config — Phase 9 native build
+# Vulnerability auditing informational only if triaged with owner/expiry;
+# license/source failures are blocking before release.
+
+[graph]
+all-features = true
+targets = []
+
+[advisories]
+vulnerability = "deny"
+unmaintained = "warn"
+yanked = "warn"
+ignore = []
+# To triage an advisory informationally, add an entry like:
+# [[advisories.ignore]]
+# id = "RUSTSEC-...."
+# reason = "triaged: owner=..., expiry=..., ..."
+# expires = "2026-12-31"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "warn"
+highlight = "all"
+allow-wildcard-paths = false
+# No banned crates yet; add entries like:
+# [[bans.deny]]
+# name = "crate-name"
+# reason = "..."
+
+[licenses]
+unlicensed = "deny"
+copyleft = "warn"
+allow-osi-fsf-free = "either"
+# Allowed permissive licenses (update when adding ort/eSpeak which may pull GPL)
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-3-Clause",
+  "BSD-2-Clause",
+  "ISC",
+  "Unicode-DFS-2016",
+  "Unicode-3.0",
+  "CC0-1.0",
+  "Zlib",
+  "MPL-2.0",
+]
+# GPL is warned, not denied, because phonemizer/eSpeak are GPL but dynamically linked.
+# Release gate requires explicit acceptance in THIRD_PARTY_LICENSES.md.
+copyleft = "warn"
+private = { ignore = false }
+exceptions = []
+
+[[licenses.clarify]]
+name = "ring"
+expression = "ISC AND MIT AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

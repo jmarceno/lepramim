@@ -8,9 +8,8 @@ ExecStart={binary_quoted} daemon
 Restart=on-failure
 RestartSec=2
 TimeoutStopSec=10
-# Scrub PYTHONPATH to avoid leaking ROS/Jazzy or other user-provided
-# PYTHONPATH contents into the daemon's Python environment.
-UnsetEnvironment=PYTHONPATH
+# Keep environment clean for the daemon.
+# No extra variables are required.
 # Create and own $XDG_RUNTIME_DIR/lexaloud/ so the daemon's Unix domain
 # socket has a parent dir that only the owner user can reach. systemd
 # removes it automatically on service stop.

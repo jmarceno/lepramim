@@ -3,6 +3,7 @@
 All commands expect the lexaloud daemon to be running. Use
 `lexaloud setup` for first-time configuration and
 `systemctl --user enable --now lexaloud.service` to start the daemon.
+AppImage users can instead run the app directly; the daemon is managed internally.
 
 ## Exit codes
 
@@ -70,6 +71,7 @@ Print the daemon's `/state` response as indented JSON. Example:
 Fetch the Kokoro model artifacts into `~/.cache/lexaloud/models/`.
 Idempotent — skips files that already pass the SHA256 check. Run this
 if `lexaloud setup` didn't have network access at first install.
+Add `--llm` to also fetch the optional LLM normalization model.
 
 ### `lexaloud setup`
 Run post-install configuration: models + systemd unit + hotkey
@@ -98,19 +100,22 @@ cat /tmp/lexaloud-bug.md | head -30
 Run the Lexaloud desktop app: tray icon, in-app daemon, and first-run
 onboarding (model download, default shortcuts, optional login
 autostart). Running the AppImage or `lexaloud` with no subcommand does
-this. `lexaloud tray` is an alias. Also available as the
-`lexaloud-indicator` entry point.
+this. `lexaloud tray` is an alias.
+
+### `lexaloud-ui`
+Run the Qt 6 control UI directly. Requires a running display server and
+the daemon (either systemd or app-managed). Equivalent to `lexaloud app`
+but always shows the UI.
 
 ### `lexaloud daemon`
-Run the FastAPI daemon in the foreground. Normally invoked via
+Run the Rust daemon in the foreground. Normally invoked via
 systemd-user — you should not run this by hand unless you're
-debugging a daemon-startup issue.
+debugging a daemon-startup issue. The daemon is Tokio + Axum and binds
+the UDS at `$XDG_RUNTIME_DIR/lexaloud/lexaloud.sock`.
 
 ## Environment variables
 
-- `LEXALOUD_REAL_TTS=1` — used only by
-  `tests/test_real_kokoro_smoke.py` to opt into a real-model test run.
-  No effect on the runtime CLI or daemon.
-- `PYTHONPATH` — the systemd unit scrubs this at daemon startup, but if
-  you invoke the CLI directly from a shell that sourced ROS 2 (or similar),
-  unset `PYTHONPATH` first or prefix the command with `env -u PYTHONPATH`.
+- `LEXALOUD_REAL_TTS=1` — used only by integration tests to opt into a real-model run.
+  No effect on the runtime CLI or daemon in normal use.
+- `XDG_RUNTIME_DIR`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME` — respect XDG base dirs for
+  socket, config, and model cache locations.

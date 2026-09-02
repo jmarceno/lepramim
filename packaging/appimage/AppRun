@@ -10,12 +10,30 @@ if [[ -n "${APPIMAGE:-}" ]]; then
   export LEXALOUD_APPIMAGE="$APPIMAGE"
 fi
 
-# Keep the frozen runtime isolated from user site packages. Prefer the host's
-# clipboard tools when installed: Wayland protocol support evolves with the
-# compositor, so a distro-matched wl-paste is more compatible than an older
-# bundled fallback. The AppImage copies remain last-resort fallbacks.
-export PYTHONNOUSERSITE=1
-export PATH="$PATH:$HERE/usr/bin"
-export LD_LIBRARY_PATH="$HERE/usr/lib/lexaloud:$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# Qt plugin path (native AppImage bundles allowlisted plugins)
+export QT_PLUGIN_PATH="$HERE/usr/plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
+export QT_QPA_PLATFORM_PLUGIN_PATH="$HERE/usr/plugins/platforms"
 
-exec "$HERE/usr/lib/lexaloud/lexaloud" "$@"
+# Bundled libs: Qt, ONNX Runtime, PortAudio
+export LD_LIBRARY_PATH="$HERE/usr/lib:$HERE/usr/lib/lexaloud${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+# Prefer host clipboard tools for Wayland compat; bundled are last-resort fallbacks
+export PATH="$PATH:$HERE/usr/bin"
+
+# eSpeak data path if bundled
+if [[ -d "$HERE/usr/share/espeak-ng-data" ]]; then
+  export ESPEAK_DATA_PATH="$HERE/usr/share/espeak-ng-data"
+fi
+
+# Dispatch: support --ui and symlink-named invocations
+if [[ "${1:-}" == "--ui" ]]; then
+  shift
+  exec "$HERE/usr/bin/lexaloud-ui" "$@"
+fi
+
+BIN_NAME="$(basename "${ARGV0:-$0}" 2>/dev/null || basename "$0")"
+if [[ "$BIN_NAME" == "lexaloud-ui" ]]; then
+  exec "$HERE/usr/bin/lexaloud-ui" "$@"
+fi
+
+exec "$HERE/usr/bin/lexaloud" "$@"

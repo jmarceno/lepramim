@@ -15,23 +15,23 @@ document is a fallback.
 3. Click the **+** button.
 4. Fill in:
    - **Name**: `Lexaloud: speak selection`
-   - **Command**: `/home/YOU/.local/share/lexaloud/venv/bin/lexaloud speak-selection`
+   - **Command**: `lexaloud speak-selection`
    - **Shortcut**: click "Set Shortcut" and press your desired
      combination (the owner uses `Ctrl+0`)
 5. Click **Add**.
 6. Repeat for:
-   - `Lexaloud: pause/resume` → `… lexaloud toggle` → `Ctrl+9`
-   - (optional) `Lexaloud: speak clipboard` → `… lexaloud speak-clipboard`
-   - (optional) `Lexaloud: stop` → `… lexaloud stop`
-   - (optional) `Lexaloud: skip` → `… lexaloud skip`
+   - `Lexaloud: pause/resume` → `lexaloud toggle` → `Ctrl+9`
+   - (optional) `Lexaloud: speak clipboard` → `lexaloud speak-clipboard`
+   - (optional) `Lexaloud: stop` → `lexaloud stop`
+   - (optional) `Lexaloud: skip` → `lexaloud skip`
 
-Replace `/home/YOU/` with your actual home directory — `lexaloud
-setup` printed the exact path.
+If `lexaloud` is not on your PATH, use the full path printed by
+`lexaloud setup` (typically `~/.local/bin/lexaloud`).
 
 ## Via gsettings (scriptable)
 
 ```bash
-BIN="$HOME/.local/share/lexaloud/venv/bin/lexaloud"
+BIN="$(command -v lexaloud || echo "$HOME/.local/bin/lexaloud")"
 BASE="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings"
 
 # Register both keybinding slots in the array
@@ -58,7 +58,7 @@ gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$BA
 ## Via the control window
 
 If the daemon and tray indicator are already running, open the Control
-Window (tray menu → **Control window…** or run `lexaloud-control`).
+Window (tray menu → **Control window…** or run `lexaloud-ui`).
 Each hotkey has a **Change…** button. Click, press the new key combo,
 done.
 
@@ -99,7 +99,7 @@ notes.
 
 ### The control window's "Change…" button doesn't update the hotkey
 
-Fixed in the v0.1.0 UDS migration — the earlier versions had a bug
-where `set_shortcut_binding` wrote to a gsettings path that GNOME
+Fixed in the UDS migration — the earlier versions had a bug
+where the binding wrote to a gsettings path that GNOME
 never read. If you're hitting this, you're on an older build; pull
-latest and re-run `./scripts/install.sh`.
+latest and re-run `./scripts/install.sh --from-source`.

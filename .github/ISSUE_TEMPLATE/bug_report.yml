@@ -44,7 +44,7 @@ body:
       label: `lexaloud bug-report` output
       description: |
         Run `lexaloud bug-report` in a terminal and paste the full markdown
-        output here. This collects distro/kernel/DE/GPU/Python/daemon state
+        output here. This collects distro/kernel/DE/GPU/daemon state
         and the last 200 journalctl lines. Sensitive env vars and home
         paths are redacted by default; pass `--full` only if asked.
       render: markdown

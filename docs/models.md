@@ -3,7 +3,7 @@
 Lexaloud uses the **Kokoro-82M** neural TTS model by [hexgrad on Hugging
 Face](https://huggingface.co/hexgrad/Kokoro-82M), accessed via the
 [`kokoro-onnx`](https://github.com/thewh1teagle/kokoro-onnx) ONNX
-wrapper by thewh1teagle.
+wrapper.
 
 ## Artifacts
 
@@ -12,7 +12,7 @@ wrapper by thewh1teagle.
 | `kokoro-v1.0.onnx` | ~310 MB | `7d5df8ec...` (full hash in source) | https://github.com/thewh1teagle/kokoro-onnx/releases |
 | `voices-v1.0.bin` | ~28 MB | `bca610b8...` (full hash in source) | same release |
 
-Full pins are in [`src/lexaloud/models.py`](../src/lexaloud/models.py).
+Full pins are in [`src/models.rs`](../src/models.rs).
 Both files are verified SHA256 on every daemon startup; a mismatch
 refuses to load the model.
 
@@ -35,12 +35,12 @@ XDG_CACHE_HOME=/mnt/big-drive/.cache lexaloud download-models
 - **Kokoro-82M model weights**: Apache-2.0 per the Hugging Face model
   card. If this ever changes upstream, update this document and
   `THIRD_PARTY_LICENSES.md` accordingly.
-- **`kokoro-onnx` wrapper package**: MIT per the wheel's LICENSE file.
+- **`kokoro-onnx` wrapper**: MIT per upstream LICENSE.
 - **Voices**: bundled with the `voices-v1.0.bin` file under the same
   Apache-2.0 license as the weights.
 
 Lexaloud does not modify or repackage the weights. Users redistributing
-a Lexaloud installation in bulk (e.g., AppImage, Docker) should ensure
+a Lexaloud installation in bulk (e.g., AppImage, native package) should ensure
 their distribution respects the upstream Apache-2.0 and MIT terms.
 
 ## Voices
@@ -82,6 +82,6 @@ rm -rf ~/.cache/lexaloud/models
 lexaloud download-models
 ```
 
-The installer checks SHA256 and refuses to start with a corrupt file,
+The daemon checks SHA256 and refuses to start with a corrupt file,
 so "it just feels slow lately" is never a corrupt model — the daemon
 would hard-fail at startup instead.

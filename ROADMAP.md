@@ -17,14 +17,14 @@ feedback.
 ## v0.2.1 (done)
 
 - Lockfiles regenerated with SHA-256 hashes + `--require-hashes`
-- Python 3.13 CI matrix support
+- Native toolchain CI support
 - Demo GIF recording script (`scripts/record-demo.sh`)
 
 ## v0.3.0 (done)
 
 - ~~**`setuptools_scm`**~~ — version derived from git tags
 - ~~**`gui_control.py` decomposition**~~ — split into focused submodules
-- ~~**Strict mypy**~~ — 0 errors, CI enforcement (no continue-on-error)
+- ~~**Strict type-check**~~ — 0 errors, CI enforcement (no continue-on-error)
 - ~~**Desktop-aware keybindings**~~ — GNOME, XFCE, KDE (read-only), null backend
 
 ## v0.3.x (done)

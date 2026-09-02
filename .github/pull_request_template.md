@@ -16,8 +16,8 @@ Thanks for contributing! Please fill out the sections below.
 
 ## Checklist
 
-- [ ] Tests pass locally (`pytest tests/ --ignore=tests/test_real_kokoro_smoke.py`)
-- [ ] `ruff check .` and `ruff format --check .` pass
+- [ ] Tests pass locally (`cargo test --locked` and `ctest --preset ci`)
+- [ ] `cargo fmt --check`, `cargo clippy -- -D warnings`, and `clang-format --dry-run --Werror` pass
 - [ ] Added or updated tests for new behavior
 - [ ] Updated `CHANGELOG.md` under `[Unreleased]`
 - [ ] Commits are signed off with `git commit -s` (DCO)

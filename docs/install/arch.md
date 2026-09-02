@@ -8,16 +8,19 @@ names. This guide is for Arch rolling as of early 2026.
 
 ```bash
 sudo pacman -S \
-    python \
     wl-clipboard \
     xclip \
     portaudio \
-    libnotify
+    libnotify \
+    qt6-base qt6-svg cmake ninja clang
+# Rust via rustup:
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85
 ```
 
-The tray indicator and control window use Qt (PySide6), which is
-installed automatically with the package — no extra system GUI
-packages are needed.
+For AppImage-only installs, you only need `wl-clipboard`, `xclip`, `portaudio`, `libnotify`.
+
+The tray indicator and control window use Qt 6, which is
+available as system packages for source builds and bundled in the AppImage.
 
 ## 2. NVIDIA GPU (optional)
 
@@ -30,15 +33,16 @@ The installer's `--backend auto` detects `nvidia-smi` and picks
 `cuda12`. On CPU-only machines or to force CPU:
 
 ```bash
-./scripts/install.sh --backend cpu
+./scripts/install.sh --from-source --backend cpu
 ```
 
-## 3. Clone and install
+## 3. Clone and build
 
 ```bash
 git clone https://github.com/Gustavjiversen01/lexaloud.git
 cd lexaloud
-./scripts/install.sh
+./scripts/build-native.sh --release
+./scripts/install.sh --from-source
 ```
 
 See [`ubuntu-debian.md`](ubuntu-debian.md) from step 3 onward.
@@ -61,9 +65,9 @@ lexaloud bug-report > /tmp/lexaloud-bug.md
 
 ## Arch-specific notes
 
-- Arch moves quickly. The pinned lockfile was resolved against a
-  specific snapshot of PyPI; if you run into a resolution error, file
-  an issue with your `python3 --version` and the error.
+- Arch moves quickly. The native build is pinned to Rust 1.85 and
+  Qt 6.4+; if you hit a toolchain issue, file an issue with
+  `rustc --version` and `qmake6 --version`.
 - There is no AUR package yet. If someone volunteers to maintain one,
   we'll link to it here.
 - Manjaro, EndeavourOS, Garuda, Artix, and CachyOS inherit from Arch

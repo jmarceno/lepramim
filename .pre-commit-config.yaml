@@ -1,4 +1,4 @@
-# Pre-commit hooks.
+# Pre-commit hooks — native Rust + Qt
 #
 # To activate for your local working tree:
 #     pre-commit install
@@ -21,19 +21,32 @@ repos:
       - id: mixed-line-ending
         args: ["--fix=lf"]
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.0
-    hooks:
-      - id: ruff-format
-      - id: ruff
-        args: ["--fix"]
-
-  # Local hook: reject anything that mentions the maintainer's home path.
-  # Prevents accidental leaks of /home/gji/... into the public tree.
   - repo: local
     hooks:
-      - id: no-home-gji
-        name: no /home/gji paths
-        entry: sh -c 'if grep -rE "^[^#]*/home/gji/" --include="*.py" --include="*.sh" --include="*.md" --include="*.toml" --include="*.yml" --include="*.yaml" src/ tests/ scripts/ docs/ spikes/ .github/ pyproject.toml README.md 2>/dev/null; then echo "hook found /home/gji path references"; exit 1; fi'
+      - id: cargo-fmt
+        name: cargo fmt --check
+        entry: bash -c 'cargo fmt --check'
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: cargo-clippy
+        name: cargo clippy
+        entry: bash -c 'cargo clippy --locked -- -D warnings'
+        language: system
+        types: [rust]
+        pass_filenames: false
+      - id: clang-format
+        name: clang-format --dry-run
+        entry: bash -c 'clang-format --dry-run --Werror $(git diff --cached --name-only --diff-filter=ACM | grep -E "\.(cpp|h|hpp)$" || true)'
+        language: system
+        pass_filenames: false
+
+  # Local hook: reject anything that mentions the maintainer's home path.
+  # Prevents accidental leaks of personal paths into the public tree.
+  - repo: local
+    hooks:
+      - id: no-home-lexaloud
+        name: no /home/lexaloud paths
+        entry: sh -c 'if grep -rE "^[^#]*/home/[^/]+/" --include="*.rs" --include="*.cpp" --include="*.h" --include="*.sh" --include="*.md" --include="*.toml" --include="*.yaml" src/ ui/ scripts/ docs/ .github/ CMakeLists.txt CMakePresets.json README.md 2>/dev/null | grep -v "plans/"; then echo "hook found absolute home path references"; exit 1; fi'
         language: system
         pass_filenames: false

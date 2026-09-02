@@ -8,17 +8,19 @@ names. This guide is for Fedora 41 Workstation.
 
 ```bash
 sudo dnf install \
-    python3 \
-    python3-pip \
     wl-clipboard \
     xclip \
     portaudio \
-    libnotify
+    libnotify \
+    qt6-qtbase-devel qt6-qtsvg-devel cmake ninja-build clang
+# Rust via rustup:
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85
 ```
 
-The tray indicator and control window use Qt (PySide6), which is
-installed automatically with the package — no AppIndicator/GTK packages
-are needed.
+For AppImage-only installs, you only need `wl-clipboard`, `xclip`, `portaudio`, `libnotify`.
+
+The tray indicator and control window use Qt 6, which is
+available as system packages for source builds and bundled in the AppImage.
 
 ## 2. NVIDIA GPU (optional)
 
@@ -34,15 +36,16 @@ The installer's `--backend auto` will detect the NVIDIA driver via
 `nvidia-smi -L`. On CPU-only systems or if you want to force CPU:
 
 ```bash
-./scripts/install.sh --backend cpu
+./scripts/install.sh --from-source --backend cpu
 ```
 
-## 3. Clone and install
+## 3. Clone and build
 
 ```bash
 git clone https://github.com/Gustavjiversen01/lexaloud.git
 cd lexaloud
-./scripts/install.sh
+./scripts/build-native.sh --release
+./scripts/install.sh --from-source
 ```
 
 See [`ubuntu-debian.md`](ubuntu-debian.md) from step 3 onward for the
@@ -70,9 +73,6 @@ lexaloud bug-report > /tmp/lexaloud-bug.md
   requires the AppIndicator support extension from extensions.gnome.org.
 - SELinux does not interfere with `systemd --user` services under
   normal targeted policy.
-- Fedora 41 ships Python 3.13, which pysbd and phonemizer-fork may not
-  yet have wheels for; the CPU install path should still work since pip
-  will build from source if needed.
 
 ## Reporting issues
 

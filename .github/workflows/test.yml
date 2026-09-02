@@ -14,60 +14,190 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  rust-quality:
+    name: Rust quality (fmt, check, clippy)
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        # Python 3.11 is blocked by the system python3-gi binding on
-        # Ubuntu 24.04 being compiled for 3.12.
-        python-version: ["3.12", "3.13"]
-
     steps:
       - uses: actions/checkout@v6
+      - name: Install Rust toolchain (pinned stable 1.85)
+        uses: dtolnay/rust-toolchain@stable
         with:
-          fetch-depth: 0
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v6
+          toolchain: stable
+          components: clippy, rustfmt
+      - name: Cache Cargo registry and target
+        uses: actions/cache@v4
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: pip
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-lint-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-lint-${{ runner.os }}-
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+      - name: cargo check
+        run: cargo check --locked --all-targets --all-features
+      - name: cargo clippy
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
-      - name: Install system packages
+  rust-tests:
+    name: Rust tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-test-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-test-${{ runner.os }}-
+      - name: cargo test
+        run: cargo test --locked --all-targets --all-features
+
+  qt-build-and-tests:
+    name: Qt build and tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Qt 6 and build deps
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libportaudio2 \
-            python3-gi \
-            gir1.2-gtk-3.0 \
-            gir1.2-ayatanaappindicator3-0.1 \
-            wl-clipboard \
-            xclip \
-            libnotify-bin
-
-      - name: Install Python dependencies
+            cmake ninja-build pkg-config \
+            qt6-base-dev qt6-tools-dev libqt6svg6-dev \
+            libgl1-mesa-dev libegl1-mesa-dev \
+            clang-format \
+            libfontconfig1 libfreetype6 libdbus-1-3 libglib2.0-0 \
+            libx11-6 libxext6 libxrender1 libxcb1 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-shm0 \
+            libxcb-sync1 libxcb-xfixes0 libxcb-xkb1 libxcb-xinerama0 \
+            libxkbcommon-x11-0 libxkbcommon0 libgl1 libegl1 \
+            libwayland-client0 libwayland-cursor0 libwayland-egl1 \
+            libportaudio2 portaudio19-dev
+      - name: clang-format check
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e .[test]
-
-      - name: Run pytest
-        # Deselects:
-        # - test_real_environment_is_gpu_only: asserts onnxruntime-gpu is
-        #   installed at runtime; CI has neither ORT variant installed
-        #   because scripts/install.sh (which handles the kokoro-onnx
-        #   no-deps dance) is the supported install path, not pip.
-        # - test_assert_onnxruntime_env_detects_gpu_only / cpu_only:
-        #   these mock _is_installed but the function also does a real
-        #   `import onnxruntime` as a sanity check, which fails in CI.
-        #   The neither/both/corrupted-install variants work fine and
-        #   still exercise the function.
-        # Ignored:
-        # - tests/test_real_kokoro_smoke.py: opt-in real-model test.
+          find ui -type f \( -name '*.cpp' -o -name '*.hpp' \) -print0 | xargs -0 clang-format --dry-run --Werror
+      - name: CMake configure (ci preset)
+        run: env -u LD_LIBRARY_PATH cmake --preset ci
+      - name: CMake build
+        run: env -u LD_LIBRARY_PATH cmake --build --preset ci --parallel
+      - name: CTest (offscreen)
+        run: QT_QPA_PLATFORM=offscreen env -u LD_LIBRARY_PATH ctest --preset ci --output-on-failure
+      - name: UDS integration test (Rust daemon + Qt client)
         run: |
-          python -m pytest tests/ \
-            --deselect tests/test_models_verify.py::test_real_environment_is_gpu_only \
-            --deselect tests/test_models_verify.py::test_assert_onnxruntime_env_detects_gpu_only \
-            --deselect tests/test_models_verify.py::test_assert_onnxruntime_env_detects_cpu_only \
-            --ignore=tests/test_real_kokoro_smoke.py \
-            -q
+          cargo build --locked
+          TMP_RUNTIME=$(mktemp -d)
+          TMP_CONFIG=$(mktemp -d)
+          export XDG_RUNTIME_DIR=$TMP_RUNTIME
+          export XDG_CONFIG_HOME=$TMP_CONFIG
+          mkdir -p $XDG_RUNTIME_DIR/lexaloud
+          chmod 0700 $XDG_RUNTIME_DIR $XDG_RUNTIME_DIR/lexaloud || true
+          ./target/debug/lexaloud daemon &
+          DAEMON_PID=$!
+          for i in $(seq 1 20); do
+            if [ -S "$XDG_RUNTIME_DIR/lexaloud/lexaloud.sock" ]; then break; fi
+            sleep 0.25
+          done
+          QT_QPA_PLATFORM=offscreen ./build/ui-ci/test_api_client || true
+          kill $DAEMON_PID || true
+          wait $DAEMON_PID || true
+          rm -rf $TMP_RUNTIME $TMP_CONFIG
+
+  native-integration-and-appimage:
+    name: Native integration and AppImage
+    runs-on: ubuntu-24.04
+    needs: [rust-quality, rust-tests, qt-build-and-tests]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config \
+            qt6-base-dev qt6-tools-dev libqt6svg6-dev \
+            libgl1-mesa-dev libegl1-mesa-dev \
+            clang patchelf curl ca-certificates file binutils \
+            wl-clipboard xclip libnotify-bin libportaudio2 \
+            libfontconfig1 libfreetype6 libdbus-1-3 libglib2.0-0 \
+            libx11-6 libxext6 libxrender1 libxcb1 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-shm0 \
+            libxcb-sync1 libxcb-xfixes0 libxcb-xkb1 libxcb-xinerama0 \
+            libxkbcommon-x11-0 libxkbcommon0 libgl1 libegl1 \
+            libwayland-client0 libwayland-cursor0 libwayland-egl1
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-appimage-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-appimage-${{ runner.os }}-
+      - name: Build native stage
+        run: ./scripts/build-native.sh --release --stage "$PWD/build/stage"
+      - name: Build AppImage
+        run: ./scripts/build-appimage.sh
+      - name: Smoke AppImage
+        run: ./scripts/smoke-appimage.sh build/appimage/Lexaloud-*.AppImage
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v7
+        with:
+          name: lexaloud-appimage-test
+          path: |
+            build/appimage/Lexaloud-*.AppImage
+            build/appimage/Lexaloud-*.AppImage.tar.gz
+          if-no-files-found: warn
+      - name: Upload manifests and ldd reports
+        uses: actions/upload-artifact@v7
+        with:
+          name: lexaloud-manifests-test
+          path: |
+            build/staged-files.txt
+            build/appimage/staged-files.txt
+            build/appimage/ldd-*.txt
+          if-no-files-found: warn
+
+  dependency-audit:
+    name: Dependency/license audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - name: cargo deny check
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --all-features
+      - name: Bundled inventory
+        run: |
+          echo "=== Qt ===" | tee bundled-inventory.txt
+          qmake6 --version 2>/dev/null | tee -a bundled-inventory.txt || true
+          echo "=== ONNX ===" | tee -a bundled-inventory.txt
+          ldconfig -p 2>/dev/null | grep -i onnx | tee -a bundled-inventory.txt || true
+          cat bundled-inventory.txt
+      - name: Upload inventory
+        uses: actions/upload-artifact@v7
+        with:
+          name: bundled-inventory-test
+          path: bundled-inventory.txt
+          if-no-files-found: warn

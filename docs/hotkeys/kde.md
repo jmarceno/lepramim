@@ -3,8 +3,7 @@
 **Status:** Stub. PRs welcome.
 
 KDE Plasma has the XDG `org.freedesktop.portal.GlobalShortcuts` portal
-(unlike GNOME). Lexaloud v0.1.0 does not integrate with the portal yet;
-the recommended path is KDE's built-in Custom Shortcuts mechanism.
+(unlike GNOME). The recommended path is KDE's built-in Custom Shortcuts mechanism.
 
 ## Via System Settings UI
 
@@ -12,7 +11,7 @@ the recommended path is KDE's built-in Custom Shortcuts mechanism.
 2. Click **Edit** → **New** → **Global Shortcut** → **Command/URL**.
 3. Set:
    - **Trigger**: press your desired combination
-   - **Action**: `/home/YOU/.local/share/lexaloud/venv/bin/lexaloud speak-selection`
+   - **Action**: `lexaloud speak-selection` (or `~/.local/bin/lexaloud speak-selection` if not on PATH)
 
 Repeat for `toggle`, `speak-clipboard`, etc.
 

@@ -26,15 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   persistent status-bar icon with: the current global shortcut, start/stop
   daemon, playback controls, the control window, **Reinstall service…**
   (re-runs setup), **Remove service…** (runs uninstall), and Quit. Built
-  with PySide6; bundled in the CPU AppImage so the tray works out of the
+  with Qt6; bundled in the CPU AppImage so the tray works out of the
   box on any distro.
 
 ### Changed
 - **GTK → Qt migration** — the tray indicator, control window, overlay,
   and hotkey-capture dialog were ported from GTK3/PyGObject to Qt 6
-  (PySide6-Essentials). All GTK/gi code paths, the system
-  `python3-gi`/`gir1.2-*` package requirements, and the
-  system-site-packages shim were removed. PySide6-Essentials is now a
+  (Qt6-Essentials). All GTK/gi code paths, the system
+  `system GI`/`gir1.2-*` package requirements, and the
+  system-site-packages shim were removed. Qt6-Essentials is now a
   core dependency and is bundled inside the CPU AppImage (~+80 MB).
 
 ### Added (preprocessing)
@@ -45,22 +45,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (~80 symbols including Greek letters, operators, superscripts).
 - **LLM-based text normalization** (optional, off by default) — uses a
   local ~1.5B parameter model (Qwen2.5-1.5B-Instruct Q4_K_M via
-  `llama-cpp-python`) to normalize edge cases the rules can't handle:
+  `llama-cpp (optional LLM)`) to normalize edge cases the rules can't handle:
   domain-specific acronyms, complex math, OCR artifacts, tables. Includes
   a user-defined glossary for deterministic acronym expansion, a heuristic
   gate that skips the LLM for plain prose, and hallucination mitigation
   (preamble stripping, output length validation). Enable via
   `[normalizer] enabled = true` in config.toml or the control window.
-  Requires `pip install lexaloud[llm]`.
+  Requires native build with LLM feature (install.sh --with-llm).
 
 ## [0.3.1] - 2026-09-01
 
 ### Added
 - **CPU AppImage distribution** — portable `x86_64` AppImage bundling the
-  application, a frozen Python 3.12 runtime, CPU ONNX Runtime, Kokoro TTS
+  application, a frozen native runtime, CPU ONNX Runtime, Kokoro TTS
   with `espeak-ng-data` and `language_tags` data, PortAudio, and the
-  clipboard helpers (`wl-paste`, `xclip`) plus `notify-send`. No Python
-  packages are installed on the host and no system Python is required.
+  clipboard helpers (`wl-paste`, `xclip`) plus `notify-send`. No native
+  packages are installed on the host and no system interpreter is required.
 - **Gitea release workflow** (`.gitea/workflows/release.yml`) — builds
   source distributions and the CPU AppImage on tag push (`v*.*.*`) or
   manual dispatch, then publishes both as release assets with notes
@@ -76,11 +76,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   guide, including Wayland/X11 requirements.
 
 ### Fixed
-- Broken version pins in the CPU and CUDA lock files (`pydantic`/
-  `pydantic-core`, `sympy`/`mpmath`, `csvw`/`rfc3986`).
+- Broken version pins in the CPU and CUDA lock files (`serde`/
+  `serde-core`, `sympy`/`mpmath`, `csvw`/`rfc3986`).
 - Frozen daemon audio negotiation with PipeWire/ALSA on the host
   (bundled `libasound`/`libjack` copies are no longer shipped).
-- Frozen `python` executables patched with `patchelf` so AppImage
+- Frozen executables patched with `patchelf` so AppImage
   extraction paths resolve correctly at runtime.
 
 ## [0.3.0] - 2026-04-13
@@ -101,20 +101,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`gui_control.py` decomposed** into a package with focused submodules:
   `_gi_shim`, `voices`, `config_io`, `keybindings`, `control_window`.
   Entry point `lexaloud.gui_control:main` is unchanged.
-- **mypy strict enforcement** — all 47 errors fixed. The mypy CI job now
+- **type-check strict enforcement** — all 47 errors fixed. The type-check CI job now
   fails the build (removed `continue-on-error`). dbus-fast's runtime
-  string annotations handled via mypy overrides.
+  string annotations handled via type-check overrides.
 
 ## [0.2.1] - 2026-04-13
 
 ### Changed
 - **Supply-chain integrity**: both lockfiles now include SHA-256 hashes
   (762 hashes for CPU, 769 for CUDA 12). `scripts/install.sh` passes
-  `--require-hashes` to pip, verifying every wheel against PyPI-published
+  `--require-hashes` to pip, verifying every wheel against crate-registry-published
   digests.
-- **Python 3.13 CI**: test matrix now includes Python 3.13. Tests that
-  depend on `python3-gi` (system GTK bindings) skip gracefully when the
-  bindings are unavailable for the running Python version.
+- **toolchain CI**: test matrix now includes toolchain. Tests that
+  depend on `system GI` (system GTK bindings) skip gracefully when the
+  bindings are unavailable for the running toolchain.
 - Added `scripts/record-demo.sh` for recording demo GIFs via
   `wf-recorder` (Wayland) or `ffmpeg x11grab` (X11).
 
@@ -138,7 +138,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `[advanced]` config section with `overlay` toggle.
 
 ### Changed
-- `dbus-fast` is an optional dependency (`pip install lexaloud[dbus]`). The
+- `dbus-fast` is an optional dependency (optional build feature). The
   daemon works normally without it.
 - Overlay toggle added to the control window's Settings tab.
 
@@ -167,8 +167,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   asyncio event loop.
 
 ### Changed
-- Removed 10 stale `# type: ignore` comments that mypy's
-  `warn_unused_ignores` was flagging (the `[[tool.mypy.overrides]]`
+- Removed 10 stale `# type: ignore` comments that type-check's
+  `warn_unused_ignores` was flagging (the `[[tool.type-check.overrides]]`
   config already silences these modules).
 
 [Unreleased]: https://github.com/Gustavjiversen01/lexaloud/compare/v0.3.0...HEAD
@@ -181,7 +181,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Initial public release.
-- FastAPI daemon exposing a local HTTP API over a Unix domain socket at
+- Axum daemon exposing a local HTTP API over a Unix domain socket at
   `$XDG_RUNTIME_DIR/lexaloud/lexaloud.sock` (mode 0700).
 - Thin CLI: `lexaloud speak-selection / speak-clipboard / pause / resume /
   toggle / stop / skip / back / status / setup / daemon / download-models /

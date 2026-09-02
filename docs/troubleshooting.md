@@ -6,15 +6,16 @@ symptoms you can fix yourself.
 
 ## `lexaloud: command not found`
 
-The installer puts `lexaloud` inside the venv at
-`~/.local/share/lexaloud/venv/bin/lexaloud`. Either invoke the full
-path or symlink it into `~/.local/bin`:
+The installer puts `lexaloud` at
+`~/.local/bin/lexaloud` (or `/usr/local/bin/lexaloud` for system installs).
+Either invoke the full path or ensure the directory is on `PATH`:
 
 ```bash
-ln -s ~/.local/share/lexaloud/venv/bin/lexaloud ~/.local/bin/lexaloud
+export PATH="$HOME/.local/bin:$PATH"
+which lexaloud
 ```
 
-Then ensure `~/.local/bin` is on your `PATH`.
+For AppImage installs, the wrapper is at `~/.local/bin/lexaloud` pointing to the AppImage.
 
 ## `exit 3: Lexaloud daemon is not running`
 
@@ -24,8 +25,8 @@ journalctl --user -u lexaloud.service -n 50 --no-pager
 ```
 
 Common causes:
-- The daemon crashed on startup. Look at the tail of the journal for a
-  Python traceback.
+- The daemon crashed on startup. Look at the tail of the journal for
+  the Rust backtrace / log.
 - systemd --user isn't running for your session (rare on modern GNOME
   but possible in minimal environments). Check with `systemctl --user`.
 - The unit file is stale. Run `lexaloud setup --force` to regenerate it,
@@ -47,38 +48,26 @@ In the daemon logs:
 Requested CUDAExecutionProvider but session reports ['CPUExecutionProvider'].
 ```
 
-Means `onnxruntime.preload_dlls(cuda=True, cudnn=True)` couldn't load
-the CUDA runtime wheels. Check that the installer pulled them in:
+The CUDA runtime wasn't available. Check `lexaloud status` — `session_providers`
+will show only `CPUExecutionProvider`. Verify NVIDIA driver:
 
 ```bash
-env -u PYTHONPATH ~/.local/share/lexaloud/venv/bin/python -m pip list | grep -i nvidia
+nvidia-smi -L
+ldconfig -p | grep -i cuda
 ```
 
-You should see `nvidia-cublas-cu12`, `nvidia-cudnn-cu12`, etc. If not,
-you may have installed the `cpu` backend by mistake; re-run
-`./scripts/install.sh --backend cuda12`.
-
-## `Multiple ONNX Runtime distributions installed`
-
-This is the Spike 0 coexistence landmine. The fix is always the same:
-
-```bash
-rm -rf ~/.local/share/lexaloud/venv
-./scripts/install.sh
-```
-
-Do NOT try `pip uninstall onnxruntime` — the two distributions share
-files and the uninstall will corrupt both.
+If you installed the CPU build by mistake, rebuild with CUDA support or use the
+CPU fallback (which works at ~10x real-time and is fine for reading along).
 
 ## Voice sounds robotic / glitchy
 
 Check `lexaloud status`: the `provider_name` should be `kokoro`. If
-it's anything else you fell back to a different TTS (that shouldn't
+it's anything else you fell back to a different state (that shouldn't
 happen in v0.1.x but worth verifying).
 
 If it's `kokoro` but the audio is choppy, your CPU is probably
 struggling to keep up. Try lowering `speed` in `config.toml` to 1.0 or
-below, or install the `cuda12` backend if you have an NVIDIA GPU.
+below, or use the CUDA build if you have an NVIDIA GPU.
 
 ## Model download failed
 
@@ -89,7 +78,7 @@ lexaloud download-models
 
 If the download hangs, the artifact URL may have moved. File an issue
 with the error message — the pinned URL + SHA256 hash is in
-`src/lexaloud/models.py` and needs to be updated if upstream moves
+`src/models.rs` and needs to be updated if upstream moves
 the files.
 
 ## Pause / skip / back doesn't work
@@ -109,12 +98,14 @@ missing.
 To launch the indicator manually:
 
 ```bash
-~/.local/share/lexaloud/venv/bin/lexaloud-indicator
+lexaloud-ui
+# or
+lexaloud app
 ```
 
 Watch the terminal for errors. On Fedora/Arch, also check that the
 desktop's tray extension (e.g. `ubuntu-appindicators` on GNOME) is
-enabled.
+enabled. Qt 6 must be installed for the tray to render.
 
 ## `Selection too large for the daemon to accept` (exit 4)
 
@@ -129,3 +120,19 @@ lexaloud bug-report > /tmp/lexaloud-bug.md
 ```
 
 Open a GitHub issue and paste the output. Include what you tried.
+
+## Native build fails
+
+```bash
+# Check toolchain
+rustc --version  # should be 1.85+
+cmake --version  # 3.21+
+qmake6 --version || qmake --version
+cargo --version
+clang-format --version
+
+# Clean rebuild
+cargo clean
+rm -rf build/ui-*
+./scripts/build-native.sh --release
+```

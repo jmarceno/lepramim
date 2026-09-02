@@ -1,0 +1,106 @@
+{
+  "$schema": "lexaloud://fixtures/models/v1",
+  "generated_from": "tests/test_models_verify.py, src/lexaloud/models.py, src/models.rs, docs/models.md",
+  "cache_dir": "~/.cache/lexaloud/models/",
+  "artifacts": [
+    {
+      "filename": "kokoro-v1.0.onnx",
+      "url": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/v1.0/kokoro-v1.0.onnx",
+      "sha256": "7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5",
+      "size_bytes": 82000000,
+      "description": "Kokoro 82M ONNX model, opset pinned for ORT 1.24",
+      "required": true
+    },
+    {
+      "filename": "voices-v1.0.bin",
+      "url": "https://github.com/thewh1teagle/kokoro-onnx/releases/download/v1.0/voices-v1.0.bin",
+      "sha256": "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d",
+      "size_bytes": 6000000,
+      "description": "Voice embeddings, selected slices per voice name",
+      "required": true
+    }
+  ],
+  "voices": {
+    "count": 30,
+    "examples": ["af_heart", "af_bella", "af_sarah", "am_adam", "am_michael", "bf_emma", "bm_george"],
+    "all": [
+      "af_heart", "af_bella", "af_sarah", "af_nicole", "af_sky",
+      "am_adam", "am_michael",
+      "bf_emma", "bf_isabella",
+      "bm_george", "bm_lewis"
+    ],
+    "default": "af_heart",
+    "selection": "same voice embedding slices as native; no conversion unless demonstrably smaller and atomic"
+  },
+  "languages": {
+    "examples": ["en-us", "en-gb"],
+    "default": "en-us"
+  },
+  "backend_selection": [
+    {
+      "id": "cpu_explicit",
+      "config": { "provider": { "voice": "af_heart", "lang": "en-us" } },
+      "env": { "LEXALOUD_ORT_DISTS": "onnxruntime" },
+      "expected": { "ort_distribution": "onnxruntime", "provider": "CPUExecutionProvider", "cuda_active": false }
+    },
+    {
+      "id": "cuda_selected_and_active",
+      "config": { "provider": { "voice": "af_heart" } },
+      "env": { "LEXALOUD_ORT_DISTS": "onnxruntime-gpu" },
+      "cuda_available": true,
+      "expected": { "ort_distribution": "onnxruntime-gpu", "provider": "CUDAExecutionProvider", "cuda_active": true }
+    },
+    {
+      "id": "cuda_selected_but_not_active_fails_loudly",
+      "config": { "provider": { "voice": "af_heart" } },
+      "env": { "LEXALOUD_ORT_DISTS": "onnxruntime-gpu" },
+      "cuda_available": false,
+      "ort_error": "CUDAExecutionProvider not found after session creation",
+      "expected": { "error": "daemon startup fails, never silently falls back to CPU" }
+    },
+    {
+      "id": "neither_dist_error",
+      "env": {},
+      "expected": { "error": "neither onnxruntime nor onnxruntime-gpu installed" }
+    },
+    {
+      "id": "both_dists_broken_state",
+      "env": { "LEXALOUD_ORT_DISTS": "onnxruntime,onnxruntime-gpu" },
+      "expected": { "error": "both onnxruntime and onnxruntime-gpu installed (broken coexistence)" }
+    }
+  ],
+  "download_behavior": {
+    "atomic_rename": true,
+    "hash_verification": "SHA256 must match artifacts.sha256; mismatch -> delete temp and error with expected vs got",
+    "max_bytes_cap": 500000000,
+    "progress_callback": "optional progress_cb(filename, bytes_downloaded)",
+    "idempotent": "ensure_artifacts re-verifies existing files; missing or hash-mismatch triggers download"
+  },
+  "llm_model": {
+    "default_repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+    "default_file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+    "description": "Optional LLM for normalization; ~1.2 GB VRAM; downloaded via download-models --llm",
+    "cache_path": "~/.cache/lexaloud/models/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+  },
+  "verification_cases": [
+    {
+      "id": "sha256_of_existing_file",
+      "file": "kokoro-v1.0.onnx",
+      "expected_sha256": "7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5",
+      "result": "ok if matches, error with got vs expected if not"
+    },
+    {
+      "id": "hash_mismatch_reports_both",
+      "file": "voices-v1.0.bin",
+      "corrupted_sha": "0000000000000000000000000000000000000000000000000000000000000000",
+      "expected_error_contains": ["expected:", "got:"]
+    },
+    {
+      "id": "download_exceeds_cap_aborts",
+      "url": "https://example.com/large",
+      "max_bytes": 500000000,
+      "response_bytes": 600000000,
+      "expected_error_contains": "exceeded"
+    }
+  ]
+}

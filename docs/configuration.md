@@ -2,12 +2,13 @@
 
 Lexaloud reads `~/.config/lexaloud/config.toml` (or
 `$XDG_CONFIG_HOME/lexaloud/config.toml`) at daemon startup. An example
-file lives at [`src/lexaloud/templates/config.example.toml`](../src/lexaloud/templates/config.example.toml);
+file lives at [`src/lexaloud/templates/config.example.toml`](../src/lexaloud/templates/config.example.toml)
+(currently also staged to `~/.local/share/lexaloud/config.example.toml` after install);
 copy it and edit to taste. The daemon must be restarted after any
 config change.
 
 ```bash
-cp src/lexaloud/templates/config.example.toml ~/.config/lexaloud/config.toml
+cp ~/.local/share/lexaloud/config.example.toml ~/.config/lexaloud/config.toml
 # edit ~/.config/lexaloud/config.toml
 systemctl --user restart lexaloud.service
 ```
@@ -46,11 +47,11 @@ character-substitution stage, so their ordering is fixed.
 | Key | Default | Description |
 |-----|---------|-------------|
 | `dedupe_mathjax_selection` | `true` | Deduplicate math captured from rendered MathJax/KaTeX pages. When you select text on such a page, the browser captures each expression twice (stacked one-char-per-line + compact) with U+200B zero-width spaces between; this detector removes the stacked copy. No-op on non-MathJax input. |
-| `strip_markdown` | `true` | Convert markdown formatting (headings, lists, emphasis, tables, code blocks, links, images) into flowing prose. Code blocks are announced as `"Code block omitted."` by default; links show only their text. Uses `markdown-it-py` for CommonMark-compliant parsing. Fast-path no-op when the input has no markdown markers. **The detection heuristic is deliberately conservative** — it fires only when at least one block-level marker (heading, list, blockquote, fence, rule, table), a balanced `**bold**` / `~~strike~~` pair, a link/image, or an HTML tag is present. Inline-only emphasis like `*word*`, `_word_`, and inline backticks `` `x` `` are NOT enough to trigger parsing, because that would silently corrupt technical prose such as `a*b*c`, `__init__`, or `` `print(x)` `` mentions. The cost is that short prose with only single-asterisk emphasis keeps its markers intact — those may be read literally by Kokoro, depending on the voice and surrounding context. Add any block marker to trip the parser if that matters. |
+| `strip_markdown` | `true` | Convert markdown formatting (headings, lists, emphasis, tables, code blocks, links, images) into flowing prose. Code blocks are announced as `"Code block omitted."` by default; links show only their text. Uses a CommonMark-compliant parser (pulldown-cmark in Rust). Fast-path no-op when the input has no markdown markers. **The detection heuristic is deliberately conservative** — it fires only when at least one block-level marker (heading, list, blockquote, fence, rule, table), a balanced `**bold**` / `~~strike~~` pair, a link/image, or an HTML tag is present. Inline-only emphasis like `*word*`, `_word_`, and inline backticks `` `x` `` are NOT enough to trigger parsing, because that would silently corrupt technical prose such as `a*b*c`, `__init__`, or `` `print(x)` `` mentions. The cost is that short prose with only single-asterisk emphasis keeps its markers intact — those may be read literally by Kokoro, depending on the voice and surrounding context. Add any block marker to trip the parser if that matters. |
 | `strip_numeric_bracket_citations` | `true` | Strip `[3]` or `[1-4]` style citations. Only fires when the `[` is at the start of the text OR preceded by whitespace / sentence-punctuation — so `arr[3]`, `m.group(0)[3]`, and regex literals like `r"[0-9]"` are left alone. **Residual**: standalone bracket-list literals after whitespace (e.g. `x = [1, 2, 3]`) still get stripped because they're indistinguishable from a citation cluster. Set to `false` if reading code-heavy math. |
 | `strip_parenthetical_citations` | `false` | Strip `(Smith 2023)` style citations. Off by default because it can over-match ordinary parentheticals. |
 | `expand_latin_abbreviations` | `true` | Expand `i.e.`, `e.g.`, `etc.` to full forms. |
-| `expand_academic_abbreviations` | `true` | Expand `Fig.`, `Eq.`, `Sec.`, `Thm.`, `w.r.t.`, `i.i.d.`, etc. to full forms. Helps pysbd sentence splitting and TTS pronunciation. |
+| `expand_academic_abbreviations` | `true` | Expand `Fig.`, `Eq.`, `Sec.`, `Thm.`, `w.r.t.`, `i.i.d.`, etc. to full forms. Helps sentence splitting and TTS pronunciation. |
 | `normalize_numbers` | `true` | Convert numbers to spoken English: ordinals (`1st` -> first), cardinals with commas (`1,234`), decimals, percentages, currency, years. Numbers after reference words (Figure 3, Section 2.1) are left as digits. IP addresses, version strings, and phone numbers are protected. |
 | `normalize_urls` | `true` | Replace URLs with "link to [domain]" and email addresses with "[name] at [domain]". Markdown links `[text](url)` are replaced with just the link text. |
 | `normalize_math_symbols` | `true` | Expand Unicode math symbols to spoken words: Greek letters (alpha-omega), relational operators (less than or equal to), set theory symbols, arrows, superscript digits (squared, cubed). ASCII operators (`<=`, `->`, `!=`) are NOT expanded. |
@@ -70,7 +71,7 @@ LaTeX-to-speech via [Speech Rule Engine](https://github.com/Speech-Rule-Engine/s
 1. Node.js ≥18 installed by your distro's package manager
 2. `./scripts/install.sh --with-math-speech` — installs
    `speech-rule-engine@4.1.3` under `~/.local/share/lexaloud/sre/`
-   and symlinks `sre` into the venv's `bin/`
+   and links `sre` into `~/.local/bin/`
 
 Recognized LaTeX delimiters: `$...$`, `$$...$$`, `\(...\)`, `\[...\]`,
 and the math environments `equation`, `align`, `gather`, `multline`,
@@ -89,14 +90,12 @@ Full walkthrough: [`docs/install/math-speech.md`](install/math-speech.md).
 
 LLM-based text normalization for edge cases the rule-based pipeline
 can't handle (complex math, domain-specific acronyms, OCR artifacts,
-tables). **Off by default.** Requires:
-
-1. Install the optional dependency: `pip install lexaloud[llm]`
-2. Download the model: `lexaloud download-models --llm`
+tables). **Off by default.** Requires a local GGUF model (e.g. Qwen2.5-1.5B) and
+a model file downloaded via `lexaloud download-models --llm`.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `enabled` | `false` | Enable LLM text normalization. This separately configured advanced feature is available through `config.toml`. |
+| `enabled` | `false` | Enable LLM text normalization. |
 | `model_path` | `""` | Absolute path to a GGUF model file. Empty = auto-detect in `~/.cache/lexaloud/models/`. |
 | `model_repo` | `"Qwen/Qwen2.5-1.5B-Instruct-GGUF"` | HuggingFace repository for the default model. |
 | `model_file` | `"qwen2.5-1.5b-instruct-q4_k_m.gguf"` | Filename within the repository. |
@@ -130,7 +129,7 @@ additional VRAM usage).
 
 ## Voice selection
 
-The control window (`lexaloud-control` or the tray menu → Control
+The control window (`lexaloud-ui` or the tray menu → Control
 window…) offers the complete bundled Kokoro voice catalog. Any string
 the installed voices pack recognizes also works in `config.toml`.
 

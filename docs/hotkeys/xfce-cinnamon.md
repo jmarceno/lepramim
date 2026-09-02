@@ -11,13 +11,13 @@ the GNOME-specific keybindings Lexaloud's Control window writes to.
 Open **Settings** → **Keyboard** → **Application Shortcuts** tab →
 **Add**.
 
-- **Command**: `/home/YOU/.local/share/lexaloud/venv/bin/lexaloud speak-selection`
+- **Command**: `lexaloud speak-selection`
 - **Shortcut**: press your desired combination
 
-Or via `xfconf-query`:
+Or via `xfconf-query` (replace with full path if not on PATH):
 
 ```bash
-BIN="$HOME/.local/share/lexaloud/venv/bin/lexaloud"
+BIN="$(command -v lexaloud || echo "$HOME/.local/bin/lexaloud")"
 xfconf-query -c xfce4-keyboard-shortcuts \
     -p "/commands/custom/<Primary>0" \
     -n -t string -s "$BIN speak-selection"

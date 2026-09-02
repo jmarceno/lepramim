@@ -1,7 +1,7 @@
 # Installing Lexaloud on Ubuntu / Debian
 
 This is the Tier 1 supported install path. The maintainer develops on
-Ubuntu 24.04 with GNOME on X11, RTX 5080. Debian 13 and Ubuntu-derived
+Ubuntu 24.04 with GNOME. Debian 13 and Ubuntu-derived
 distros (Linux Mint, Pop!_OS, elementary, Zorin, Kali) should work with
 the same package names.
 
@@ -9,46 +9,46 @@ the same package names.
 
 ```bash
 sudo apt install \
-    python3-venv \
     wl-clipboard \
     xclip \
     libportaudio2 \
-    libnotify-bin
+    libnotify-bin \
+    qt6-base-dev qt6-tools-dev libqt6svg6-dev \
+    cmake ninja-build pkg-config clang clang-format
+# Rust via rustup (1.85+):
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85
 ```
 
-The tray indicator and control window use Qt (PySide6), which is
-installed automatically with the package — no extra system GUI
-packages are needed.
+For AppImage-only installs (no build from source), you only need the
+first line (`wl-clipboard`, `xclip`, `libportaudio2`, `libnotify-bin`);
+Qt and the toolchain are bundled in the AppImage.
 
-## 2. Clone and install
+The tray indicator and control window use Qt 6, which is available as
+system packages for source builds and bundled in the AppImage.
+
+## 2. Clone and build
 
 ```bash
 git clone https://github.com/Gustavjiversen01/lexaloud.git
 cd lexaloud
-./scripts/install.sh
+./scripts/build-native.sh --release
+./scripts/install.sh --from-source
 ```
 
 The installer auto-detects whether you have an NVIDIA GPU (via
-`nvidia-smi -L`) and picks the `cuda12` or `cpu` backend accordingly. You
-can override with `./scripts/install.sh --backend cpu` or
+`nvidia-smi -L`) and reports the backend. You can force with `./scripts/install.sh --backend cpu` or
 `--backend cuda12`.
 
-The installer:
+If you have a prebuilt AppImage:
 
-- Creates a venv at `~/.local/share/lexaloud/venv/`
-- Installs the pinned dependency set from
-  `requirements-lock.cuda12.txt` or `requirements-lock.cpu.txt`
-- Installs the `lexaloud` package (editable) into the venv
-
-If you have `PYTHONPATH` set in your shell (e.g., from sourcing ROS 2
-Jazzy at login), the install script will warn you. It internally scrubs
-`PYTHONPATH` when running pip, and the systemd unit it will render later
-also scrubs `PYTHONPATH` at daemon startup.
+```bash
+./scripts/install.sh --appimage build/appimage/Lexaloud-*.AppImage
+```
 
 ## 3. Run setup
 
 ```bash
-~/.local/share/lexaloud/venv/bin/lexaloud setup
+lexaloud setup
 ```
 
 This will:
@@ -73,7 +73,7 @@ Verify it's running:
 
 ```bash
 systemctl --user status lexaloud.service
-~/.local/share/lexaloud/venv/bin/lexaloud status
+lexaloud status
 ```
 
 You should see `"state": "idle"` with `"session_providers":

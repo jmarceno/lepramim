@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Fast incremental AppImage build using the cached builder image.
-# Reuses the Debian layer (apt packages) and the Python venv when possible,
-# so only PyInstaller + AppDir work runs on source changes.
-# First run builds the builder image once (~2 min), subsequent runs skip it.
+# Reuses the Debian layer (apt packages) and the Cargo/Qt caches when
+# possible, so only cargo/cmake + AppDir work runs on source changes.
+# First run builds the builder image once (~3 min), subsequent runs skip it.
 set -euo pipefail
 
 PROJECT_ROOT="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
@@ -13,13 +13,21 @@ restore_output_ownership() {
   local exit_code=$?
 
   trap - EXIT
-  if [[ -d "$PROJECT_ROOT/dist" ]]; then
-    # Root in a rootless Podman container maps to a subordinate host UID.
-    # Translate it back to the invoking host user after every build.
-    if ! podman unshare chown -R 0:0 "$PROJECT_ROOT/dist"; then
-      echo "warning: could not restore host ownership of $PROJECT_ROOT/dist" >&2
+  for d in "$PROJECT_ROOT/dist" "$PROJECT_ROOT/build"; do
+    if [[ -d "$d" ]]; then
+      # Root in a rootless Podman container maps to a subordinate host UID.
+      # Translate it back to the invoking host user after every build.
+      if ! podman unshare chown -R 0:0 "$d" 2>/dev/null; then
+        echo "warning: could not restore host ownership of $d" >&2
+      fi
+      # Also ensure host user owns files (podman unshare may map to 0:0, then chown to caller)
+      # Try to chown to current UID/GID if unshare failed
+      if [[ $EUID -ne 0 ]] && ! podman unshare true 2>/dev/null; then
+        # Without podman unshare, try direct chown if we have permission
+        chown -R "$(id -u):$(id -g)" "$d" 2>/dev/null || true
+      fi
     fi
-  fi
+  done
   exit "$exit_code"
 }
 
@@ -30,16 +38,19 @@ if ! podman image exists "$BUILDER_TAG" 2>/dev/null; then
   podman build -t "$BUILDER_TAG" -f "$CONTAINERFILE" "$PROJECT_ROOT"
 fi
 
-# Pip cache volume survives across builds (saves re-downloading wheels)
+# Cargo registry + git cache volumes survive across builds (save re-downloading crates)
+podman volume create lexaloud-cargo-registry >/dev/null 2>&1 || true
+podman volume create lexaloud-cargo-git >/dev/null 2>&1 || true
+# Pip cache kept for Phase 9 branch compatibility (removed in Phase 10)
 podman volume create lexaloud-pip-cache >/dev/null 2>&1 || true
 
-# Also keep a named volume for ccache if available (optional)
-# podman volume create lexaloud-ccache >/dev/null 2>&1 || true
-
-echo "Running build inside $BUILDER_TAG (incremental, pip cache mounted)..."
+echo "Running native build inside $BUILDER_TAG (incremental, cargo cache mounted)..."
 podman run --rm \
   -v "$PROJECT_ROOT:/workspace:Z" -w /workspace \
+  -v lexaloud-cargo-registry:/root/.cargo/registry \
+  -v lexaloud-cargo-git:/root/.cargo/git \
   -v lexaloud-pip-cache:/root/.cache/pip \
   -e LEXALOUD_INCREMENTAL=1 \
+  -e CARGO_HOME=/root/.cargo \
   -e PIP_CACHE_DIR=/root/.cache/pip \
   "$BUILDER_TAG" ./scripts/build-appimage.sh "$@"

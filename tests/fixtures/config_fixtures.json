@@ -1,0 +1,196 @@
+{
+  "$schema": "lexaloud://fixtures/config/v1",
+  "generated_from": "tests/test_config.py, tests/test_config_normalizer.py, src/lexaloud/config.py, src/config.rs, docs/configuration.md",
+  "notes": "Covers defaults, valid examples, rejected values, path rules, unknown keys, malformed TOML, per-section overrides.",
+  "defaults": {
+    "capture": {
+      "max_bytes": 204800,
+      "subprocess_timeout_s": 2.0
+    },
+    "daemon": {
+      "host": "127.0.0.1",
+      "port": 5487,
+      "ready_queue_depth": 3
+    },
+    "provider": {
+      "voice": "af_heart",
+      "lang": "en-us",
+      "speed": 1.0
+    },
+    "preprocessor": {
+      "dedupe_mathjax_selection": true,
+      "strip_markdown": true,
+      "strip_numeric_bracket_citations": true,
+      "strip_parenthetical_citations": false,
+      "expand_latin_abbreviations": true,
+      "expand_academic_abbreviations": true,
+      "normalize_numbers": true,
+      "normalize_urls": true,
+      "normalize_math_symbols": true,
+      "pdf_cleanup": true
+    },
+    "advanced": {
+      "overlay": false
+    },
+    "sre_latex": {
+      "enabled": false,
+      "timeout_s": 10.0,
+      "domain": "clearspeak",
+      "style": ""
+    },
+    "normalizer": {
+      "enabled": false,
+      "model_path": "",
+      "model_repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
+      "model_file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+      "n_gpu_layers": -1,
+      "n_ctx": 4096,
+      "temperature": 0.0,
+      "max_output_ratio": 1.5,
+      "glossary": {}
+    }
+  },
+  "valid_examples": [
+    {
+      "id": "speed_override",
+      "toml": "[provider]\nvoice = \"af_bella\"\nspeed = 1.15",
+      "expected": {
+        "provider": { "voice": "af_bella", "speed": 1.15, "lang": "en-us" },
+        "capture": { "max_bytes": 204800 }
+      }
+    },
+    {
+      "id": "partial_override_daemon_and_provider",
+      "toml": "[daemon]\nport = 9999\n\n[provider]\nvoice = \"bf_emma\"",
+      "expected": {
+        "daemon": { "port": 9999, "host": "127.0.0.1" },
+        "provider": { "voice": "bf_emma", "lang": "en-us" }
+      }
+    },
+    {
+      "id": "capture_section",
+      "toml": "[capture]\nmax_bytes = 1000\nsubprocess_timeout_s = 5.0",
+      "expected": {
+        "capture": { "max_bytes": 1000, "subprocess_timeout_s": 5.0 }
+      }
+    },
+    {
+      "id": "preprocessor_parenthetical_enabled",
+      "toml": "[preprocessor]\nstrip_parenthetical_citations = true",
+      "expected": {
+        "preprocessor": { "strip_parenthetical_citations": true, "strip_numeric_bracket_citations": true }
+      }
+    },
+    {
+      "id": "sre_latex_enabled",
+      "toml": "[sre_latex]\nenabled = true\ndomain = \"mathspeak\"\nstyle = \"brief\"",
+      "expected": {
+        "sre_latex": { "enabled": true, "domain": "mathspeak", "style": "brief", "timeout_s": 10.0 }
+      }
+    },
+    {
+      "id": "normalizer_with_glossary",
+      "toml": "[normalizer]\nenabled = true\nmodel_repo = \"Qwen/Qwen2.5-1.5B-Instruct-GGUF\"\nmodel_file = \"qwen2.5-1.5b-instruct-q4_k_m.gguf\"\n\n[normalizer.glossary]\nMAPPO = \"Multi-Agent Proximal Policy Optimization\"",
+      "expected": {
+        "normalizer": {
+          "enabled": true,
+          "model_file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+          "glossary": { "MAPPO": "Multi-Agent Proximal Policy Optimization" }
+        }
+      }
+    },
+    {
+      "id": "empty_file_uses_defaults",
+      "toml": "",
+      "expected": "defaults"
+    }
+  ],
+  "unknown_keys_ignored": [
+    {
+      "id": "unknown_top_level_and_section_keys",
+      "toml": "[daemon]\nnonexistent_key = \"value\"\nport = 8080\n\n[unknown_section]\nfoo = 1",
+      "expected": {
+        "daemon": { "port": 8080 }
+      },
+      "must_not_error": true
+    }
+  ],
+  "rejected_values": [
+    {
+      "id": "speed_string_instead_of_float",
+      "toml": "[provider]\nspeed = \"fast\"",
+      "behavior": "return defaults and log error (malformed type is ignored via _merge or serde error fallback)",
+      "rust_behavior": "toml parse error -> return defaults with warning",
+      "native_behavior": "value set as string but later validated; may coerce or keep as-is depending on field"
+    },
+    {
+      "id": "max_bytes_negative",
+      "toml": "[capture]\nmax_bytes = -1",
+      "behavior": "allowed by parser but semantic validation should reject or clamp; documented as rejected-value fixture (implementation may log warning)"
+    },
+    {
+      "id": "malformed_toml",
+      "toml": "[provider\nvoice = \"af_heart\"",
+      "behavior": "log error, return defaults, must not crash daemon in restart loop"
+    }
+  ],
+  "path_rules": [
+    {
+      "id": "config_path_default",
+      "env": {},
+      "expected": "$HOME/.config/lexaloud/config.toml",
+      "description": "When XDG_CONFIG_HOME unset, use $HOME/.config"
+    },
+    {
+      "id": "config_path_xdg_override",
+      "env": { "XDG_CONFIG_HOME": "/tmp/myconfig" },
+      "expected": "/tmp/myconfig/lexaloud/config.toml",
+      "notes": "Path(base).resolve() canonicalizes base if exists"
+    },
+    {
+      "id": "config_path_xdg_relative",
+      "env": { "XDG_CONFIG_HOME": "relative/path" },
+      "expected": "$PWD/relative/path/lexaloud/config.toml",
+      "notes": "Relative XDG_CONFIG_HOME resolved against current_dir"
+    },
+    {
+      "id": "runtime_dir_xdg",
+      "env": { "XDG_RUNTIME_DIR": "/run/user/1000" },
+      "expected": "/run/user/1000"
+    },
+    {
+      "id": "runtime_dir_fallback",
+      "env": { "XDG_RUNTIME_DIR": "" },
+      "expected": "/run/user/<uid>",
+      "notes": "Fallback to /run/user/<uid> via getuid()"
+    },
+    {
+      "id": "socket_path",
+      "env": { "XDG_RUNTIME_DIR": "/run/user/1000" },
+      "expected": "/run/user/1000/lexaloud/lexaloud.sock",
+      "notes": "Parent dir mode 0700; stale socket owned by current user removed, foreign owners refused"
+    },
+    {
+      "id": "socket_parent_permissions",
+      "socket_dir": "/run/user/1000/lexaloud",
+      "expected_mode": "0700",
+      "must_be_owner_only": true
+    }
+  ],
+  "privacy_redaction": {
+    "description": "From tests/test_bug_report.py and src/_privacy.py / src/privacy.rs",
+    "cases": [
+      {
+        "id": "redact_toml_path_values",
+        "input": "[provider]\nvoice = \"af_heart\"\nmodel_path = \"/home/alice/models/kokoro.onnx\"",
+        "must_not_contain": ["/home/alice"],
+        "must_contain": ["[REDACTED] or similar"]
+      },
+      {
+        "id": "redact_home_in_bug_report",
+        "input": "Config at /home/alice/.config/lexaloud/config.toml",
+        "must_not_contain": ["/home/alice"]
+      }
+    ]
+  }
+}

@@ -13,10 +13,12 @@ Add to `~/.config/sway/config`:
 
 ```
 # Lexaloud
-bindsym Ctrl+0 exec /home/YOU/.local/share/lexaloud/venv/bin/lexaloud speak-selection
-bindsym Ctrl+9 exec /home/YOU/.local/share/lexaloud/venv/bin/lexaloud toggle
-bindsym Ctrl+Shift+0 exec /home/YOU/.local/share/lexaloud/venv/bin/lexaloud speak-clipboard
+bindsym Ctrl+0 exec lexaloud speak-selection
+bindsym Ctrl+9 exec lexaloud toggle
+bindsym Ctrl+Shift+0 exec lexaloud speak-clipboard
 ```
+
+If `lexaloud` is not on PATH, use `~/.local/bin/lexaloud`.
 
 Reload with `swaymsg reload`.
 
@@ -25,9 +27,9 @@ Reload with `swaymsg reload`.
 Add to `~/.config/hypr/hyprland.conf`:
 
 ```
-bind = CTRL, 0, exec, /home/YOU/.local/share/lexaloud/venv/bin/lexaloud speak-selection
-bind = CTRL, 9, exec, /home/YOU/.local/share/lexaloud/venv/bin/lexaloud toggle
-bind = CTRL SHIFT, 0, exec, /home/YOU/.local/share/lexaloud/venv/bin/lexaloud speak-clipboard
+bind = CTRL, 0, exec, lexaloud speak-selection
+bind = CTRL, 9, exec, lexaloud toggle
+bind = CTRL SHIFT, 0, exec, lexaloud speak-clipboard
 ```
 
 Reload with `hyprctl reload`.

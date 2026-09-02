@@ -2,7 +2,7 @@
 
 The Lexaloud daemon exposes a small HTTP API over a Unix domain socket
 at `$XDG_RUNTIME_DIR/lexaloud/lexaloud.sock` (mode 0700 on the parent
-dir via systemd's `RuntimeDirectory=`). The CLI and the tray indicator
+dir via systemd's `RuntimeDirectory=`). The CLI and the Qt UI
 both talk to this API; there is no authentication because the socket
 permissions restrict access to the owner user's processes.
 
@@ -11,6 +11,12 @@ To experiment by hand, use `curl --unix-socket`:
 ```bash
 SOCK="$XDG_RUNTIME_DIR/lexaloud/lexaloud.sock"
 curl --unix-socket "$SOCK" http://lexaloud/state
+```
+
+Or `socat`:
+
+```bash
+echo -e "GET /state HTTP/1.0\r\n\r\n" | socat - UNIX-CONNECT:"$SOCK"
 ```
 
 ## Endpoints
@@ -63,7 +69,7 @@ Request body:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `text` | `string` | yes | Text to speak. Must be non-empty (`min_length=1`). |
+| `text` | `string` | yes | Text to speak. Must be non-empty (min_length=1, validated via serde). |
 | `mode` | `"replace" \| "append"` | no | `"replace"` (default) clears the pending queue; `"append"` adds to it if the player is already speaking. |
 
 Response: the same `StateResponse` shape as `GET /state`, reflecting
@@ -75,7 +81,7 @@ Errors:
 |--------|-----------|
 | `400` | `text` contains a null byte, or a post-preprocess sentence exceeds `MAX_SENTENCE_CHARS=4096` |
 | `413` | `text` exceeds `capture.max_bytes` (default 200 KB) |
-| `422` | Pydantic validation error (e.g., `text` is empty) |
+| `422` | Validation error (e.g., `text` is empty, JSON schema failure) |
 
 ### `POST /pause`
 

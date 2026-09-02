@@ -14,63 +14,220 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ruff:
+  rust-quality:
+    name: Rust quality (fmt, check, clippy)
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - name: Install Rust toolchain (pinned stable 1.85)
+        uses: dtolnay/rust-toolchain@stable
         with:
-          python-version: "3.12"
-          cache: pip
-      - name: Install ruff
-        run: python -m pip install ruff>=0.6
-      - name: ruff check
-        run: ruff check .
-      - name: ruff format --check
-        run: ruff format --check .
+          toolchain: stable
+          components: clippy, rustfmt
+      - name: Cache Cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+      - name: cargo check
+        run: cargo check --locked --all-targets --all-features
+      - name: cargo clippy
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
-  mypy:
+  rust-tests:
+    name: Rust tests
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          fetch-depth: 0
-      - uses: actions/setup-python@v6
+          toolchain: stable
+      - name: Cache Cargo
+        uses: actions/cache@v4
         with:
-          python-version: "3.12"
-          cache: pip
-      - name: Install mypy and package deps
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e .[dev]
-      - name: mypy
-        run: mypy src/lexaloud
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-test-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}-${{ hashFiles('rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-test-${{ runner.os }}-
+      - name: cargo test
+        run: cargo test --locked --all-targets --all-features
 
-  pip-audit:
+  qt-build-and-tests:
+    name: Qt build and tests (clang-format, cmake, ctest)
     runs-on: ubuntu-24.04
-    # pip-audit can surface CVEs that the maintainer hasn't triaged yet.
-    # Treat it as informational in v0.1.0 so the workflow stays green
-    # while we wire up the --ignore-vuln triage list. Tighten in v0.2.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-          cache: pip
-      - name: Install package + pip-audit
-        # Installing the package via extras also pulls in the pinned
-        # runtime deps (minus kokoro-onnx, which isn't declared in the
-        # dependencies list — that's installed out-of-band via
-        # scripts/install.sh). pip-audit audits the whole venv.
+      - name: Install Qt 6 and build deps
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e .[dev]
-      - name: Audit installed dependencies
-        # --disable-pip only works with hashed requirements. Our lockfiles
-        # are not hashed yet (v0.1.1 morning task). Audit the currently-
-        # installed venv instead, which pip-audit does via
-        # importlib.metadata.
-        run: pip-audit --progress-spinner off
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config \
+            qt6-base-dev qt6-tools-dev libqt6svg6-dev \
+            libgl1-mesa-dev libegl1-mesa-dev \
+            clang-format \
+            libfontconfig1 libfreetype6 libdbus-1-3 libglib2.0-0 \
+            libx11-6 libxext6 libxrender1 libxcb1 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-shm0 \
+            libxcb-sync1 libxcb-xfixes0 libxcb-xkb1 libxcb-xinerama0 \
+            libxkbcommon-x11-0 libxkbcommon0 libgl1 libegl1 \
+            libwayland-client0 libwayland-cursor0 libwayland-egl1 \
+            libportaudio2 portaudio19-dev
+          cmake --version
+          ninja --version
+          clang-format --version
+          qmake6 --version || qmake --version || true
+      - name: clang-format check
+        run: |
+          find ui -type f \( -name '*.cpp' -o -name '*.hpp' \) -print0 | xargs -0 clang-format --dry-run --Werror
+      - name: CMake configure (ci preset)
+        run: |
+          # Unset LD_LIBRARY_PATH for cmake; host (e.g. OpenCode AppImage) sets it to its own mount
+          # which breaks CMAKE_ROOT discovery ("Could not find CMAKE_ROOT").
+          env -u LD_LIBRARY_PATH cmake --preset ci
+      - name: CMake build
+        run: env -u LD_LIBRARY_PATH cmake --build --preset ci --parallel
+      - name: CTest (offscreen)
+        run: QT_QPA_PLATFORM=offscreen env -u LD_LIBRARY_PATH ctest --preset ci --output-on-failure
+      - name: UDS integration test (Rust daemon + Qt client)
+        run: |
+          # Start Rust daemon with temp XDG dirs and exercise real C++ UDS client
+          # Minimal integration: build daemon, run daemon, run Qt test_api_client against it
+          cargo build --locked
+          TMP_RUNTIME=$(mktemp -d)
+          TMP_CONFIG=$(mktemp -d)
+          export XDG_RUNTIME_DIR=$TMP_RUNTIME
+          export XDG_CONFIG_HOME=$TMP_CONFIG
+          mkdir -p $XDG_RUNTIME_DIR/lexaloud
+          chmod 0700 $XDG_RUNTIME_DIR $XDG_RUNTIME_DIR/lexaloud || true
+          ./target/debug/lexaloud daemon &
+          DAEMON_PID=$!
+          echo "daemon pid $DAEMON_PID"
+          # Wait for socket
+          for i in $(seq 1 20); do
+            if [ -S "$XDG_RUNTIME_DIR/lexaloud/lexaloud.sock" ]; then break; fi
+            sleep 0.25
+          done
+          ls -l $XDG_RUNTIME_DIR/lexaloud/ || true
+          # Run Qt integration test that talks to daemon via UDS
+          QT_QPA_PLATFORM=offscreen ./build/ui-ci/test_api_client || true
+          kill $DAEMON_PID || true
+          wait $DAEMON_PID || true
+          rm -rf $TMP_RUNTIME $TMP_CONFIG
+
+  native-integration-and-appimage:
+    name: Native integration and AppImage
+    runs-on: ubuntu-24.04
+    needs: [rust-quality, rust-tests, qt-build-and-tests]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+      - name: Install system deps (Qt, audio, etc.)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config \
+            qt6-base-dev qt6-tools-dev libqt6svg6-dev \
+            libgl1-mesa-dev libegl1-mesa-dev \
+            clang patchelf curl ca-certificates file binutils \
+            wl-clipboard xclip libnotify-bin libportaudio2 \
+            libfontconfig1 libfreetype6 libdbus-1-3 libglib2.0-0 \
+            libx11-6 libxext6 libxrender1 libxcb1 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+            libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-shm0 \
+            libxcb-sync1 libxcb-xfixes0 libxcb-xkb1 libxcb-xinerama0 \
+            libxkbcommon-x11-0 libxkbcommon0 libgl1 libegl1 \
+            libwayland-client0 libwayland-cursor0 libwayland-egl1 \
+            libxkbcommon-x11-0
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-appimage-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-appimage-${{ runner.os }}-
+      - name: Build native stage
+        run: ./scripts/build-native.sh --release --stage "$PWD/build/stage"
+      - name: Build AppImage
+        run: ./scripts/build-appimage.sh
+      - name: Smoke AppImage
+        run: ./scripts/smoke-appimage.sh build/appimage/Lexaloud-*.AppImage
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: lexaloud-appimage
+          path: |
+            build/appimage/Lexaloud-*.AppImage
+            build/appimage/Lexaloud-*.AppImage.tar.gz
+          if-no-files-found: warn
+      - name: Upload manifests and ldd reports
+        uses: actions/upload-artifact@v7
+        with:
+          name: lexaloud-manifests
+          path: |
+            build/staged-files.txt
+            build/appimage/staged-files.txt
+            build/appdir/manifest.txt
+            build/appimage/ldd-*.txt
+            build/stage/../staged-files.txt
+          if-no-files-found: warn
+      - name: Upload size report
+        uses: actions/upload-artifact@v7
+        with:
+          name: lexaloud-size-report
+          path: |
+            build/appdir
+            build/stage
+          if-no-files-found: warn
+
+  dependency-audit:
+    name: Dependency/license audit (cargo deny)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - name: cargo deny check
+        uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --all-features
+        continue-on-error: false
+      - name: Generate bundled inventory (Qt, ORT, eSpeak, system libs)
+        run: |
+          echo "=== Qt ===" | tee bundled-inventory.txt
+          qmake6 --version 2>/dev/null | tee -a bundled-inventory.txt || echo "qmake not found" | tee -a bundled-inventory.txt
+          pkg-config --modversion Qt6Core 2>/dev/null | tee -a bundled-inventory.txt || true
+          echo "=== ONNX Runtime ===" | tee -a bundled-inventory.txt
+          ldconfig -p 2>/dev/null | grep -i onnx | tee -a bundled-inventory.txt || echo "no ORT in ldconfig" | tee -a bundled-inventory.txt
+          echo "=== eSpeak ===" | tee -a bundled-inventory.txt
+          ls -ld /usr/share/espeak* 2>/dev/null | tee -a bundled-inventory.txt || echo "no espeak data" | tee -a bundled-inventory.txt
+          echo "=== System libs in AppDir ===" | tee -a bundled-inventory.txt
+          find build/appdir -type f -name "*.so*" 2>/dev/null | head -30 | tee -a bundled-inventory.txt || true
+          cat bundled-inventory.txt
+      - name: Upload inventory
+        uses: actions/upload-artifact@v7
+        with:
+          name: bundled-inventory
+          path: bundled-inventory.txt
+          if-no-files-found: warn
