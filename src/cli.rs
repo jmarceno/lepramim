@@ -9,6 +9,12 @@ use clap::{Parser, Subcommand};
     about = "Universal Linux text-to-speech tool for reading-along."
 )]
 pub struct Cli {
+    /// Show control window on start
+    #[arg(long, global = true)]
+    pub control: bool,
+    /// Show floating overlay on start
+    #[arg(long, global = true)]
+    pub overlay: bool,
     #[command(subcommand)]
     pub command: Option<Commands>,
 }
@@ -65,13 +71,13 @@ fn not_yet(cmd: &str) -> i32 {
     1
 }
 
-/// Entry point called from `main.rs`. Parses args and dispatches.
-pub async fn run() -> i32 {
-    let cli = Cli::parse();
+/// Entry point for non-app subcommands (called from `main.rs` after clap parse).
+pub async fn run_async(cli: Cli) -> i32 {
     match cli.command {
-        None => cmd_app().await,
-        Some(Commands::App) => cmd_app().await,
-        Some(Commands::Tray) => cmd_app().await,
+        None | Some(Commands::App) | Some(Commands::Tray) => {
+            // App mode is handled in main via ui::run
+            unreachable!("app mode handled in main")
+        }
         Some(Commands::SpeakSelection { max_bytes }) => cmd_speak_selection(max_bytes).await,
         Some(Commands::SpeakClipboard { max_bytes }) => cmd_speak_clipboard(max_bytes).await,
         Some(Commands::Pause) => cmd_pause().await,
@@ -219,97 +225,6 @@ async fn get_from_daemon(path: &str) -> Result<serde_json::Value, i32> {
 
 // ---- command handlers ----
 
-fn find_ui_binary() -> Option<std::path::PathBuf> {
-    // 1) sibling of current exe (target/release or build/appdir)
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let cand = dir.join("lexaloud-ui");
-            if cand.is_file() {
-                return Some(cand);
-            }
-            let cand2 = dir.join("../lib/lexaloud/lexaloud-ui");
-            if cand2.is_file() {
-                return Some(cand2);
-            }
-            // From target/release, check ../../build/appdir etc.
-            for rel in [
-                "../../build/appdir/usr/bin/lexaloud-ui",
-                "../../build/ui-release/ui/lexaloud-ui",
-                "../../build/stage/bin/lexaloud-ui",
-                "../build/appdir/usr/bin/lexaloud-ui",
-            ] {
-                let cand = dir.join(rel);
-                if cand.is_file() {
-                    return Some(cand);
-                }
-            }
-            // Walk up looking for Cargo.toml to find project root
-            let mut cur = dir.to_path_buf();
-            for _ in 0..5 {
-                if cur.join("Cargo.toml").is_file() {
-                    for rel in [
-                        "build/appdir/usr/bin/lexaloud-ui",
-                        "build/ui-release/ui/lexaloud-ui",
-                        "build/stage/bin/lexaloud-ui",
-                    ] {
-                        let cand = cur.join(rel);
-                        if cand.is_file() {
-                            return Some(cand);
-                        }
-                    }
-                    break;
-                }
-                if let Some(parent) = cur.parent() {
-                    cur = parent.to_path_buf();
-                } else {
-                    break;
-                }
-            }
-        }
-    }
-    // 2) in PATH
-    if let Ok(path) = std::env::var("PATH") {
-        for p in path.split(':') {
-            let cand = std::path::Path::new(p).join("lexaloud-ui");
-            if cand.is_file() {
-                return Some(cand);
-            }
-        }
-    }
-    // 3) common build locations relative to cwd (when running from project root)
-    for cand in [
-        "build/appdir/usr/bin/lexaloud-ui",
-        "build/stage/bin/lexaloud-ui",
-        "build/ui-release/ui/lexaloud-ui",
-        "target/release/lexaloud-ui",
-    ] {
-        let p = std::path::Path::new(cand);
-        if p.is_file() {
-            return Some(p.to_path_buf());
-        }
-    }
-    // 4) compile-time manifest dir (handles CARGO_TARGET_DIR)
-    let manifest = env!("CARGO_MANIFEST_DIR");
-    for rel in [
-        "build/appdir/usr/bin/lexaloud-ui",
-        "build/ui-release/ui/lexaloud-ui",
-        "build/stage/bin/lexaloud-ui",
-    ] {
-        let cand = std::path::Path::new(manifest).join(rel);
-        if cand.is_file() {
-            return Some(cand);
-        }
-    }
-    // 5) system install
-    for cand in ["/usr/bin/lexaloud-ui", "/usr/local/bin/lexaloud-ui"] {
-        let p = std::path::Path::new(cand);
-        if p.is_file() {
-            return Some(p.to_path_buf());
-        }
-    }
-    None
-}
-
 async fn is_daemon_healthy_quiet() -> bool {
     let sock = crate::config::socket_path();
     let mut stream = match tokio::net::UnixStream::connect(&sock).await {
@@ -428,190 +343,67 @@ async fn request_daemon_shutdown(mut child: Option<std::process::Child>) {
     }
 }
 
-async fn cmd_app() -> i32 {
-    println!(
-        "Lexaloud {} — local text-to-speech",
-        env!("CARGO_PKG_VERSION")
-    );
-    if let Err(e) = ensure_user_files() {
-        eprintln!("{e}");
-        return 1;
-    }
-    let started = match spawn_daemon_inner(false).await {
-        Ok(c) => c,
+async fn cmd_speak_selection(max_bytes_opt: Option<usize>) -> i32 {
+    let cfg = crate::config::load_config::<std::path::PathBuf>(None);
+    let max_bytes = max_bytes_opt.unwrap_or(cfg.capture.max_bytes);
+    let timeout_s = cfg.capture.subprocess_timeout_s;
+
+    let capture = match crate::ui::capture::capture_for_cli(max_bytes, timeout_s) {
+        Ok(r) => r,
+        Err(crate::platform::selection::SelectionError::Empty(_)) => {
+            eprintln!("No selection found. Select text and press Meta+R again.");
+            crate::platform::notifications::try_notify(
+                "Select text first",
+                Some("Lexaloud: no selection found."),
+                1.0,
+            );
+            return 2;
+        }
+        Err(crate::platform::selection::SelectionError::DisplayUnavailable(msg)) => {
+            eprintln!("{msg}");
+            crate::platform::notifications::try_notify(
+                "Lexaloud: cannot reach display server",
+                Some("Is DISPLAY set? Are you running from a session that can talk to X/Wayland?"),
+                1.0,
+            );
+            return 5;
+        }
+        Err(crate::platform::selection::SelectionError::ToolMissing(msg)) => {
+            eprintln!("{msg}");
+            crate::platform::notifications::try_notify(
+                "Lexaloud: capture tool missing",
+                Some(&msg),
+                1.0,
+            );
+            return 5;
+        }
+        Err(crate::platform::selection::SelectionError::Timeout(t)) => {
+            eprintln!("capture timed out after {t}s");
+            crate::platform::notifications::try_notify(
+                "Lexaloud: capture timed out",
+                Some(&format!("capture timed out after {t}s")),
+                1.0,
+            );
+            return 5;
+        }
         Err(e) => {
             eprintln!("{e}");
             return 1;
         }
     };
 
-    let has_display = std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
-    if !has_display {
-        eprintln!("No graphical session (DISPLAY/WAYLAND_DISPLAY unset).");
-        request_daemon_shutdown(started).await;
-        return 1;
+    if capture.truncated {
+        crate::platform::notifications::try_notify(
+            "Selection truncated",
+            Some(&format!(
+                "Lexaloud captured the first {} bytes of a larger selection.",
+                max_bytes
+            )),
+            1.0,
+        );
     }
-    let Some(ui) = find_ui_binary() else {
-        eprintln!("lexaloud-ui is missing from this install.");
-        request_daemon_shutdown(started).await;
-        return 1;
-    };
-    let mut ui_child = match std::process::Command::new(&ui)
-        .stdin(std::process::Stdio::null())
-        .spawn()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Failed to launch UI {}: {e}", ui.display());
-            request_daemon_shutdown(started).await;
-            return 1;
-        }
-    };
-    let _ = tokio::task::spawn_blocking(move || ui_child.wait()).await;
-    request_daemon_shutdown(started).await;
-    0
-}
 
-async fn cmd_speak_selection(max_bytes_opt: Option<usize>) -> i32 {
-    let cfg = crate::config::load_config::<std::path::PathBuf>(None);
-    let max_bytes = max_bytes_opt.unwrap_or(cfg.capture.max_bytes);
-    let timeout_s = cfg.capture.subprocess_timeout_s;
-
-    // Try primary first
-    let primary_result = crate::platform::selection::read_primary(max_bytes, timeout_s);
-    let text_opt = match primary_result {
-        Ok(r) => {
-            if r.text.trim().is_empty() {
-                None
-            } else {
-                // Check truncated notification
-                if r.truncated {
-                    crate::platform::notifications::try_notify(
-                        "Selection truncated",
-                        Some(&format!(
-                            "Lexaloud captured the first {} bytes of a larger selection.",
-                            max_bytes
-                        )),
-                        1.0,
-                    );
-                }
-                Some(r.text)
-            }
-        }
-        Err(e) => match &e {
-            crate::platform::selection::SelectionError::Empty(_) => None,
-            crate::platform::selection::SelectionError::DisplayUnavailable(msg) => {
-                eprintln!("{}", msg);
-                crate::platform::notifications::try_notify(
-                    "Lexaloud: cannot reach display server",
-                    Some(
-                        "Is DISPLAY set? Are you running from a session that can talk to X/Wayland?",
-                    ),
-                    1.0,
-                );
-                return 5;
-            }
-            crate::platform::selection::SelectionError::ToolMissing(msg) => {
-                eprintln!("{}", msg);
-                crate::platform::notifications::try_notify(
-                    "Lexaloud: capture tool missing",
-                    Some(msg),
-                    1.0,
-                );
-                return 5;
-            }
-            crate::platform::selection::SelectionError::Timeout(_) => {
-                eprintln!("{}", e);
-                crate::platform::notifications::try_notify(
-                    "Lexaloud: capture timed out",
-                    Some(&e.to_string()),
-                    1.0,
-                );
-                return 5;
-            }
-            _ => {
-                eprintln!("{}", e);
-                return 1;
-            }
-        },
-    };
-
-    let text = if let Some(t) = text_opt {
-        t
-    } else {
-        // Try force copy then clipboard
-        crate::platform::selection::try_force_copy(1.0);
-        // Try clipboard readers sequentially
-        let mut last_err: Option<crate::platform::selection::SelectionError> = None;
-        let mut success: Option<String> = None;
-        match crate::platform::selection::read_clipboard(max_bytes, timeout_s) {
-            Ok(r) => success = Some(r.text),
-            Err(crate::platform::selection::SelectionError::Empty(e)) => {
-                last_err = Some(crate::platform::selection::SelectionError::Empty(e));
-            }
-            Err(crate::platform::selection::SelectionError::DisplayUnavailable(msg)) => {
-                eprintln!("{}", msg);
-                crate::platform::notifications::try_notify(
-                    "Lexaloud: cannot reach display server",
-                    Some("Is DISPLAY set?"),
-                    1.0,
-                );
-                return 5;
-            }
-            Err(e) => {
-                last_err = Some(e);
-            }
-        }
-        if success.is_none() {
-            match crate::platform::selection::read_clipboard_via_klipper(max_bytes, timeout_s) {
-                Ok(r) => success = Some(r.text),
-                Err(crate::platform::selection::SelectionError::Empty(e)) => {
-                    last_err = Some(crate::platform::selection::SelectionError::Empty(e));
-                }
-                Err(crate::platform::selection::SelectionError::DisplayUnavailable(msg)) => {
-                    eprintln!("{}", msg);
-                    crate::platform::notifications::try_notify(
-                        "Lexaloud: cannot reach display server",
-                        Some("Is DISPLAY set?"),
-                        1.0,
-                    );
-                    return 5;
-                }
-                Err(e) => {
-                    last_err = Some(e);
-                }
-            }
-        }
-        if let Some(t) = success {
-            t
-        } else {
-            if let Some(e) = last_err {
-                if matches!(e, crate::platform::selection::SelectionError::Empty(_)) {
-                    eprintln!("No selection found. Select text and press Meta+R again.");
-                    crate::platform::notifications::try_notify(
-                        "Select text first",
-                        Some("Lexaloud: no selection found."),
-                        1.0,
-                    );
-                    return 2;
-                } else {
-                    eprintln!("{}", e);
-                    crate::platform::notifications::try_notify(
-                        "Lexaloud: capture tool missing",
-                        Some(&e.to_string()),
-                        1.0,
-                    );
-                    return 5;
-                }
-            } else {
-                eprintln!("No selection found.");
-                return 2;
-            }
-        }
-    };
-
-    // Post to daemon
-    let body = serde_json::json!({"text": text, "mode":"replace"});
+    let body = serde_json::json!({"text": capture.text, "mode":"replace"});
     match post_to_daemon("/speak", body).await {
         Ok(_) => 0,
         Err(code) => code,

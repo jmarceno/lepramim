@@ -3,37 +3,20 @@ set -euo pipefail
 
 HERE="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
-# AppImage sets APPIMAGE to the stable path of the image that was launched.
-# The setup command uses this to write a systemd unit that executes the
-# AppImage itself rather than the temporary mounted AppDir path.
 if [[ -n "${APPIMAGE:-}" ]]; then
   export LEXALOUD_APPIMAGE="$APPIMAGE"
 fi
 
-# Qt plugin path (native AppImage bundles allowlisted plugins)
-export QT_PLUGIN_PATH="$HERE/usr/plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
-export QT_QPA_PLATFORM_PLUGIN_PATH="$HERE/usr/plugins/platforms"
-
-# Bundled libs: Qt, ONNX Runtime, PortAudio
-export LD_LIBRARY_PATH="$HERE/usr/lib:$HERE/usr/lib/lexaloud${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-
-# Prefer host clipboard tools for Wayland compat; bundled are last-resort fallbacks
+export LD_LIBRARY_PATH="$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export PATH="$PATH:$HERE/usr/bin"
 
-# eSpeak data path if bundled
 if [[ -d "$HERE/usr/share/espeak-ng-data" ]]; then
   export ESPEAK_DATA_PATH="$HERE/usr/share/espeak-ng-data"
 fi
 
-# Dispatch: support --ui and symlink-named invocations
-if [[ "${1:-}" == "--ui" ]]; then
-  shift
-  exec "$HERE/usr/bin/lexaloud-ui" "$@"
-fi
-
-BIN_NAME="$(basename "${ARGV0:-$0}" 2>/dev/null || basename "$0")"
-if [[ "$BIN_NAME" == "lexaloud-ui" ]]; then
-  exec "$HERE/usr/bin/lexaloud-ui" "$@"
+# File manager may pass the AppImage path as $1 when double-clicking.
+if [[ $# -eq 1 && -n "${APPIMAGE:-}" && "$1" == "$APPIMAGE" ]]; then
+  set --
 fi
 
 exec "$HERE/usr/bin/lexaloud" "$@"

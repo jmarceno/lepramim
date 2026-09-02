@@ -7,8 +7,21 @@ authors = ["Lexaloud"]
 license = "MIT"
 rust-version = "1.85"
 
+[lib]
+name = "lexaloud"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lexaloud"
+path = "src/main.rs"
+
 [dependencies]
 tokio = { version = "=1.43.0", features = ["full"] }
+iced = { version = "=0.13.1", default-features = false, features = ["tiny-skia", "tokio", "advanced", "svg"] }
+ksni = { version = "=0.2.2" }
+resvg = { version = "=0.48.1", default-features = false, features = ["text", "system-fonts"] }
+usvg = { version = "=0.48.1" }
+crossbeam-channel = { version = "=0.5.15" }
 axum = { version = "=0.7.9" }
 hyper = { version = "=1.6.0" }
 hyper-util = { version = "=0.1.12", features = ["client", "http1", "tokio"] }
@@ -22,7 +35,7 @@ serde_json = { version = "=1.0.133" }
 toml = { version = "=0.8.23" }
 tracing = { version = "=0.1.41" }
 tracing-subscriber = { version = "=0.3.19", features = ["env-filter"] }
-thiserror = { version = "=2.0.11" }
+thiserror = { version = "=2.0.20" }
 directories = { version = "=5.0.1" }
 regex = { version = "=1.11.1" }
 pulldown-cmark = { version = "=0.13.0" }
@@ -31,7 +44,7 @@ hex = { version = "=0.4.3" }
 ort = { version = "=2.0.0-rc.10", features = ["download-binaries"] }
 cpal = { version = "=0.15.3" }
 ureq = { version = "=2.12.1" }
-zbus = { version = "=4.4.0", default-features = false, features = ["tokio"] }
+zbus = { version = "=4.4.0", default-features = false, features = ["tokio", "blocking"] }
 ashpd = { version = "=0.8.1", default-features = false, features = ["async-std"] }
 llama-cpp-2 = { version = "=0.1.97", optional = true }
 

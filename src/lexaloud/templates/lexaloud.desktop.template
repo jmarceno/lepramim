@@ -9,5 +9,5 @@ Icon=audio-headphones
 Terminal=false
 Categories=AudioVideo;Audio;Accessibility;
 Keywords=tts;text-to-speech;kokoro;read;aloud;narrate;
-StartupNotify=true
+StartupNotify=false
 X-GNOME-UsesNotifications=true

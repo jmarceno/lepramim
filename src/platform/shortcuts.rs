@@ -1,4 +1,7 @@
-/// Global shortcut registration via desktop portal / DE-specific paths.
+/// Global shortcut registration — handled by the Iced tray app (`lexaloud app`).
+///
+/// When running `lexaloud app`, hotkeys are registered via D-Bus (`org.lexaloud.App`)
+/// and KGlobalAccel (Meta+R / Meta+P). This adapter remains for CLI `setup` hints only.
 pub struct ShortcutsAdapter {
     pub registered: bool,
     pub message: Option<String>,
@@ -12,36 +15,21 @@ impl ShortcutsAdapter {
         }
     }
 
-    /// Try to register Meta+R → lexaloud speak-selection.
+    /// Hotkeys are owned by the in-process UI; return instructions for manual binding.
     pub async fn try_register(&mut self) -> bool {
-        if std::env::var("XDG_SESSION_TYPE").ok().as_deref() == Some("wayland") {
-            match ashpd::desktop::global_shortcuts::GlobalShortcuts::new().await {
-                Ok(portal) => {
-                    tracing::debug!(
-                        "Global Shortcuts portal available; bind Meta+R to `lexaloud speak-selection` in your DE settings"
-                    );
-                    let _ = portal;
-                }
-                Err(e) => {
-                    tracing::debug!("Global Shortcuts portal unavailable: {e}");
-                }
-            }
-        }
-
         self.message = Some(
-            "Bind Meta+R manually to: lexaloud speak-selection\n\
+            "Run `lexaloud` (or `lexaloud app`) for tray + global hotkeys.\n\
+             Manual bind target: org.lexaloud.App SpeakSelection / Toggle\n\
              GNOME: Settings → Keyboard → Custom Shortcuts\n\
-             KDE: System Settings → Shortcuts → Custom Shortcuts\n\
-             XFCE: Settings → Keyboard → Application Shortcuts"
+             KDE: shortcuts are registered automatically when the app is running"
                 .to_string(),
         );
-        tracing::info!("Shortcut setup: see `lexaloud setup` output for DE-specific instructions");
+        tracing::info!("Global shortcuts: start `lexaloud app` for Meta+R / Meta+P");
         false
     }
 
     pub fn disconnect(&mut self) {
         self.registered = false;
-        tracing::info!("ShortcutsAdapter disconnect");
     }
 }
 

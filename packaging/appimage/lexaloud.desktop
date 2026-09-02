@@ -9,4 +9,4 @@ Icon=lexaloud
 Terminal=false
 Categories=AudioVideo;Audio;Accessibility;
 Keywords=tts;text-to-speech;kokoro;read;aloud;narrate;
-StartupNotify=true
+StartupNotify=false

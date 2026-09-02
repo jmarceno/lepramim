@@ -1,33 +1,21 @@
-#![allow(dead_code)]
+use clap::Parser;
+use lexaloud::cli::{Cli, Commands};
 
-mod api;
-mod audio;
-mod cli;
-mod config;
-mod daemon;
-mod error;
-mod models;
-mod platform;
-mod player;
-mod preprocessor;
-mod privacy;
-mod tts;
+fn main() {
+    lexaloud::init_tracing();
+    let cli = Cli::parse();
 
-use tracing_subscriber::{EnvFilter, fmt};
+    let is_app = matches!(
+        cli.command,
+        None | Some(Commands::App) | Some(Commands::Tray)
+    );
 
-#[tokio::main]
-async fn main() {
-    init_tracing();
-    let code = cli::run().await;
+    if is_app {
+        let code = lexaloud::ui::run(cli.control, cli.overlay);
+        std::process::exit(code);
+    }
+
+    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+    let code = rt.block_on(lexaloud::cli::run_async(cli));
     std::process::exit(code);
-}
-
-fn init_tracing() {
-    let level = std::env::var("LEXALOUD_LOG_LEVEL").unwrap_or_else(|_| "warn".to_string());
-    // Try to parse as EnvFilter; fallback to warn if invalid.
-    let filter = EnvFilter::try_new(&level).unwrap_or_else(|_| EnvFilter::new("warn"));
-    let _ = fmt().with_env_filter(filter).try_init();
-    // Exercise pulldown-cmark and axum to keep deps linked without runtime cost.
-    let _ = pulldown_cmark::Parser::new("test");
-    let _ = axum::Router::<()>::new();
 }

@@ -166,6 +166,19 @@ fn partial_path(dest: &Path) -> PathBuf {
 
 /// Stream-download a URL to dest with SHA256 verification after atomic rename.
 pub fn download_file(url: &str, dest: &Path) -> Result<(), ArtifactError> {
+    download_file_with_progress(url, dest, |_, _| {})
+}
+
+/// Download with progress callback `(filename, percent)`.
+pub fn download_file_with_progress(
+    url: &str,
+    dest: &Path,
+    mut progress: impl FnMut(&str, u8),
+) -> Result<(), ArtifactError> {
+    let filename = dest
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("download");
     let partial = partial_path(dest);
     if partial.exists() {
         std::fs::remove_file(&partial)?;
@@ -186,6 +199,11 @@ pub fn download_file(url: &str, dest: &Path) -> Result<(), ArtifactError> {
             detail: format!("HTTP {}", response.status()),
         });
     }
+
+    let total = response
+        .header("Content-Length")
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0);
 
     let mut file = std::fs::File::create(&partial)?;
     let mut reader = response.into_reader();
@@ -210,11 +228,48 @@ pub fn download_file(url: &str, dest: &Path) -> Result<(), ArtifactError> {
             });
         }
         file.write_all(&buf[..n])?;
+        if let Some(pct) = (downloaded * 100).checked_div(total) {
+            progress(filename, (pct as u8).min(99));
+        }
     }
     file.sync_all()?;
     drop(file);
     std::fs::rename(&partial, dest)?;
+    progress(filename, 100);
     Ok(())
+}
+
+/// Return true if any required Kokoro artifact is missing from cache.
+pub fn artifacts_missing() -> bool {
+    let cache = resolve_cache_dir(None);
+    ARTIFACTS
+        .iter()
+        .any(|art| !cache.join(art.filename).is_file())
+}
+
+/// Ensure artifacts with per-file progress callbacks.
+pub fn ensure_artifacts_with_progress(
+    cache_dir: Option<&Path>,
+    download_if_missing: bool,
+    mut progress: impl FnMut(&str, u8),
+) -> Result<HashMap<String, PathBuf>, ArtifactError> {
+    let cache = resolve_cache_dir(cache_dir);
+    std::fs::create_dir_all(&cache)?;
+
+    let mut out = HashMap::new();
+    for art in ARTIFACTS {
+        let path = cache.join(art.filename);
+        if !path.exists() {
+            if !download_if_missing {
+                return Err(ArtifactError::Missing(path));
+            }
+            tracing::info!("Downloading {} from {}", art.filename, art.url);
+            download_file_with_progress(art.url, &path, |f, p| progress(f, p))?;
+        }
+        verify_artifact(&path, art)?;
+        out.insert(art.filename.to_string(), path);
+    }
+    Ok(out)
 }
 
 fn verify_artifact(path: &Path, art: &Artifact) -> Result<(), ArtifactError> {

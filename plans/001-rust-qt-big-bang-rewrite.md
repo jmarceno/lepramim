@@ -1,5 +1,9 @@
 # Plan 001: Rust core + Qt Widgets big-bang rewrite
 
+> **Historical:** This plan described the Qt 6 `lexaloud-ui` stack, which was
+> superseded by the in-process Iced tray UI (single `lexaloud` binary). Keep
+> this document for archaeology only; do not treat it as the active product spec.
+
 > **Executor instructions:** Follow the phases in order and run each gate before
 > continuing. The phases are checkpoints on one rewrite branch, not separately
 > releasable migrations. If a STOP condition occurs, report it rather than

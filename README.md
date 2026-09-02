@@ -1,6 +1,6 @@
 # Lexaloud
 
-Local, private Linux text-to-speech with a system-tray Qt UI and a Rust daemon.
+Local, private Linux text-to-speech with an Iced system-tray UI and a Rust daemon.
 
 Lexaloud reads selected text using the Kokoro ONNX model, with preprocessing tuned for academic PDFs, citations, math symbols, and Markdown.
 
@@ -30,7 +30,7 @@ When the tray app is running, Lexaloud registers global shortcuts via KGlobalAcc
 | **Meta+R** | Speak highlighted selection |
 | **Meta+P** | Pause / resume playback |
 
-Capture runs **in the tray process** (no per-keypress AppImage spawn). On Wayland, Lexaloud reads the Qt clipboard and sends a synthetic Ctrl+C when needed; on X11 it prefers PRIMARY selection. Copy the text first (Ctrl+C) if synthetic copy fails in your app.
+Capture runs **in the app process** (no per-keypress AppImage spawn). On Wayland, Lexaloud snapshots the clipboard and sends a synthetic Ctrl+C when needed; on X11 it prefers PRIMARY selection.
 
 ## Build from source
 
@@ -77,12 +77,18 @@ Default config is written to `~/.config/lexaloud/config.toml` on first launch.
 
 ## Development
 
+Install system deps (Debian/Ubuntu example):
+
+```bash
+sudo apt install libasound2-dev libssl-dev libdbus-1-dev \
+  wl-clipboard xclip libfontconfig1-dev
+```
+
 ```bash
 cargo fmt --all
 cargo clippy --all-targets -- -D warnings
 cargo test
-cmake --preset release && cmake --build --preset release --parallel
-QT_QPA_PLATFORM=offscreen ctest --preset release
+./scripts/build-native.sh --release --stage "$PWD/build/stage"
 ```
 
 ## License

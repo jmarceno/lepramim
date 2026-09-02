@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Lexaloud installer — native Rust + Qt (standalone, no venv needed).
+# Lexaloud installer — native Rust + Iced (single binary).
 #
-# Installs the native binaries (lexaloud, lexaloud-ui) plus desktop,
+# Installs lexaloud plus desktop, icon, and systemd template.
 # icon, and systemd template. Supports:
 #   - AppImage install (default for releases; no build tools required)
-#   - Source build install (--from-source; requires Rust/CMake/Qt)
+#   - Source build install (--from-source; requires Rust + GUI libs)
 #
 # This replaces the legacy venv installer. It must not create a
 # venv, must not require an interpreter, and must preserve distro-specific
@@ -17,7 +17,7 @@
 #   ./scripts/install.sh --backend auto               # auto via nvidia-smi
 #   ./scripts/install.sh --prefix ~/.local            # install to prefix (default: ~/.local)
 #   ./scripts/install.sh --system                     # install to /usr/local (requires sudo)
-#   ./scripts/install.sh --from-source                # build from source (cargo + cmake)
+#   ./scripts/install.sh --from-source                # build from source (cargo)
 #   ./scripts/install.sh --appimage dist/Lexaloud-*.AppImage  # install from AppImage
 #   ./scripts/install.sh --with-math-speech           # also install speech-rule-engine (node >=18)
 #
@@ -131,7 +131,7 @@ fi
 
 # --- system dependency check (distro-aware, native) --------------------
 # For AppImage install: only runtime helpers (wl-clipboard, xclip, portaudio, notify)
-# For source build: plus toolchain (cargo, cmake, ninja, Qt6, clang)
+# For source build: plus toolchain (cargo, GTK/X11 libs)
 missing_runtime=()
 missing_build=()
 
@@ -156,23 +156,11 @@ if [[ $FROM_SOURCE -eq 1 ]]; then
   if ! command -v cargo >/dev/null 2>&1; then
     missing_build+=("cargo (rustup)")
   fi
-  if ! command -v cmake >/dev/null 2>&1; then
-    missing_build+=("cmake")
-  fi
-  if ! command -v ninja >/dev/null 2>&1; then
-    missing_build+=("ninja-build")
-  fi
-  if ! command -v clang-format >/dev/null 2>&1; then
-    # not strictly required for install, but warn
-    echo "warning: clang-format not found; Qt formatting checks will be skipped" >&2
-  fi
-  # Qt6 probe: check for Qt6Core via pkg-config or qmake
-  HAS_QT=0
-  if pkg-config --exists Qt6Core 2>/dev/null; then HAS_QT=1; fi
-  if command -v qmake6 >/dev/null 2>&1; then HAS_QT=1; fi
-  if command -v qmake >/dev/null 2>&1 && qmake --version 2>/dev/null | grep -qi qt; then HAS_QT=1; fi
-  if [[ $HAS_QT -eq 0 ]]; then
-    missing_build+=("qt6-base-dev")
+  # GUI deps probe
+  HAS_GUI=0
+  if pkg-config --exists dbus-1 2>/dev/null; then HAS_GUI=1; fi
+  if [[ $HAS_GUI -eq 0 ]]; then
+    missing_build+=("libdbus-1-dev")
   fi
 fi
 
@@ -202,7 +190,7 @@ if (( ${#all_missing[@]} > 0 )); then
       echo "  sudo apt install ${missing_runtime[*]:-wl-clipboard xclip libportaudio2 libnotify-bin}" >&2
       if (( ${#missing_build[@]} > 0 )); then
         echo "Install build deps with:" >&2
-        echo "  sudo apt install cmake ninja-build pkg-config qt6-base-dev qt6-tools-dev libqt6svg6-dev clang clang-format" >&2
+        echo "  sudo apt install libdbus-1-dev libasound2-dev pkg-config clang" >&2
         echo "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0" >&2
       fi
       ;;
@@ -220,7 +208,7 @@ if (( ${#all_missing[@]} > 0 )); then
       echo "Install them with:" >&2
       echo "  sudo dnf install ${fedora_runtime[*]}" >&2
       if (( ${#missing_build[@]} > 0 )); then
-        echo "  sudo dnf install cmake ninja-build qt6-qtbase-devel qt6-qtsvg-devel clang clang-tools-extra" >&2
+        echo "  sudo dnf install dbus-devel clang" >&2
       fi
       ;;
     arch)
@@ -237,7 +225,7 @@ if (( ${#all_missing[@]} > 0 )); then
       echo "Install them with:" >&2
       echo "  sudo pacman -S ${arch_runtime[*]}" >&2
       if (( ${#missing_build[@]} > 0 )); then
-        echo "  sudo pacman -S cmake ninja qt6-base qt6-svg clang" >&2
+        echo "  sudo pacman -S dbus clang" >&2
       fi
       ;;
     suse)
@@ -325,8 +313,8 @@ if [[ "$INSTALL_MODE" == "source" ]]; then
   fi
   # Default to release for installs
   "$REPO_ROOT/scripts/build-native.sh" --release --stage "$STAGE"
-  if [[ ! -x "$STAGE/bin/lexaloud" || ! -x "$STAGE/bin/lexaloud-ui" ]]; then
-    echo "ERROR: build-native failed to produce staged binaries" >&2
+  if [[ ! -x "$STAGE/bin/lexaloud" ]]; then
+    echo "ERROR: build-native failed to produce staged binary" >&2
     exit 1
   fi
   INSTALL_SRC="$STAGE"
@@ -354,17 +342,13 @@ if [[ "$INSTALL_MODE" == "appimage" ]]; then
   echo "Copying AppImage to $TARGET_APPIMAGE"
   cp -a "$INSTALL_SRC" "$TARGET_APPIMAGE"
   chmod 0755 "$TARGET_APPIMAGE"
-  # Create wrapper scripts so `lexaloud` and `lexaloud-ui` resolve to AppImage
+  # Create wrapper so `lexaloud` resolves to AppImage
   cat > "$PREFIX/bin/lexaloud" <<WRAP
 #!/usr/bin/env bash
 exec "$TARGET_APPIMAGE" "\$@"
 WRAP
-  cat > "$PREFIX/bin/lexaloud-ui" <<WRAP2
-#!/usr/bin/env bash
-exec "$TARGET_APPIMAGE" --ui "\$@" 2>/dev/null || exec "$TARGET_APPIMAGE" "\$@"
-WRAP2
-  chmod 0755 "$PREFIX/bin/lexaloud" "$PREFIX/bin/lexaloud-ui"
-  echo "Created wrappers: $PREFIX/bin/lexaloud, $PREFIX/bin/lexaloud-ui"
+  chmod 0755 "$PREFIX/bin/lexaloud"
+  echo "Created wrapper: $PREFIX/bin/lexaloud"
 
   # Try to extract desktop/icon from AppImage for prefix integration
   TMP_EXTRACT="$(mktemp -d)"
@@ -391,7 +375,7 @@ WRAP2
     if [[ -f "$EXTRACTED/usr/share/applications/lexaloud.desktop" ]]; then
       cp -a "$EXTRACTED/usr/share/applications/lexaloud.desktop" "$PREFIX/share/applications/lexaloud.desktop"
       # Fix Exec to point to installed wrapper
-      sed -i "s|^Exec=.*|Exec=$PREFIX/bin/lexaloud-ui|" "$PREFIX/share/applications/lexaloud.desktop" 2>/dev/null || true
+      sed -i "s|^Exec=.*|Exec=$PREFIX/bin/lexaloud|" "$PREFIX/share/applications/lexaloud.desktop" 2>/dev/null || true
       echo "Installed desktop file from AppImage"
     fi
     if [[ -f "$EXTRACTED/usr/share/icons/hicolor/scalable/apps/lexaloud.svg" ]]; then
@@ -424,15 +408,14 @@ else
   # Source stage install: copy binaries and assets directly
   echo "Copying staged binaries to $PREFIX/bin/"
   install -m 0755 "$STAGE/bin/lexaloud" "$PREFIX/bin/lexaloud"
-  install -m 0755 "$STAGE/bin/lexaloud-ui" "$PREFIX/bin/lexaloud-ui"
 
   if [[ -f "$STAGE/share/applications/lexaloud.desktop" ]]; then
     install -m 0644 "$STAGE/share/applications/lexaloud.desktop" "$PREFIX/share/applications/lexaloud.desktop"
     # Fix Exec to installed path
-    sed -i "s|^Exec=lexaloud.*|Exec=$PREFIX/bin/lexaloud-ui|" "$PREFIX/share/applications/lexaloud.desktop" 2>/dev/null || true
+    sed -i "s|^Exec=lexaloud.*|Exec=$PREFIX/bin/lexaloud|" "$PREFIX/share/applications/lexaloud.desktop" 2>/dev/null || true
   elif [[ -f "$REPO_ROOT/packaging/appimage/lexaloud.desktop" ]]; then
     install -m 0644 "$REPO_ROOT/packaging/appimage/lexaloud.desktop" "$PREFIX/share/applications/lexaloud.desktop"
-    sed -i "s|^Exec=.*|Exec=$PREFIX/bin/lexaloud-ui|" "$PREFIX/share/applications/lexaloud.desktop" 2>/dev/null || true
+    sed -i "s|^Exec=.*|Exec=$PREFIX/bin/lexaloud|" "$PREFIX/share/applications/lexaloud.desktop" 2>/dev/null || true
   fi
 
   if [[ -f "$STAGE/share/icons/hicolor/scalable/apps/lexaloud.svg" ]]; then
@@ -465,7 +448,7 @@ if command -v gtk-update-icon-cache >/dev/null 2>&1; then
 fi
 
 echo "Installed binaries:"
-ls -lh "$PREFIX/bin/lexaloud" "$PREFIX/bin/lexaloud-ui" 2>/dev/null | sed 's/^/  /'
+ls -lh "$PREFIX/bin/lexaloud" 2>/dev/null | sed 's/^/  /'
 
 # --- optional: Speech Rule Engine for LaTeX-to-speech ------------------
 if (( WITH_MATH_SPEECH == 1 )); then
@@ -528,13 +511,11 @@ if [[ ":$PATH:" != *":$PREFIX/bin:"* ]]; then
   echo "  export PATH=\"\$PATH:$PREFIX/bin\""
   echo "Or symlink:"
   echo "  ln -sf $PREFIX/bin/lexaloud ~/.local/bin/lexaloud"
-  echo "  ln -sf $PREFIX/bin/lexaloud-ui ~/.local/bin/lexaloud-ui"
   echo
 fi
 echo "Next:"
 echo "  $PREFIX/bin/lexaloud setup        # download models, create systemd unit"
-echo "  $PREFIX/bin/lexaloud --help"
-echo "  $PREFIX/bin/lexaloud-ui --help    # Qt UI (requires display server)"
+echo "  $PREFIX/bin/lexaloud app          # tray UI (requires display server)"
 echo
 if [[ "$PREFIX" == "$HOME/.local" ]]; then
   echo "Systemd unit will be at ~/.config/systemd/user/lexaloud.service"

@@ -340,8 +340,8 @@ fn choose_output_config(
 }
 
 fn run_audio_thread(rx: mpsc::Receiver<AudioCmd>) {
-    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     use cpal::SampleFormat;
+    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
     let mut stream: Option<cpal::Stream> = None;
     let playback = Arc::new(StdMutex::new(PlaybackState {
