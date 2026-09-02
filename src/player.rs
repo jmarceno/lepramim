@@ -154,6 +154,8 @@ where
     last_error: Mutex<Option<String>>,
     control_lock: Mutex<()>,
     ready_queue_depth: usize,
+    warmup_complete: AtomicBool,
+    queued_speak: Mutex<Option<(Vec<String>, String)>>,
 }
 
 impl<P, S> Player<P, S>
@@ -182,6 +184,8 @@ where
             last_error: Mutex::new(None),
             control_lock: Mutex::new(()),
             ready_queue_depth: depth,
+            warmup_complete: AtomicBool::new(true),
+            queued_speak: Mutex::new(None),
         })
     }
 
@@ -214,12 +218,33 @@ where
         self.current_job_id.load(Ordering::SeqCst) == job_id
     }
 
+    pub async fn begin_warmup(self: &Arc<Self>) {
+        let _guard = self.control_lock.lock().await;
+        self.warmup_complete.store(false, Ordering::SeqCst);
+        *self.state.lock().await = State::Warming;
+    }
+
+    pub async fn end_warmup(self: &Arc<Self>) {
+        let queued = {
+            let _guard = self.control_lock.lock().await;
+            self.warmup_complete.store(true, Ordering::SeqCst);
+            let queued = self.queued_speak.lock().await.take();
+            let mut st = self.state.lock().await;
+            if *st == State::Warming {
+                *st = State::Idle;
+            }
+            queued
+        };
+        if let Some((sentences, mode)) = queued {
+            let _ = self.speak(sentences, &mode).await;
+        }
+    }
+
     pub async fn set_warming(self: &Arc<Self>, warming: bool) {
-        let mut st = self.state.lock().await;
-        if warming && *st == State::Idle {
-            *st = State::Warming;
-        } else if !warming && *st == State::Warming {
-            *st = State::Idle;
+        if warming {
+            self.begin_warmup().await;
+        } else {
+            self.end_warmup().await;
         }
     }
 
@@ -571,6 +596,10 @@ where
 
     pub async fn speak(self: &Arc<Self>, sentences: Vec<String>, mode: &str) -> u64 {
         let _guard = self.control_lock.lock().await;
+        if !self.warmup_complete.load(Ordering::SeqCst) {
+            *self.queued_speak.lock().await = Some((sentences, mode.to_string()));
+            return 0;
+        }
         let state = self.state.lock().await.clone();
         let producer_alive = {
             let h = self.producer_handle.lock().await;
@@ -617,6 +646,13 @@ where
         let cons = tokio::spawn(async move { self_c.consumer(job_id).await });
         *self.producer_handle.lock().await = Some(prod);
         *self.consumer_handle.lock().await = Some(cons);
+        let sink = self.sink.clone();
+        tokio::spawn(async move {
+            let mut sink = sink.lock().await;
+            if let Err(e) = sink.begin_stream(24_000, 1).await {
+                tracing::warn!("early begin_stream failed: {e}");
+            }
+        });
     }
 
     pub async fn pause(self: &Arc<Self>) {
@@ -852,5 +888,80 @@ mod tests {
         assert_eq!(st.state, State::Idle);
         assert_eq!(st.pending_count, 0);
         assert_eq!(st.current_sentence, None);
+    }
+
+    #[tokio::test]
+    async fn begin_stream_starts_before_first_chunk() {
+        #[derive(Clone)]
+        struct ProbeSink {
+            begins: Arc<AtomicU64>,
+            writes: Arc<AtomicU64>,
+        }
+        impl AudioSink for ProbeSink {
+            async fn warmup(&mut self, _sample_rate: u32, _channels: u16) -> Result<(), String> {
+                Ok(())
+            }
+            async fn begin_stream(
+                &mut self,
+                _sample_rate: u32,
+                _channels: u16,
+            ) -> Result<(), String> {
+                self.begins.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+            async fn write(&mut self, _chunk: AudioChunk) -> Result<(), String> {
+                self.writes.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+            async fn end_stream(&mut self) -> Result<(), String> {
+                Ok(())
+            }
+            async fn stop(&mut self) -> Result<(), String> {
+                Ok(())
+            }
+            async fn close(&mut self) -> Result<(), String> {
+                Ok(())
+            }
+        }
+
+        let begins = Arc::new(AtomicU64::new(0));
+        let writes = Arc::new(AtomicU64::new(0));
+        let mut provider = FakeProvider::new(24000, 0.05);
+        provider.synth_delay_ms = 120;
+        let sink = ProbeSink {
+            begins: begins.clone(),
+            writes: writes.clone(),
+        };
+        let p = Player::new(provider, sink, 3);
+        p.speak(vec!["Hello there.".to_string()], "replace").await;
+        let mut saw_begin = false;
+        for _ in 0..25 {
+            if begins.load(Ordering::SeqCst) >= 1 {
+                saw_begin = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(4)).await;
+        }
+        assert!(
+            saw_begin,
+            "begin_stream should run while synthesis is still in flight"
+        );
+        assert_eq!(writes.load(Ordering::SeqCst), 0);
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        p.stop().await;
+    }
+
+    #[tokio::test]
+    async fn speak_queues_until_warmup_completes() {
+        let p = test_player();
+        p.begin_warmup().await;
+        assert_eq!(p.state_snapshot().await.state, State::Warming);
+        let job = p.speak(vec!["Queued.".to_string()], "replace").await;
+        assert_eq!(job, 0);
+        assert_eq!(p.state_snapshot().await.state, State::Warming);
+        p.run_warmup().await;
+        p.end_warmup().await;
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        assert_eq!(p.state_snapshot().await.state, State::Idle);
     }
 }

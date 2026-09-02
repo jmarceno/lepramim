@@ -40,6 +40,7 @@ enum WindowKind {
 struct PlaybackState {
     state: String,
     current_sentence: String,
+    session_providers: Vec<String>,
 }
 
 impl Default for PlaybackState {
@@ -47,6 +48,7 @@ impl Default for PlaybackState {
         Self {
             state: "idle".into(),
             current_sentence: String::new(),
+            session_providers: Vec::new(),
         }
     }
 }
@@ -177,8 +179,14 @@ impl App {
     }
 
     fn apply_playback(&mut self, active: bool, state_str: &str) {
+        let cpu_fallback = !self.playback.session_providers.is_empty()
+            && !self
+                .playback
+                .session_providers
+                .iter()
+                .any(|p| p.contains("CUDA"));
         self.tray_state = {
-            let s = tray_state_for_daemon(state_str, active);
+            let s = tray_state_for_daemon(state_str, active, cpu_fallback);
             TraySharedState {
                 icon_running: s.icon_running,
                 tooltip: s.tooltip,
@@ -187,6 +195,7 @@ impl App {
                 pause_enabled: s.pause_enabled,
                 stop_enabled: s.stop_enabled,
                 autostart_checked: crate::platform::service::autostart_path().is_file(),
+                cpu_fallback: s.cpu_fallback,
             }
         };
         self.refresh_tray();
@@ -492,6 +501,16 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
+            app.playback.session_providers = r
+                .json
+                .get("session_providers")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
             app.apply_playback(active, state_str);
             if app.overlay_should_show() && !app.overlay_visible {
                 app.overlay_visible = true;

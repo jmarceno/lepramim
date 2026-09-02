@@ -58,43 +58,52 @@ impl KokoroProvider {
         }
     }
 
-    fn build_session(
-        model_path: &Path,
-        prefer_cuda: bool,
-    ) -> Result<(Session, Vec<String>), String> {
-        if prefer_cuda {
-            let cuda = CUDAExecutionProvider::default();
-            if !cuda.is_available().map_err(|e| e.to_string())? {
-                return Err("Requested CUDAExecutionProvider but CUDA is not available".to_string());
+    fn build_session(model_path: &Path, try_cuda: bool) -> Result<(Session, Vec<String>), String> {
+        if try_cuda {
+            let cuda_ok = CUDAExecutionProvider::default()
+                .is_available()
+                .unwrap_or(false);
+            if cuda_ok {
+                let cuda_session = (|| {
+                    let builder = Session::builder().map_err(|e| e.to_string())?;
+                    let builder = builder
+                        .with_execution_providers([
+                            CUDAExecutionProvider::default().build(),
+                            CPUExecutionProvider::default().build(),
+                        ])
+                        .map_err(|e| e.to_string())?;
+                    builder
+                        .commit_from_file(model_path)
+                        .map_err(|e| format!("ORT session load failed: {e}"))
+                })();
+                match cuda_session {
+                    Ok(session) => {
+                        tracing::info!("Kokoro session using CUDA");
+                        return Ok((
+                            session,
+                            vec![
+                                "CUDAExecutionProvider".to_string(),
+                                "CPUExecutionProvider".to_string(),
+                            ],
+                        ));
+                    }
+                    Err(e) => {
+                        tracing::warn!("CUDA session failed ({e}); falling back to CPU");
+                    }
+                }
+            } else {
+                tracing::info!("CUDA not available; using CPU");
             }
         }
 
-        let mut builder = Session::builder().map_err(|e| e.to_string())?;
-        if prefer_cuda {
-            builder = builder
-                .with_execution_providers([
-                    CUDAExecutionProvider::default().build(),
-                    CPUExecutionProvider::default().build(),
-                ])
-                .map_err(|e| e.to_string())?;
-        } else {
-            builder = builder
-                .with_execution_providers([CPUExecutionProvider::default().build()])
-                .map_err(|e| e.to_string())?;
-        }
+        let builder = Session::builder().map_err(|e| e.to_string())?;
+        let builder = builder
+            .with_execution_providers([CPUExecutionProvider::default().build()])
+            .map_err(|e| e.to_string())?;
         let session = builder
             .commit_from_file(model_path)
             .map_err(|e| format!("ORT session load failed: {e}"))?;
-
-        let providers = if prefer_cuda {
-            vec![
-                "CUDAExecutionProvider".to_string(),
-                "CPUExecutionProvider".to_string(),
-            ]
-        } else {
-            vec!["CPUExecutionProvider".to_string()]
-        };
-        Ok((session, providers))
+        Ok((session, vec!["CPUExecutionProvider".to_string()]))
     }
 
     async fn ensure_initialized(&self) -> Result<Vec<String>, String> {
@@ -110,18 +119,11 @@ impl KokoroProvider {
         }
         let model_path = self.model_path.clone();
         let voices_path = self.voices_path.clone();
-        let prefer_cuda = self.prefer_cuda;
+        let try_cuda = self.prefer_cuda;
         let (session, providers) =
-            tokio::task::spawn_blocking(move || Self::build_session(&model_path, prefer_cuda))
+            tokio::task::spawn_blocking(move || Self::build_session(&model_path, try_cuda))
                 .await
                 .map_err(|e| e.to_string())??;
-
-        if self.prefer_cuda && !providers.iter().any(|p| p.contains("CUDA")) {
-            return Err(format!(
-                "Requested CUDAExecutionProvider but session reports {:?}",
-                providers
-            ));
-        }
 
         let voices = tokio::task::spawn_blocking(move || load_all_voices(&voices_path))
             .await
@@ -193,18 +195,9 @@ impl SpeechProvider for KokoroProvider {
 
     fn session_providers(&self) -> Vec<String> {
         if let Ok(inner) = self.inner.try_lock() {
-            if !inner.session_providers.is_empty() {
-                return inner.session_providers.clone();
-            }
+            return inner.session_providers.clone();
         }
-        if self.prefer_cuda {
-            vec![
-                "CUDAExecutionProvider".to_string(),
-                "CPUExecutionProvider".to_string(),
-            ]
-        } else {
-            vec!["CPUExecutionProvider".to_string()]
-        }
+        Vec::new()
     }
 
     async fn synthesize(
@@ -223,13 +216,7 @@ impl SpeechProvider for KokoroProvider {
                 return None;
             }
         };
-        if self.prefer_cuda && !providers.iter().any(|p| p.contains("CUDA")) {
-            tracing::error!(
-                "Requested CUDAExecutionProvider but session reports {:?}",
-                providers
-            );
-            return None;
-        }
+        tracing::debug!("Kokoro providers={:?}", providers);
         if !is_current(job_id) {
             return None;
         }
@@ -297,11 +284,26 @@ impl SpeechProvider for KokoroProvider {
                 return;
             }
         }
-        if self.ensure_initialized().await.is_err() {
-            return;
+        match self.ensure_initialized().await {
+            Ok(providers) => {
+                tracing::info!("Kokoro session loaded (providers={:?})", providers);
+            }
+            Err(e) => {
+                tracing::error!("Kokoro init failed during warmup: {}", e);
+                return;
+            }
         }
         let is_current = Arc::new(|_: u64| true);
-        let _ = self.synthesize("Ready.".to_string(), 0, is_current).await;
+        // Spike 0: first infer after load is cold; second is still ~2× the third.
+        for pass in 1..=3 {
+            let chunk = self
+                .synthesize("Ready.".to_string(), 0, is_current.clone())
+                .await;
+            tracing::info!(
+                "Kokoro warmup pass {pass}/3 {}",
+                if chunk.is_some() { "ok" } else { "failed" }
+            );
+        }
         let mut inner = self.inner.lock().await;
         inner.warmed = true;
         tracing::info!(
@@ -316,18 +318,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn verify_cuda_fails_loudly() {
-        let p = KokoroProvider::new(
-            "/tmp/m.onnx",
-            "/tmp/v.bin",
-            "af_heart".to_string(),
-            "en-us".to_string(),
-            1.0,
-            true,
-        );
-        assert!(p.prefer_cuda);
+    fn cpu_fallback_provider_list_has_no_cuda() {
         let providers = ["CPUExecutionProvider".to_string()];
-        assert!(!providers.contains(&"CUDAExecutionProvider".to_string()));
+        assert!(!providers.iter().any(|p| p.contains("CUDA")));
     }
 
     #[test]
@@ -350,7 +343,7 @@ mod tests {
                 "af_heart".to_string(),
                 "en-us".to_string(),
                 1.0,
-                false,
+                true,
             );
             let is_current = Arc::new(|_: u64| true);
             let chunk = provider

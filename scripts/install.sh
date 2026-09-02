@@ -311,7 +311,6 @@ if [[ "$INSTALL_MODE" == "source" ]]; then
     echo "ERROR: scripts/build-native.sh not found or not executable" >&2
     exit 1
   fi
-  # Default to release for installs
   "$REPO_ROOT/scripts/build-native.sh" --release --stage "$STAGE"
   if [[ ! -x "$STAGE/bin/lexaloud" ]]; then
     echo "ERROR: build-native failed to produce staged binary" >&2

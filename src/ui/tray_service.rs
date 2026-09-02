@@ -8,7 +8,8 @@ use ksni::menu::{CheckmarkItem, MenuItem, StandardItem};
 use ksni::{Handle, Tray, TrayService};
 
 use super::tray_state::{
-    MENU_AUTOSTART, MENU_CONTROL, MENU_PAUSE, MENU_QUIT, MENU_SHORTCUT, MENU_SPEAK, MENU_STOP,
+    MENU_AUTOSTART, MENU_CONTROL, MENU_CPU_FALLBACK, MENU_PAUSE, MENU_QUIT, MENU_SHORTCUT,
+    MENU_SPEAK, MENU_STOP,
 };
 use crate::ui::icon;
 
@@ -32,6 +33,8 @@ pub struct TraySharedState {
     pub pause_enabled: bool,
     pub stop_enabled: bool,
     pub autostart_checked: bool,
+    /// When the daemon is on CPU because CUDA is missing.
+    pub cpu_fallback: bool,
 }
 
 impl Default for TraySharedState {
@@ -44,6 +47,7 @@ impl Default for TraySharedState {
             pause_enabled: false,
             stop_enabled: false,
             autostart_checked: crate::platform::service::autostart_path().is_file(),
+            cpu_fallback: false,
         }
     }
 }
@@ -92,13 +96,25 @@ impl Tray for LexaloudTray {
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
-        vec![
+        let mut items: Vec<MenuItem<Self>> = vec![
             StandardItem {
                 label: MENU_SHORTCUT.into(),
                 enabled: false,
                 ..Default::default()
             }
             .into(),
+        ];
+        if self.state.cpu_fallback {
+            items.push(
+                StandardItem {
+                    label: MENU_CPU_FALLBACK.into(),
+                    enabled: false,
+                    ..Default::default()
+                }
+                .into(),
+            );
+        }
+        items.extend([
             MenuItem::Separator,
             StandardItem {
                 label: self.state.toggle_label.clone(),
@@ -147,7 +163,8 @@ impl Tray for LexaloudTray {
                 ..Default::default()
             }
             .into(),
-        ]
+        ]);
+        items
     }
 
     fn activate(&mut self, _x: i32, _y: i32) {

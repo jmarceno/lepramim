@@ -2,21 +2,23 @@
 # Lexaloud native build — single Rust binary (Iced tray UI in-process).
 #
 # Usage:
-#   ./scripts/build-native.sh [--debug|--release] [--stage <absolute-path>]
+#   ./scripts/build-native.sh [--debug|--release] [--stage <absolute-path>] [--features llm]
 #
 set -euo pipefail
 
 PROJECT_ROOT="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 BUILD_TYPE="debug"
 STAGE=""
+FEATURES=""
 
 usage() {
   cat <<EOF
-Usage: $0 [--debug|--release] [--stage <absolute-path>]
+Usage: $0 [--debug|--release] [--stage <absolute-path>] [--features <feats>]
 
   --debug            Debug build (default)
   --release          Release build
   --stage <path>     Absolute path to stage directory (default: \$PWD/build/stage)
+  --features <feats> Extra cargo features (e.g. llm).
   -h, --help         Show this help
 EOF
 }
@@ -29,6 +31,10 @@ while (( "$#" )); do
       [[ $# -ge 2 ]] || { echo "error: --stage requires an argument" >&2; exit 2; }
       STAGE="$2"; shift 2 ;;
     --stage=*) STAGE="${1#*=}"; shift ;;
+    --features)
+      [[ $# -ge 2 ]] || { echo "error: --features requires an argument" >&2; exit 2; }
+      FEATURES="$2"; shift 2 ;;
+    --features=*) FEATURES="${1#*=}"; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "error: unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -41,14 +47,21 @@ echo "=== Lexaloud build-native ==="
 echo "project root: $PROJECT_ROOT"
 echo "build type:   $BUILD_TYPE"
 echo "stage:        $STAGE"
+echo "features:     ${FEATURES:-none}"
 echo
 
 echo "--- Cargo build ($BUILD_TYPE) ---"
+CARGO_ARGS=(build --locked)
 if [[ "$BUILD_TYPE" == "release" ]]; then
-  cargo build --locked --release
+  CARGO_ARGS+=(--release)
+fi
+if [[ -n "$FEATURES" ]]; then
+  CARGO_ARGS+=(--features "$FEATURES")
+fi
+cargo "${CARGO_ARGS[@]}"
+if [[ "$BUILD_TYPE" == "release" ]]; then
   RUST_BIN="$PROJECT_ROOT/target/release/lexaloud"
 else
-  cargo build --locked
   RUST_BIN="$PROJECT_ROOT/target/debug/lexaloud"
 fi
 [[ -x "$RUST_BIN" ]] || { echo "error: binary missing: $RUST_BIN" >&2; exit 1; }

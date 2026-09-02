@@ -146,9 +146,7 @@ async fn hotkey_service(tx: Sender<HotkeyEvent>) {
     }
 
     if let Err(e) = register_and_listen(&conn, tx).await {
-        tracing::warn!(
-            "hotkeys: KGlobalAccel unavailable ({e}); org.lexaloud.App still exported"
-        );
+        tracing::warn!("hotkeys: KGlobalAccel unavailable ({e}); org.lexaloud.App still exported");
     }
     std::future::pending::<()>().await;
 }
@@ -336,7 +334,10 @@ mod tests {
 
     #[test]
     fn parse_busctl_ai_reads_assigned_keys() {
-        assert_eq!(parse_busctl_ai("ai 1 268435538\n").unwrap(), vec![268435538]);
+        assert_eq!(
+            parse_busctl_ai("ai 1 268435538\n").unwrap(),
+            vec![268435538]
+        );
         assert_eq!(parse_busctl_ai("ai 0\n").unwrap(), Vec::<i32>::new());
     }
 }

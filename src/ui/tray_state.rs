@@ -10,9 +10,10 @@ pub struct TrayActionState {
     pub toggle_label: String,
     pub tooltip: String,
     pub icon_running: bool,
+    pub cpu_fallback: bool,
 }
 
-pub fn tray_state_for_daemon(state_str: &str, active: bool) -> TrayActionState {
+pub fn tray_state_for_daemon(state_str: &str, active: bool, cpu_fallback: bool) -> TrayActionState {
     let is_warming = state_str == "warming";
     let (icon_running, tooltip, toggle_label) = if is_warming {
         (
@@ -43,10 +44,12 @@ pub fn tray_state_for_daemon(state_str: &str, active: bool) -> TrayActionState {
         toggle_label,
         tooltip,
         icon_running,
+        cpu_fallback: active && cpu_fallback,
     }
 }
 
 pub const MENU_SHORTCUT: &str = "Shortcut: Meta+R";
+pub const MENU_CPU_FALLBACK: &str = "Running on CPU, CUDA not available.";
 pub const MENU_SPEAK: &str = "Speak highlighted selection";
 pub const MENU_PAUSE: &str = "Pause / resume";
 pub const MENU_STOP: &str = "Stop current playback";
@@ -60,7 +63,7 @@ mod tests {
 
     #[test]
     fn idle() {
-        let s = tray_state_for_daemon("idle", false);
+        let s = tray_state_for_daemon("idle", false, false);
         assert!(!s.is_active);
         assert!(!s.is_warming);
         assert!(!s.speak_enabled);
@@ -73,7 +76,7 @@ mod tests {
 
     #[test]
     fn warming() {
-        let s = tray_state_for_daemon("warming", true);
+        let s = tray_state_for_daemon("warming", true, false);
         assert!(s.is_active);
         assert!(s.is_warming);
         assert!(!s.speak_enabled);
@@ -82,7 +85,7 @@ mod tests {
 
     #[test]
     fn speaking() {
-        let s = tray_state_for_daemon("speaking", true);
+        let s = tray_state_for_daemon("speaking", true, false);
         assert!(s.speak_enabled);
         assert!(s.pause_enabled);
         assert!(s.stop_enabled);
@@ -91,7 +94,7 @@ mod tests {
 
     #[test]
     fn paused() {
-        let s = tray_state_for_daemon("paused", true);
+        let s = tray_state_for_daemon("paused", true, false);
         assert!(s.speak_enabled);
         assert!(s.pause_enabled);
         assert!(s.stop_enabled);
@@ -99,14 +102,16 @@ mod tests {
 
     #[test]
     fn unknown_active() {
-        let s = tray_state_for_daemon("unknown", true);
+        let s = tray_state_for_daemon("unknown", true, false);
         assert!(s.is_active);
         assert!(s.speak_enabled);
     }
 
     #[test]
-    fn empty_inactive() {
-        let s = tray_state_for_daemon("", false);
-        assert!(!s.icon_running);
+    fn cpu_fallback_when_active() {
+        let s = tray_state_for_daemon("idle", true, true);
+        assert!(s.cpu_fallback);
+        let hidden = tray_state_for_daemon("idle", false, true);
+        assert!(!hidden.cpu_fallback);
     }
 }
