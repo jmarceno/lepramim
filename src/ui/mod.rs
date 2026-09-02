@@ -15,7 +15,7 @@ use iced::widget::{
     Space, button, checkbox, column, container, horizontal_space, pick_list, progress_bar, row,
     scrollable, slider, text,
 };
-use iced::{Alignment, Element, Length, Subscription, Task, Theme, window};
+use iced::{Alignment, Background, Border, Color, Element, Length, Subscription, Task, Theme, window};
 
 use crate::config::Config;
 use crate::models;
@@ -1047,6 +1047,45 @@ fn view(app: &App, id: window::Id) -> Element<'_, Message> {
     }
 }
 
+fn tab_button(label: &'static str, index: usize, active: usize) -> Element<'static, Message> {
+    // Official widget styles only: the active tab reads as the primary
+    // action, the rest keep the default button look.
+    let btn = button(text(label).size(14))
+        .padding([8, 14])
+        .on_press(Message::ControlTabSelected(index));
+    if active == index {
+        btn.style(button::primary).into()
+    } else {
+        btn.into()
+    }
+}
+
+// Explicit dark surface: `bordered_box` derives `background.weak`, which
+// mixes toward near-white in linear space and lands on mid-grey.
+// Square corners fit the OS-decorated frame, and NO shadow -- container
+// shadows fill black under the tiny-skia backend (iced#2339).
+// NOTE: this style is applied to the container OUTSIDE the scrollable, never
+// to a `Fill`-sized child inside it -- unbounded scrollable limits + `Fill`
+// crash layout on window open.
+fn panel_style(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Background::Color(Color::from_rgb8(0x2A, 0x2D, 0x32))),
+        border: Border {
+            radius: 0.0.into(),
+            width: 1.0,
+            color: Color::from_rgb8(0x3A, 0x3E, 0x44),
+        },
+        ..Default::default()
+    }
+}
+
+fn hint(content: String) -> Element<'static, Message> {
+    text(content)
+        .size(12)
+        .style(iced::widget::text::secondary)
+        .into()
+}
+
 fn view_control(app: &App) -> Element<'_, Message> {
     let visible = app.control_form.visible_voices();
     let voice_labels: Vec<String> = visible.iter().map(|v| v.label.to_string()).collect();
@@ -1064,49 +1103,56 @@ fn view_control(app: &App) -> Element<'_, Message> {
     let speed = speed_from_slider(app.control_form.speed_slider);
 
     let tabs = row![
-        button("Voice").on_press(Message::ControlTabSelected(0)),
-        button("Preprocessor").on_press(Message::ControlTabSelected(1)),
-        button("Advanced").on_press(Message::ControlTabSelected(2)),
-        button("Models").on_press(Message::ControlTabSelected(3)),
+        tab_button("Voice", 0, app.control_tab),
+        tab_button("Preprocessor", 1, app.control_tab),
+        tab_button("Advanced", 2, app.control_tab),
+        tab_button("Models", 3, app.control_tab),
     ]
     .spacing(8);
 
     let tab_body: Element<Message> = match app.control_tab {
         1 => column![
-            checkbox(
-                "Deduplicate MathJax selection",
-                app.control_form.dedupe_mathjax
-            )
-            .on_toggle(Message::DedupeToggled),
-            checkbox("Strip Markdown", app.control_form.strip_markdown)
-                .on_toggle(Message::StripMarkdownToggled),
-            checkbox(
-                "Strip numeric bracket citations",
-                app.control_form.strip_numeric_citations
-            )
-            .on_toggle(Message::StripCitationsToggled),
-            checkbox("Expand Latin abbreviations", app.control_form.expand_latin)
-                .on_toggle(Message::ExpandLatinToggled),
-            checkbox("Normalize numbers", app.control_form.normalize_numbers)
-                .on_toggle(Message::NormalizeNumbersToggled),
-        ]
-        .spacing(8)
-        .into(),
+                checkbox(
+                    "Deduplicate MathJax selection",
+                    app.control_form.dedupe_mathjax
+                )
+                .on_toggle(Message::DedupeToggled),
+                checkbox("Strip Markdown", app.control_form.strip_markdown)
+                    .on_toggle(Message::StripMarkdownToggled),
+                checkbox(
+                    "Strip numeric bracket citations",
+                    app.control_form.strip_numeric_citations
+                )
+                .on_toggle(Message::StripCitationsToggled),
+                checkbox("Expand Latin abbreviations", app.control_form.expand_latin)
+                    .on_toggle(Message::ExpandLatinToggled),
+                checkbox("Normalize numbers", app.control_form.normalize_numbers)
+                    .on_toggle(Message::NormalizeNumbersToggled),
+            ]
+            .spacing(8)
+            .into(),
         2 => column![
-            checkbox(
-                "Show floating overlay when speaking",
-                app.control_form.overlay
-            )
-            .on_toggle(Message::OverlayToggled),
-        ]
-        .into(),
+                checkbox(
+                    "Show floating overlay when speaking",
+                    app.control_form.overlay
+                )
+                .on_toggle(Message::OverlayToggled),
+                text("The overlay floats above other windows with pause, skip and stop controls.")
+                    .size(12)
+                    .style(iced::widget::text::secondary),
+            ]
+            .spacing(8)
+            .into(),
         3 => column![
-            text(app.models_status.clone()).size(14),
-            button("Refresh").on_press(Message::RefreshModels),
-            button("Download missing models").on_press(Message::StartDownload),
-        ]
-        .spacing(8)
-        .into(),
+                text(app.models_status.clone()).size(14),
+                row![
+                    button("Refresh").on_press(Message::RefreshModels),
+                    button("Download missing models").on_press(Message::StartDownload),
+                ]
+                .spacing(8),
+            ]
+            .spacing(8)
+            .into(),
         _ => {
             let voice_count_note = if app.control_form.filter_voices_by_lang {
                 format!(
@@ -1122,68 +1168,81 @@ fn view_control(app: &App) -> Element<'_, Message> {
                 )
             };
             column![
-                pick_list(voice_labels, Some(current_voice), |label| {
-                    let id = app
-                        .control_form
-                        .visible_voices()
-                        .iter()
-                        .find(|v| v.label == label)
-                        .map(|v| v.id.to_string())
-                        .or_else(|| {
-                            KOKORO_VOICES
-                                .iter()
-                                .find(|v| v.label == label)
-                                .map(|v| v.id.to_string())
-                        })
-                        .unwrap_or(label);
-                    Message::VoiceSelected(id)
-                }),
-                row![
-                    pick_list(lang_labels, Some(current_lang), |label| {
-                        let id = LANGUAGES
+                    pick_list(voice_labels, Some(current_voice), |label| {
+                        let id = app
+                            .control_form
+                            .visible_voices()
                             .iter()
-                            .find(|l| l.label == label)
-                            .map(|l| l.id.to_string())
+                            .find(|v| v.label == label)
+                            .map(|v| v.id.to_string())
+                            .or_else(|| {
+                                KOKORO_VOICES
+                                    .iter()
+                                    .find(|v| v.label == label)
+                                    .map(|v| v.id.to_string())
+                            })
                             .unwrap_or(label);
-                        Message::LangSelected(id)
-                    })
-                    .width(Length::Fill),
-                    checkbox(
-                        "Filter by language",
-                        app.control_form.filter_voices_by_lang
-                    )
-                    .on_toggle(Message::FilterVoicesToggled),
+                        Message::VoiceSelected(id)
+                    }),
+                    row![
+                        pick_list(lang_labels, Some(current_lang), |label| {
+                            let id = LANGUAGES
+                                .iter()
+                                .find(|l| l.label == label)
+                                .map(|l| l.id.to_string())
+                                .unwrap_or(label);
+                            Message::LangSelected(id)
+                        })
+                        .width(Length::Fill),
+                        checkbox(
+                            "Filter by language",
+                            app.control_form.filter_voices_by_lang
+                        )
+                        .on_toggle(Message::FilterVoicesToggled),
+                    ]
+                    .spacing(12)
+                    .align_y(Alignment::Center),
+                    hint(voice_count_note),
+                    text(format!("Speed: {speed:.2}\u{00d7}")),
+                    slider(
+                        50..=200,
+                        app.control_form.speed_slider,
+                        Message::SpeedChanged
+                    ),
+                    hint(speed_hint_for_value(speed)),
                 ]
-                .spacing(12)
-                .align_y(Alignment::Center),
-                text(voice_count_note).size(12),
-                text(format!("Speed: {speed:.2}\u{00d7}")),
-                slider(
-                    50..=200,
-                    app.control_form.speed_slider,
-                    Message::SpeedChanged
-                ),
-                text(speed_hint_for_value(speed)).size(12),
-            ]
-            .spacing(8)
-            .into()
+                .spacing(8)
+                .into()
         }
     };
 
     container(
         column![
+            column![
+                text("Lexaloud").size(20),
+                text("Local text-to-speech \u{2014} control panel")
+                    .size(12)
+                    .style(iced::widget::text::secondary),
+            ]
+            .spacing(2),
             tabs,
-            scrollable(tab_body).height(Length::Fill),
+            container(scrollable(tab_body).height(Length::Fill))
+                .padding(14)
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .style(panel_style),
             row![
                 text("Test speak:"),
                 button("Speak test sentence").on_press(Message::TestSpeak),
             ]
             .spacing(8)
             .align_y(Alignment::Center),
-            text(app.control_form.status.clone()).size(12),
+            hint(app.control_form.status.clone()),
             row![
                 horizontal_space(),
-                button("Apply settings").on_press(Message::ApplySettings),
+                button("Apply settings")
+                    .style(button::primary)
+                    .on_press(Message::ApplySettings),
                 button("Close").on_press(Message::CloseControl),
             ]
             .spacing(8),
