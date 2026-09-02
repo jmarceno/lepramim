@@ -286,6 +286,10 @@ ApiResult ApiClient::postStop() const {
     return request(QStringLiteral("POST"), QStringLiteral("/stop"));
 }
 
+ApiResult ApiClient::postShutdown() const {
+    return request(QStringLiteral("POST"), QStringLiteral("/shutdown"));
+}
+
 ApiResult ApiClient::postSkip() const {
     return request(QStringLiteral("POST"), QStringLiteral("/skip"));
 }

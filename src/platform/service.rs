@@ -60,10 +60,18 @@ pub fn shell_quote(path: &str) -> String {
     format!("\"{}\"", path.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// Resolve the lexaloud binary path for systemd/AppImage installs.
+/// Resolve the lexaloud binary path for AppImage / source installs.
+/// AppImage children must be spawned from `$LEXALOUD_APPIMAGE` so they keep
+/// their own mount; never point at `/tmp/.mount_*`.
 pub fn resolve_binary_path() -> std::path::PathBuf {
     if let Ok(appimage) = std::env::var("LEXALOUD_APPIMAGE") {
-        let p = std::path::PathBuf::from(appimage);
+        let p = std::path::PathBuf::from(&appimage);
+        if p.is_file() {
+            return p;
+        }
+    }
+    if let Ok(appimage) = std::env::var("APPIMAGE") {
+        let p = std::path::PathBuf::from(&appimage);
         if p.is_file() {
             return p;
         }
@@ -74,16 +82,23 @@ pub fn resolve_binary_path() -> std::path::PathBuf {
     std::path::PathBuf::from("lexaloud")
 }
 
-/// User systemd unit directory.
-pub fn systemd_user_dir() -> std::path::PathBuf {
+/// XDG autostart desktop file path.
+pub fn autostart_path() -> std::path::PathBuf {
     if let Ok(base) = std::env::var("XDG_CONFIG_HOME") {
         if !base.is_empty() {
-            return std::path::PathBuf::from(base).join("systemd").join("user");
+            return std::path::PathBuf::from(base)
+                .join("autostart")
+                .join("lexaloud.desktop");
         }
     }
     directories::BaseDirs::new()
-        .map(|d| d.home_dir().join(".config").join("systemd").join("user"))
-        .unwrap_or_else(|| std::path::PathBuf::from(".config/systemd/user"))
+        .map(|d| {
+            d.home_dir()
+                .join(".config")
+                .join("autostart")
+                .join("lexaloud.desktop")
+        })
+        .unwrap_or_else(|| std::path::PathBuf::from(".config/autostart/lexaloud.desktop"))
 }
 
 /// Desktop file path under XDG_DATA_HOME.
@@ -106,7 +121,53 @@ pub fn desktop_file_path() -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from(".local/share/applications/lexaloud.desktop"))
 }
 
-/// Generate systemd user unit file content.
+/// Generate an XDG desktop entry that launches the AppImage / binary with no args.
+pub fn generate_autostart_desktop(exec_path: &Path) -> String {
+    format!(
+        "[Desktop Entry]\n\
+Type=Application\n\
+Name=Lexaloud\n\
+GenericName=Text to Speech\n\
+Comment=Local Kokoro text-to-speech tool\n\
+Exec={}\n\
+Terminal=false\n\
+Categories=AudioVideo;Audio;Accessibility;\n\
+X-GNOME-Autostart-enabled=true\n",
+        shell_quote(&exec_path.to_string_lossy())
+    )
+}
+
+pub fn write_autostart(exec_path: &Path) -> Result<std::path::PathBuf, String> {
+    let path = autostart_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&path, generate_autostart_desktop(exec_path)).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+pub fn remove_autostart() -> Result<Option<std::path::PathBuf>, String> {
+    let path = autostart_path();
+    if path.is_file() {
+        std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+        return Ok(Some(path));
+    }
+    Ok(None)
+}
+
+/// User systemd unit directory (only used to clean leftover units from old installs).
+pub fn systemd_user_dir() -> std::path::PathBuf {
+    if let Ok(base) = std::env::var("XDG_CONFIG_HOME") {
+        if !base.is_empty() {
+            return std::path::PathBuf::from(base).join("systemd").join("user");
+        }
+    }
+    directories::BaseDirs::new()
+        .map(|d| d.home_dir().join(".config").join("systemd").join("user"))
+        .unwrap_or_else(|| std::path::PathBuf::from(".config/systemd/user"))
+}
+
+/// Generate systemd user unit file content (legacy leftover; not used at runtime).
 pub fn generate_systemd_unit(exec_path: &Path) -> String {
     format!(
         r#"[Unit]
@@ -157,5 +218,13 @@ mod tests {
         let unit = generate_systemd_unit(Path::new("/usr/bin/lexaloud"));
         assert!(unit.contains("ExecStart=\"/usr/bin/lexaloud\" daemon"));
         assert!(unit.contains("RuntimeDirectory=lexaloud"));
+    }
+
+    #[test]
+    fn autostart_desktop_quotes_exec() {
+        let desk = generate_autostart_desktop(Path::new("/opt/Lexaloud-0.2.0-x86_64.AppImage"));
+        assert!(desk.contains("Exec=\"/opt/Lexaloud-0.2.0-x86_64.AppImage\""));
+        assert!(desk.contains("Terminal=false"));
+        assert!(!desk.contains("systemd"));
     }
 }

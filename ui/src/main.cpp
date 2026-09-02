@@ -5,6 +5,7 @@
 #include <QTimer>
 
 #include "control_window.hpp"
+#include "hotkeys.hpp"
 #include "onboarding.hpp"
 #include "overlay.hpp"
 #include "tray.hpp"
@@ -55,12 +56,14 @@ int main(int argc, char* argv[]) {
     Tray tray(iconPath);
     ControlWindow control;
     tray.setControlWindow(&control);
+    HotkeyManager hotkeys(tray.apiClient());
 
     // Close-to-tray: control window close hides instead of quitting when tray is visible
     QObject::connect(&control, &QWidget::destroyed, &app, []() {});
 
     // Handle tray quit
     QObject::connect(&tray, &Tray::quitRequested, &app, &QApplication::quit);
+    (void)hotkeys;
 
     // Overlay optional
     OverlayWindow* overlay = nullptr;

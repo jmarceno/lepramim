@@ -9,9 +9,7 @@ use tokio::sync::Mutex;
 
 use crate::audio::AudioChunk;
 use crate::player::SpeechProvider;
-use crate::tts::phonemes::{
-    self, SAMPLE_RATE, normalize_ipa, split_at_token_cap, tokenize,
-};
+use crate::tts::phonemes::{self, SAMPLE_RATE, normalize_ipa, split_at_token_cap, tokenize};
 use crate::tts::phonemize::phonemize;
 use crate::tts::voices::{VoiceBank, load_all_voices, select_voice_bank, style_row};
 

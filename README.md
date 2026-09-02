@@ -2,27 +2,37 @@
 
 Local, private Linux text-to-speech with a system-tray Qt UI and a Rust daemon.
 
-Lexaloud reads selected text (or pasted content) using the Kokoro ONNX model, with preprocessing tuned for academic PDFs, citations, math symbols, and Markdown.
+Lexaloud reads selected text using the Kokoro ONNX model, with preprocessing tuned for academic PDFs, citations, math symbols, and Markdown.
 
 ## Quick start
 
+Double-click the AppImage. That is the whole install:
+
+- missing speech models download automatically
+- the speech daemon starts as a child of the app (no systemd unit)
+- the tray icon appears
+
+Quit from the tray to stop the daemon. Use **Start with desktop** in the tray if you want it at login (XDG autostart).
+
 ```bash
-# Build the daemon and CLI
-cargo build --release
-
-# Download Kokoro model artifacts (~350 MB)
-./target/release/lexaloud download-models
-
-# Install user systemd unit, config, and desktop entry
-./target/release/lexaloud setup
-
-# Speak the current X11/Wayland selection
-./target/release/lexaloud speak-selection
+chmod +x Lexaloud-*-x86_64.AppImage
+./Lexaloud-*-x86_64.AppImage
 ```
 
-Models are cached under `~/.cache/lexaloud/models`. The daemon listens on a user-scoped Unix socket (mode `0700` directory) and exposes a small HTTP API for the Qt UI.
+Models are cached under `~/.cache/lexaloud/models`. The daemon listens on a user-scoped Unix socket at `$XDG_RUNTIME_DIR/lexaloud/lexaloud.sock`.
 
-## AppImage
+## Hotkeys (KDE / Plasma)
+
+When the tray app is running, Lexaloud registers global shortcuts via KGlobalAccel:
+
+| Shortcut | Action |
+|----------|--------|
+| **Meta+R** | Speak highlighted selection |
+| **Meta+P** | Pause / resume playback |
+
+Capture runs **in the tray process** (no per-keypress AppImage spawn). On Wayland, Lexaloud reads the Qt clipboard and sends a synthetic Ctrl+C when needed; on X11 it prefers PRIMARY selection. Copy the text first (Ctrl+C) if synthetic copy fails in your app.
+
+## Build from source
 
 ```bash
 ./scripts/build-native.sh --release --stage "$PWD/build/stage"
@@ -30,29 +40,40 @@ Models are cached under `~/.cache/lexaloud/models`. The daemon listens on a user
 ./scripts/smoke-appimage.sh build/appimage/Lexaloud-*.AppImage
 ```
 
-The CPU AppImage bundles ONNX Runtime, eSpeak-NG data, Qt plugins, and clipboard helpers. CUDA is supported only for source installs with `--backend cuda12`.
+After code changes, rebuild the stage before packaging:
+
+```bash
+rm -rf build/stage
+./scripts/build-native.sh --release --stage "$PWD/build/stage"
+./scripts/build-appimage.sh
+```
+
+CUDA is supported only for source installs with `--backend cuda12`. The CPU AppImage never bundles CUDA.
 
 ## CLI
 
+Opening the AppImage with no arguments is the app. Subcommands talk to an **already running** daemon (start the AppImage or tray first):
+
 | Command | Description |
 |---------|-------------|
-| `lexaloud daemon` | Run the TTS daemon (refuses start without verified models) |
-| `lexaloud setup` | Write config, download models, enable user systemd unit |
-| `lexaloud uninstall` | Remove unit and desktop entry; keeps config and model cache |
-| `lexaloud download-models` | Fetch Kokoro ONNX + voices.bin (optional `--llm`) |
-| `lexaloud speak-selection` | Preprocess and speak the current selection |
-| `lexaloud status` | Show daemon health and player state |
+| `lexaloud` / `lexaloud app` | Download models if needed, start daemon, open tray |
+| `lexaloud speak-selection` | Speak the current selection via CLI capture |
+| `lexaloud speak-clipboard` | Speak the clipboard |
+| `lexaloud status` | Show player state |
+| `lexaloud daemon` | Run the speech daemon in the foreground |
+| `lexaloud setup` | Write default config and XDG autostart entry |
+| `lexaloud uninstall` | Remove autostart / leftover files; keeps config and models |
 
 Run `lexaloud --help` for the full command surface.
 
 ## Configuration
 
-Default config is written to `~/.config/lexaloud/config.toml` on `setup`. Key sections:
+Default config is written to `~/.config/lexaloud/config.toml` on first launch.
 
-- `[tts]` — voice, speed, CUDA preference (source installs only)
+- `[provider]` — voice, speed, CUDA preference (source installs only)
 - `[preprocessor]` — citation stripping, abbreviation expansion, PDF cleanup
-- `[sre_latex]` — optional Speech Rule Engine LaTeX (requires Node + SRE)
-- `[normalizer]` — optional LLM glossary/normalizer (off by default; build with `--features llm` for llama.cpp)
+- `[sre_latex]` — optional Speech Rule Engine LaTeX
+- `[normalizer]` — optional LLM glossary (off by default; `--features llm`)
 
 ## Development
 
@@ -63,20 +84,6 @@ cargo test
 cmake --preset release && cmake --build --preset release --parallel
 QT_QPA_PLATFORM=offscreen ctest --preset release
 ```
-
-Opt-in real TTS smoke (requires downloaded models):
-
-```bash
-LEXALOUD_REAL_TTS=1 cargo test real_tts_smoke_opt_in -- --nocapture
-```
-
-## Architecture
-
-- **`lexaloud`** — Rust binary: CLI, Axum UDS API, Kokoro TTS (ort), CPAL audio, preprocessor pipeline
-- **`lexaloud-ui`** — Qt 6 tray/control/overlay; talks to the daemon over UDS only
-- **`scripts/`** — native stage, AppImage, install, and smoke helpers
-
-Unit tests use `FakeProvider` and `NullSink` seams; production uses real Kokoro + CPAL and fails closed when models or CUDA providers are missing.
 
 ## License
 

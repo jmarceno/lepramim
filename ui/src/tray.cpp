@@ -11,9 +11,40 @@
 #include <QStandardPaths>
 #include <QSvgRenderer>
 
+#include "capture.hpp"
 #include "control_window.hpp"
 
 namespace lexaloud {
+
+static QString quotedExec(const QString& path) {
+    if (path.contains(QLatin1Char(' ')) || path.contains(QLatin1Char('"'))) {
+        QString escaped = path;
+        escaped.replace(QLatin1Char('\\'), QStringLiteral("\\\\"));
+        escaped.replace(QLatin1Char('"'), QStringLiteral("\\\""));
+        return QStringLiteral("\"%1\"").arg(escaped);
+    }
+    return path;
+}
+
+static QString lexaloudCliPath() {
+    const QString sibling =
+        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("lexaloud"));
+    if (QFileInfo::exists(sibling)) {
+        return sibling;
+    }
+    return QStringLiteral("lexaloud");
+}
+
+static QString desktopLaunchPath() {
+    QString appimage = qEnvironmentVariable("LEXALOUD_APPIMAGE");
+    if (appimage.isEmpty()) {
+        appimage = qEnvironmentVariable("APPIMAGE");
+    }
+    if (!appimage.isEmpty() && QFileInfo::exists(appimage)) {
+        return appimage;
+    }
+    return lexaloudCliPath();
+}
 
 static QIcon tintedIcon(const QString& path, double opacity) {
     if (path.isEmpty() || !QFileInfo::exists(path)) {
@@ -80,7 +111,7 @@ bool Tray::setAutostartEnabled(bool enabled) {
     if (!dir.exists() && !dir.mkpath(QStringLiteral("."))) {
         return false;
     }
-    QString binary = QCoreApplication::applicationFilePath();
+    QString binary = desktopLaunchPath();
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
         return false;
@@ -95,7 +126,7 @@ bool Tray::setAutostartEnabled(bool enabled) {
         "Terminal=false\n"
         "Categories=AudioVideo;Audio;Accessibility;\n"
         "X-GNOME-Autostart-enabled=true\n");
-    content = content.arg(binary);
+    content = content.arg(quotedExec(binary));
     qint64 w = file.write(content.toUtf8());
     file.close();
     return w > 0;
@@ -183,22 +214,8 @@ QString Tray::shortcutLabel() const {
 }
 
 bool Tray::isDaemonActive() const {
-    // Check via UDS first, fallback to systemd
-    ApiResult r = m_client.getState();
-    if (r.statusCode == 200) {
-        return true;
-    }
-    // Try systemctl via QProcess (non-blocking check with short timeout via sync)
-    QProcess proc;
-    proc.start(QStringLiteral("systemctl"),
-               QStringList{QStringLiteral("--user"), QStringLiteral("is-active"),
-                           QStringLiteral("lexaloud.service")});
-    if (!proc.waitForFinished(800)) {
-        proc.kill();
-        return false;
-    }
-    QByteArray out = proc.readAllStandardOutput().trimmed();
-    return out == QByteArrayLiteral("active");
+    ApiResult r = m_client.getHealthz();
+    return r.isSuccess();
 }
 
 void Tray::updateIcon(const QString& desired) {
@@ -258,21 +275,17 @@ TrayActionState Tray::currentTrayState() const {
 }
 
 void Tray::onToggleDaemon() {
-    QProcess* proc = new QProcess(this);
-    bool active = isDaemonActive();
-    QString action = active ? QStringLiteral("stop") : QStringLiteral("start");
-    proc->start(QStringLiteral("systemctl"),
-                QStringList{QStringLiteral("--user"), action, QStringLiteral("lexaloud.service")});
-    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), proc,
-            &QObject::deleteLater);
+    if (isDaemonActive()) {
+        m_client.postShutdown();
+    } else {
+        QProcess::startDetached(lexaloudCliPath(), QStringList{QStringLiteral("daemon")});
+    }
     QTimer::singleShot(500, this, &Tray::refreshState);
 }
 
 void Tray::onSpeakSelection() {
-    // Best-effort: use wl-paste/xclip path? For now POST empty speak via daemon as placeholder.
-    // Real selection capture is platform-specific; we delegate to lexaloud binary if present.
-    QProcess::startDetached(QStringLiteral("lexaloud"),
-                            QStringList{QStringLiteral("speak-selection")});
+    // In-process capture + POST /speak. Never spawn the AppImage / CLI.
+    speakCapturedSelection(m_client);
 }
 
 void Tray::onPauseResume() {

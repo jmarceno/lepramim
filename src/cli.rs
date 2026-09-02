@@ -100,10 +100,10 @@ async fn post_to_daemon(
         Ok(s) => s,
         Err(e) => {
             eprintln!(
-                "Lexaloud daemon is not running or unresponsive. Start it with: systemctl --user start lexaloud.service"
+                "Could not reach Lexaloud ({}). Open the AppImage first.",
+                sock.display()
             );
-            eprintln!("(tried socket {}: {e})", sock.display());
-            eprintln!("If you haven't yet, run `lexaloud setup`.");
+            eprintln!("({e})");
             return Err(3);
         }
     };
@@ -164,11 +164,11 @@ async fn get_from_daemon(path: &str) -> Result<serde_json::Value, i32> {
     let sock = crate::config::socket_path();
     let mut stream = match tokio::net::UnixStream::connect(&sock).await {
         Ok(s) => s,
-        Err(e) => {
+        Err(_) => {
             eprintln!(
-                "Lexaloud daemon is not running or unresponsive. Start it with: systemctl --user start lexaloud.service"
+                "Could not reach Lexaloud ({}). Open the AppImage first.",
+                sock.display()
             );
-            eprintln!("(tried socket {}: {e})", sock.display());
             return Err(3);
         }
     };
@@ -336,128 +336,139 @@ async fn is_daemon_healthy_quiet() -> bool {
     resp.contains("200") && resp.contains("\"status\":\"ok\"")
 }
 
+fn ensure_user_files() -> Result<(), String> {
+    let cfg_path = crate::config::config_path();
+    if let Some(parent) = cfg_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("config dir: {e}"))?;
+    }
+    if !cfg_path.exists() {
+        let default = crate::config::Config::default();
+        let toml_str = toml::to_string(&default).map_err(|e| format!("serialize config: {e}"))?;
+        std::fs::write(&cfg_path, toml_str).map_err(|e| format!("write config: {e}"))?;
+    }
+    crate::models::ensure_artifacts(None, true).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+async fn spawn_daemon() -> Result<Option<std::process::Child>, String> {
+    spawn_daemon_inner(true).await
+}
+
+async fn spawn_daemon_inner(independent: bool) -> Result<Option<std::process::Child>, String> {
+    if is_daemon_healthy_quiet().await {
+        return Ok(None);
+    }
+    ensure_user_files()?;
+    if is_daemon_healthy_quiet().await {
+        return Ok(None);
+    }
+    let bin = if independent {
+        crate::platform::service::resolve_binary_path()
+    } else {
+        std::env::current_exe().unwrap_or_else(|_| crate::platform::service::resolve_binary_path())
+    };
+    let rt = crate::config::runtime_dir().join("lexaloud");
+    let _ = std::fs::create_dir_all(&rt);
+    let log_path = rt.join("daemon.log");
+    let mut cmd = std::process::Command::new(&bin);
+    cmd.arg("daemon").stdin(std::process::Stdio::null());
+    match std::fs::File::create(&log_path) {
+        Ok(log) => match log.try_clone() {
+            Ok(log2) => {
+                cmd.stdout(std::process::Stdio::from(log));
+                cmd.stderr(std::process::Stdio::from(log2));
+            }
+            Err(_) => {
+                cmd.stdout(std::process::Stdio::null());
+                cmd.stderr(std::process::Stdio::null());
+            }
+        },
+        Err(_) => {
+            cmd.stdout(std::process::Stdio::null());
+            cmd.stderr(std::process::Stdio::null());
+        }
+    }
+    let child = cmd
+        .spawn()
+        .map_err(|e| format!("failed to start daemon via {}: {e}", bin.display()))?;
+    for _ in 0..150 {
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        if is_daemon_healthy_quiet().await {
+            return Ok(Some(child));
+        }
+    }
+    Err(format!(
+        "daemon did not become ready. See {}",
+        log_path.display()
+    ))
+}
+
+async fn request_daemon_shutdown(mut child: Option<std::process::Child>) {
+    let sock = crate::config::socket_path();
+    if let Ok(mut stream) = tokio::net::UnixStream::connect(&sock).await {
+        let body = "{}";
+        let req = format!(
+            "POST /shutdown HTTP/1.1\r\nHost: lexaloud\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        );
+        use tokio::io::AsyncWriteExt;
+        let _ = stream.write_all(req.as_bytes()).await;
+        let _ = stream.flush().await;
+    }
+    for _ in 0..25 {
+        if !is_daemon_healthy_quiet().await {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    if let Some(ref mut c) = child {
+        let _ = c.kill();
+        let _ = c.wait();
+    }
+}
+
 async fn cmd_app() -> i32 {
     println!(
         "Lexaloud {} — local text-to-speech",
         env!("CARGO_PKG_VERSION")
     );
-    // Check daemon
-    let daemon_running = is_daemon_healthy_quiet().await;
-    if daemon_running {
-        println!(
-            "Daemon already running at {}",
-            crate::config::socket_path().display()
-        );
-    } else {
-        println!("Daemon not running, starting...");
-        // Try systemctl first if available and user service exists
-        let mut started_via_systemctl = false;
-        if let Ok(out) = std::process::Command::new("systemctl")
-            .args(["--user", "is-enabled", "lexaloud.service"])
-            .output()
-        {
-            if out.status.success() {
-                let _ = std::process::Command::new("systemctl")
-                    .args(["--user", "start", "lexaloud.service"])
-                    .status();
-                started_via_systemctl = true;
-            }
-        }
-        if !started_via_systemctl {
-            // Spawn daemon directly as detached child
-            match std::env::current_exe() {
-                Ok(exe) => {
-                    match std::process::Command::new(&exe)
-                        .arg("daemon")
-                        .stdin(std::process::Stdio::null())
-                        .stdout(std::process::Stdio::null())
-                        .stderr(std::process::Stdio::null())
-                        .spawn()
-                    {
-                        Ok(child) => {
-                            println!("Spawned daemon pid {} via {}", child.id(), exe.display());
-                            // give it a moment to bind (quiet check to avoid spam)
-                            for _ in 0..25 {
-                                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                                if is_daemon_healthy_quiet().await {
-                                    break;
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to spawn daemon: {e}");
-                            return 1;
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Cannot determine current exe: {e}");
-                    return 1;
-                }
-            }
-        } else {
-            // systemctl path, wait a bit (quiet)
-            for _ in 0..15 {
-                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                if is_daemon_healthy_quiet().await {
-                    break;
-                }
-            }
-        }
-        // Verify
-        match get_from_daemon("/healthz").await {
-            Ok(_) => println!("Daemon is now running"),
-            Err(code) => {
-                eprintln!(
-                    "Daemon failed to start (status code {code}). Check journalctl --user -u lexaloud or run `lexaloud daemon` manually for logs."
-                );
-                return code;
-            }
-        }
+    if let Err(e) = ensure_user_files() {
+        eprintln!("{e}");
+        return 1;
     }
+    let started = match spawn_daemon_inner(false).await {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{e}");
+            return 1;
+        }
+    };
 
-    // Try to launch UI if display available
     let has_display = std::env::var("DISPLAY").is_ok() || std::env::var("WAYLAND_DISPLAY").is_ok();
-    if has_display {
-        if let Some(ui) = find_ui_binary() {
-            println!("Launching UI: {}", ui.display());
-            match std::process::Command::new(&ui)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-            {
-                Ok(child) => {
-                    println!(
-                        "UI launched pid {}. Tray should appear. Use lexaloud status / pause / resume etc.",
-                        child.id()
-                    );
-                    println!("Tip: select text in any app and press Meta+R to speak.");
-                }
-                Err(e) => {
-                    eprintln!("Failed to launch UI {}: {e}", ui.display());
-                    println!("Daemon is running. Try: lexaloud status");
-                }
-            }
-        } else {
-            println!("lexaloud-ui not found in PATH or build. Daemon is running.");
-            println!(
-                "Try: ./build/appdir/usr/bin/lexaloud-ui  or  cmake --preset release && ./build/ui-release/ui/lexaloud-ui"
-            );
-        }
-    } else {
-        println!("No display (DISPLAY/WAYLAND_DISPLAY not set). Daemon is running in background.");
-        println!(
-            "Use: lexaloud status  |  lexaloud speak-selection  |  lexaloud pause/resume/stop"
-        );
-        // Also show that CLI works
-        if let Ok(v) = get_from_daemon("/state").await {
-            println!(
-                "Current state: {}",
-                serde_json::to_string_pretty(&v).unwrap_or_else(|_| "{}".to_string())
-            );
-        }
+    if !has_display {
+        eprintln!("No graphical session (DISPLAY/WAYLAND_DISPLAY unset).");
+        request_daemon_shutdown(started).await;
+        return 1;
     }
+    let Some(ui) = find_ui_binary() else {
+        eprintln!("lexaloud-ui is missing from this install.");
+        request_daemon_shutdown(started).await;
+        return 1;
+    };
+    let mut ui_child = match std::process::Command::new(&ui)
+        .stdin(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to launch UI {}: {e}", ui.display());
+            request_daemon_shutdown(started).await;
+            return 1;
+        }
+    };
+    let _ = tokio::task::spawn_blocking(move || ui_child.wait()).await;
+    request_daemon_shutdown(started).await;
     0
 }
 
@@ -710,11 +721,7 @@ async fn cmd_status() -> i32 {
     let mut stream = match tokio::net::UnixStream::connect(&sock).await {
         Ok(s) => s,
         Err(e) => {
-            eprintln!(
-                "Lexaloud daemon is not running or unresponsive. Start it with: systemctl --user start lexaloud.service"
-            );
-            eprintln!("(tried socket {}: {e})", sock.display());
-            eprintln!("If you haven't yet, run `lexaloud setup`.");
+            eprintln!("Could not reach Lexaloud ({}): {e}", sock.display());
             return 3;
         }
     };
@@ -815,21 +822,12 @@ async fn cmd_download_models(llm: bool, all: bool) -> i32 {
 
 async fn cmd_setup(force: bool) -> i32 {
     let binary = crate::platform::service::resolve_binary_path();
-    println!("Using binary: {}", binary.display());
-
-    if let Err(e) = crate::models::ensure_artifacts(None, true) {
-        eprintln!("Model download failed: {e}");
+    if let Err(e) = ensure_user_files() {
+        eprintln!("{e}");
         return 1;
     }
-
-    let cfg_path = crate::config::config_path();
-    if let Some(parent) = cfg_path.parent() {
-        if let Err(e) = std::fs::create_dir_all(parent) {
-            eprintln!("Failed to create config dir: {e}");
-            return 1;
-        }
-    }
-    if !cfg_path.exists() || force {
+    if force {
+        let cfg_path = crate::config::config_path();
         let default = crate::config::Config::default();
         match toml::to_string(&default) {
             Ok(toml_str) => {
@@ -837,7 +835,6 @@ async fn cmd_setup(force: bool) -> i32 {
                     eprintln!("Failed to write config: {e}");
                     return 1;
                 }
-                println!("Wrote config to {}", cfg_path.display());
             }
             Err(e) => {
                 eprintln!("Failed to serialize config: {e}");
@@ -845,44 +842,11 @@ async fn cmd_setup(force: bool) -> i32 {
             }
         }
     }
-
-    let unit_dir = crate::platform::service::systemd_user_dir();
-    if let Err(e) = std::fs::create_dir_all(&unit_dir) {
-        eprintln!("Failed to create systemd user dir: {e}");
-        return 1;
+    match crate::platform::service::write_autostart(&binary) {
+        Ok(path) => println!("Will start with the desktop session ({})", path.display()),
+        Err(e) => eprintln!("Could not write autostart entry: {e}"),
     }
-    let unit_path = unit_dir.join("lexaloud.service");
-    let unit_content = crate::platform::service::generate_systemd_unit(&binary);
-    if unit_path.is_file() && !force {
-        let existing = std::fs::read_to_string(&unit_path).unwrap_or_default();
-        if existing.trim() == unit_content.trim() {
-            println!("Systemd unit already up to date at {}", unit_path.display());
-        } else {
-            eprintln!(
-                "Systemd unit exists at {} and differs. Re-run with --force to overwrite.",
-                unit_path.display()
-            );
-            return 1;
-        }
-    } else {
-        if let Err(e) = std::fs::write(&unit_path, &unit_content) {
-            eprintln!("Failed to write systemd unit: {e}");
-            return 1;
-        }
-        println!("Wrote systemd unit to {}", unit_path.display());
-    }
-
-    println!();
-    println!("Hotkey setup (choose your desktop environment):");
-    println!("  GNOME: Settings → Keyboard → Custom Shortcuts → Meta+R → lexaloud speak-selection");
-    println!("  KDE:   System Settings → Shortcuts → Custom → Meta+R → lexaloud speak-selection");
-    println!("  Other: bind Meta+R to: lexaloud speak-selection");
-    println!();
-    println!("Enable and start the daemon:");
-    println!("  systemctl --user daemon-reload");
-    println!("  systemctl --user enable --now lexaloud.service");
-    println!("  systemctl --user status lexaloud.service");
-    println!("  {} status", binary.display());
+    println!("Lexaloud is ready. Double-click the AppImage to use it.");
     0
 }
 
@@ -898,56 +862,34 @@ async fn cmd_daemon() -> i32 {
 }
 
 async fn cmd_uninstall() -> i32 {
-    let unit_path = crate::platform::service::systemd_user_dir().join("lexaloud.service");
-    let desktop = crate::platform::service::desktop_file_path();
+    request_daemon_shutdown(None).await;
 
-    if unit_path.is_file() {
-        if which_systemctl().is_some() {
-            let disable = std::process::Command::new("systemctl")
-                .args(["--user", "disable", "--now", "lexaloud.service"])
-                .output();
-            match disable {
-                Ok(out) if out.status.success() || service_absent(&out.stderr) => {}
-                Ok(out) => {
-                    eprintln!(
-                        "Failed to disable lexaloud.service: {}",
-                        String::from_utf8_lossy(&out.stderr)
-                    );
-                    return 1;
-                }
-                Err(e) => {
-                    eprintln!("systemctl failed: {e}");
-                    return 1;
-                }
-            }
-            let reload = std::process::Command::new("systemctl")
-                .args(["--user", "daemon-reload"])
-                .status();
-            if let Ok(st) = reload {
-                if !st.success() {
-                    eprintln!("systemctl --user daemon-reload failed");
-                    return 1;
-                }
-            }
-        } else {
-            eprintln!("systemctl not found; cannot disable service safely");
-            return 1;
-        }
-        if let Err(e) = std::fs::remove_file(&unit_path) {
-            eprintln!("Failed to remove {}: {e}", unit_path.display());
-            return 1;
-        }
-        println!("Removed {}", unit_path.display());
-    } else {
-        println!("No user systemd unit at {}", unit_path.display());
+    match crate::platform::service::remove_autostart() {
+        Ok(Some(path)) => println!("Removed {}", path.display()),
+        Ok(None) => {}
+        Err(e) => eprintln!("Could not remove autostart: {e}"),
     }
 
+    let desktop = crate::platform::service::desktop_file_path();
     if desktop.is_file() {
         if let Err(e) = std::fs::remove_file(&desktop) {
             eprintln!("Failed to remove {}: {e}", desktop.display());
-            return 1;
+        } else {
+            println!("Removed {}", desktop.display());
         }
-        println!("Removed {}", desktop.display());
+    }
+
+    // Best-effort cleanup of leftover units from older installs.
+    let unit_path = crate::platform::service::systemd_user_dir().join("lexaloud.service");
+    if unit_path.is_file() {
+        let _ = std::process::Command::new("systemctl")
+            .args(["--user", "disable", "--now", "lexaloud.service"])
+            .output();
+        let _ = std::fs::remove_file(&unit_path);
+        let _ = std::process::Command::new("systemctl")
+            .args(["--user", "daemon-reload"])
+            .status();
+        println!("Removed leftover {}", unit_path.display());
     }
 
     let sock = crate::config::socket_path();
@@ -957,24 +899,6 @@ async fn cmd_uninstall() -> i32 {
 
     println!("Configuration and downloaded models were kept.");
     0
-}
-
-fn which_systemctl() -> Option<String> {
-    for dir in std::env::var("PATH").unwrap_or_default().split(':') {
-        let p = std::path::Path::new(dir).join("systemctl");
-        if p.is_file() {
-            return Some(p.to_string_lossy().to_string());
-        }
-    }
-    None
-}
-
-fn service_absent(stderr: &[u8]) -> bool {
-    let s = String::from_utf8_lossy(stderr).to_lowercase();
-    s.contains("not loaded")
-        || s.contains("not found")
-        || s.contains("does not exist")
-        || s.contains("not enabled")
 }
 
 async fn cmd_bug_report(full: bool) -> i32 {

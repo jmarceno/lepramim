@@ -24,6 +24,7 @@ pub struct AppState {
     pub config: Arc<Mutex<Config>>,
     pub preproc_config: PreprocessorConfig,
     pub normalizer: Option<Arc<crate::preprocessor::llm::LlmNormalizer>>,
+    pub shutdown: tokio::sync::Notify,
 }
 
 #[derive(Debug, Deserialize)]
@@ -88,6 +89,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/resume", post(resume))
         .route("/toggle", post(toggle))
         .route("/stop", post(stop))
+        .route("/shutdown", post(shutdown))
         .route("/skip", post(skip))
         .route("/back", post(back))
         .route("/config", get(get_config).post(post_config))
@@ -98,6 +100,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
 }
 
 async fn healthz() -> impl IntoResponse {
+    JsonResponse(serde_json::json!({"status":"ok"}))
+}
+
+async fn shutdown(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    state.shutdown.notify_waiters();
     JsonResponse(serde_json::json!({"status":"ok"}))
 }
 
@@ -377,6 +384,7 @@ mod tests {
             config: Arc::new(Mutex::new(cfg)),
             preproc_config: PreprocessorConfig::default(),
             normalizer: None,
+            shutdown: tokio::sync::Notify::new(),
         })
     }
 

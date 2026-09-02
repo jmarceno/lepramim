@@ -26,6 +26,8 @@ endif()
 
 set(UI_HEADERS
     include/api_client.hpp
+    include/capture.hpp
+    include/hotkeys.hpp
     include/tray.hpp
     include/control_window.hpp
     include/onboarding.hpp
@@ -34,6 +36,8 @@ set(UI_HEADERS
 
 set(UI_SOURCES
     src/api_client.cpp
+    src/capture.cpp
+    src/hotkeys.cpp
     src/tray.cpp
     src/control_window.cpp
     src/onboarding.cpp
@@ -80,9 +84,11 @@ add_executable(test_tray_state
     tests/test_tray_state.cpp
     src/tray.cpp
     src/api_client.cpp
+    src/capture.cpp
     src/control_window.cpp
     include/tray.hpp
     include/api_client.hpp
+    include/capture.hpp
     include/control_window.hpp
 )
 target_include_directories(test_tray_state PRIVATE include)
@@ -96,3 +102,20 @@ target_link_libraries(test_tray_state PRIVATE
     Qt6::Test
 )
 add_test(NAME test_tray_state COMMAND test_tray_state)
+
+add_executable(test_capture
+    tests/test_capture.cpp
+    src/capture.cpp
+    src/api_client.cpp
+    include/capture.hpp
+    include/api_client.hpp
+)
+target_include_directories(test_capture PRIVATE include)
+target_link_libraries(test_capture PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Network
+    Qt6::DBus
+    Qt6::Test
+)
+add_test(NAME test_capture COMMAND test_capture)

@@ -43,6 +43,7 @@ public:
     ApiResult postResume() const;
     ApiResult postToggle() const;
     ApiResult postStop() const;
+    ApiResult postShutdown() const;
     ApiResult postSkip() const;
     ApiResult postBack() const;
     ApiResult postSpeak(const QString& text, const QString& mode) const;

@@ -32,6 +32,9 @@ public:
     ~Tray() override;
 
     void setControlWindow(ControlWindow* window);
+    ApiClient* apiClient() {
+        return &m_client;
+    }
     void refreshState();
     TrayActionState currentTrayState() const;
 
@@ -102,7 +105,6 @@ private:
     ControlWindow* m_controlWindow = nullptr;
     QString m_iconPath;
     QString m_currentIconState;
-    bool m_systemdMode = false;
 };
 
 }  // namespace lexaloud

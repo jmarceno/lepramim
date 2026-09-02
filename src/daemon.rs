@@ -30,7 +30,7 @@ pub fn build_components(cfg: Option<Config>) -> Result<DaemonComponents, String>
             .unwrap_or(false);
 
     let artifacts = crate::models::ensure_artifacts(None, false).map_err(|e| {
-        format!("{e}. Run `lexaloud download-models` to fetch Kokoro model artifacts.")
+        format!("{e}. Models download automatically when you open the Lexaloud AppImage.")
     })?;
 
     let model_path = artifacts
@@ -117,6 +117,7 @@ pub async fn run() -> Result<(), String> {
         config: Arc::new(Mutex::new(components.config)),
         preproc_config: components.preproc_config,
         normalizer: components.normalizer,
+        shutdown: tokio::sync::Notify::new(),
     });
 
     let player_for_mpris = app_state.player.clone();
@@ -142,20 +143,26 @@ pub async fn run() -> Result<(), String> {
     use hyper_util::service::TowerToHyperService;
 
     loop {
-        let (stream, _addr) = listener
-            .accept()
-            .await
-            .map_err(|e| format!("accept failed: {}", e))?;
-        let svc = router.clone();
-        tokio::spawn(async move {
-            let io = TokioIo::new(stream);
-            let hyper_svc = TowerToHyperService::new(svc);
-            let builder = hyper::server::conn::http1::Builder::new();
-            if let Err(e) = builder.serve_connection(io, hyper_svc).await {
-                tracing::debug!("serve_connection error: {}", e);
+        tokio::select! {
+            _ = app_state.shutdown.notified() => {
+                tracing::info!("daemon shutdown requested");
+                break;
             }
-        });
+            accepted = listener.accept() => {
+                let (stream, _addr) = accepted.map_err(|e| format!("accept failed: {}", e))?;
+                let svc = router.clone();
+                tokio::spawn(async move {
+                    let io = TokioIo::new(stream);
+                    let hyper_svc = TowerToHyperService::new(svc);
+                    let builder = hyper::server::conn::http1::Builder::new();
+                    if let Err(e) = builder.serve_connection(io, hyper_svc).await {
+                        tracing::debug!("serve_connection error: {}", e);
+                    }
+                });
+            }
+        }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -177,7 +184,7 @@ mod tests {
             Ok(_) => panic!("expected error without models"),
         };
         assert!(
-            err.contains("download-models") || err.contains("missing artifact"),
+            err.contains("missing artifact") || err.contains("Models download automatically"),
             "unexpected error: {err}"
         );
         if let Some(v) = orig {

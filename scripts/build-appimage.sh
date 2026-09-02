@@ -356,20 +356,16 @@ if [[ -d "$HERE/usr/share/espeak-ng-data" ]]; then
   export ESPEAK_DATA_PATH="$HERE/usr/share/espeak-ng-data"
 fi
 
-# Dispatch: if invoked as lexaloud-ui or with --ui, run UI; otherwise run lexaloud CLI
-# Desktop file Exec=lexaloud-ui will directly invoke the UI binary via symlink below,
-# but AppRun is the AppImage entry point (Exec=lexaloud).
-# We support both: `AppImage` -> lexaloud CLI, `AppImage --ui` -> lexaloud-ui
+# Dispatch. Double-click (no args) launches the desktop app, which downloads
+# models if needed, starts the in-process daemon, and opens the tray UI.
+# A file manager may pass the AppImage path as $1; ignore that.
+if [[ $# -eq 1 && -n "${APPIMAGE:-}" && "$1" == "$APPIMAGE" ]]; then
+  set --
+fi
 if [[ "${1:-}" == "--ui" ]]; then
   shift
   exec "$HERE/usr/bin/lexaloud-ui" "$@"
 fi
-# If no args and the caller appears to want the UI (e.g., double-click), default to UI
-# when DISPLAY/WAYLAND_DISPLAY is set and lexaloud-ui is the intended entry point.
-# However, `lexaloud` with no args is historically the app/tray. We keep that:
-#   lexaloud (no args) -> lexaloud app (which may launch UI)
-# For now, AppRun delegates to lexaloud CLI; the desktop file can Exec=lexaloud-ui directly
-# via AppRun symlink handling. Support AppImage's desktop integration which calls AppRun with desktop args.
 
 # If the binary was invoked via symlink named lexaloud-ui, dispatch to UI
 BIN_NAME="$(basename "${ARGV0:-$0}" 2>/dev/null || basename "$0")"

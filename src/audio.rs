@@ -247,22 +247,48 @@ struct PlaybackState {
     device_sample_rate: u32,
 }
 
+/// Linear-resample mono PCM from `src_rate` to `dst_rate`.
+pub(crate) fn resample_mono(samples: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> {
+    if src_rate == 0 || dst_rate == 0 || src_rate == dst_rate {
+        return samples.to_vec();
+    }
+    let ratio = dst_rate as f64 / src_rate as f64;
+    let out_len = (samples.len() as f64 * ratio).ceil() as usize;
+    let mut out = Vec::with_capacity(out_len);
+    for i in 0..out_len {
+        let src_pos = i as f64 / ratio;
+        let idx = src_pos.floor() as usize;
+        let frac = (src_pos - idx as f64) as f32;
+        let a = samples.get(idx).copied().unwrap_or(0.0);
+        let b = samples.get(idx + 1).copied().unwrap_or(a);
+        out.push(a + (b - a) * frac);
+    }
+    out
+}
+
+/// Fill an interleaved device buffer from a mono source: one sample per frame,
+/// duplicated across channels. Treating the buffer as a flat mono stream makes
+/// stereo (and 24 kHz→48 kHz) play back about 2–4× too fast.
+pub(crate) fn write_mono_frames<T: Copy>(
+    data: &mut [T],
+    channels: usize,
+    mut sample: impl FnMut() -> T,
+) {
+    if channels == 0 {
+        return;
+    }
+    for frame in data.chunks_mut(channels) {
+        let s = sample();
+        for ch in frame.iter_mut() {
+            *ch = s;
+        }
+    }
+}
+
 impl PlaybackState {
     fn append_resampled(&mut self, samples: &[f32]) {
-        if self.stream_sample_rate == self.device_sample_rate {
-            self.pending.extend_from_slice(samples);
-            return;
-        }
-        let ratio = self.device_sample_rate as f64 / self.stream_sample_rate as f64;
-        let out_len = (samples.len() as f64 * ratio).ceil() as usize;
-        for i in 0..out_len {
-            let src_pos = i as f64 / ratio;
-            let idx = src_pos.floor() as usize;
-            let frac = (src_pos - idx as f64) as f32;
-            let a = samples.get(idx).copied().unwrap_or(0.0);
-            let b = samples.get(idx + 1).copied().unwrap_or(a);
-            self.pending.push(a + (b - a) * frac);
-        }
+        let resampled = resample_mono(samples, self.stream_sample_rate, self.device_sample_rate);
+        self.pending.extend_from_slice(&resampled);
     }
 
     fn pop_sample(&mut self) -> f32 {
@@ -281,9 +307,41 @@ impl PlaybackState {
     }
 }
 
+fn choose_output_config(
+    device: &cpal::Device,
+    preferred_rate: u32,
+) -> Result<(cpal::StreamConfig, cpal::SampleFormat, u16, u32), String> {
+    use cpal::traits::DeviceTrait;
+    let supported = device
+        .default_output_config()
+        .map_err(|e| format!("default_output_config failed: {e}"))?;
+    let channels = supported.channels();
+    let format = supported.sample_format();
+    let mut rate = supported.sample_rate().0;
+    if let Ok(cfgs) = device.supported_output_configs() {
+        for range in cfgs {
+            if range.channels() != channels || range.sample_format() != format {
+                continue;
+            }
+            if range.min_sample_rate().0 <= preferred_rate
+                && range.max_sample_rate().0 >= preferred_rate
+            {
+                rate = preferred_rate;
+                break;
+            }
+        }
+    }
+    let config = cpal::StreamConfig {
+        channels,
+        sample_rate: cpal::SampleRate(rate),
+        buffer_size: cpal::BufferSize::Default,
+    };
+    Ok((config, format, channels, rate))
+}
+
 fn run_audio_thread(rx: mpsc::Receiver<AudioCmd>) {
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-    use cpal::{SampleFormat, StreamConfig};
+    use cpal::SampleFormat;
 
     let mut stream: Option<cpal::Stream> = None;
     let playback = Arc::new(StdMutex::new(PlaybackState {
@@ -302,71 +360,60 @@ fn run_audio_thread(rx: mpsc::Receiver<AudioCmd>) {
         let device = host
             .default_output_device()
             .ok_or_else(|| "no default audio output device".to_string())?;
-        let supported = device
-            .default_output_config()
-            .map_err(|e| format!("default_output_config failed: {e}"))?;
+        let (config, sample_format, channels, device_rate) =
+            choose_output_config(&device, sample_rate)?;
         {
             let mut pb = playback.lock().map_err(|e| e.to_string())?;
-            pb.device_sample_rate = supported.sample_rate().0;
+            pb.device_sample_rate = device_rate;
             pb.stream_sample_rate = sample_rate;
             pb.pending.clear();
             pb.read_pos = 0;
         }
         *last_error.lock().map_err(|e| e.to_string())? = None;
 
-        let channels = supported.channels();
-        let device_rate = playback
-            .lock()
-            .map_err(|e| e.to_string())?
-            .device_sample_rate;
-        let sample_format = supported.sample_format();
-        let config = StreamConfig {
-            channels,
-            sample_rate: cpal::SampleRate(device_rate),
-            buffer_size: cpal::BufferSize::Default,
+        let channels = channels.max(1) as usize;
+        let make_err_handler = || {
+            let err_cb = last_error.clone();
+            move |e| {
+                if let Ok(mut err) = err_cb.lock() {
+                    *err = Some(format!("CPAL stream error: {e}"));
+                }
+            }
         };
 
-        let pb_cb = playback.clone();
-        let err_cb = last_error.clone();
-
         let stream = match sample_format {
-            SampleFormat::F32 => device
-                .build_output_stream(
-                    &config,
-                    move |data: &mut [f32], _| {
-                        if let Ok(mut pb) = pb_cb.lock() {
-                            for s in data.iter_mut() {
-                                *s = pb.pop_sample();
+            SampleFormat::F32 => {
+                let pb_cb = playback.clone();
+                device
+                    .build_output_stream(
+                        &config,
+                        move |data: &mut [f32], _| {
+                            if let Ok(mut pb) = pb_cb.lock() {
+                                write_mono_frames(data, channels, || pb.pop_sample());
+                            } else {
+                                data.fill(0.0);
                             }
-                        }
-                    },
-                    move |e| {
-                        if let Ok(mut err) = err_cb.lock() {
-                            *err = Some(format!("CPAL stream error: {e}"));
-                        }
-                    },
-                    None,
-                )
-                .map_err(|e| format!("build_output_stream f32 failed: {e}"))?,
+                        },
+                        make_err_handler(),
+                        None,
+                    )
+                    .map_err(|e| format!("build_output_stream f32 failed: {e}"))?
+            }
             SampleFormat::I16 => {
-                let pb_cb2 = playback.clone();
-                let err_cb2 = last_error.clone();
+                let pb_cb = playback.clone();
                 device
                     .build_output_stream(
                         &config,
                         move |data: &mut [i16], _| {
-                            if let Ok(mut pb) = pb_cb2.lock() {
-                                for s in data.iter_mut() {
-                                    let v = pb.pop_sample().clamp(-1.0, 1.0);
-                                    *s = (v * i16::MAX as f32) as i16;
-                                }
+                            if let Ok(mut pb) = pb_cb.lock() {
+                                write_mono_frames(data, channels, || {
+                                    (pb.pop_sample().clamp(-1.0, 1.0) * i16::MAX as f32) as i16
+                                });
+                            } else {
+                                data.fill(0);
                             }
                         },
-                        move |e| {
-                            if let Ok(mut err) = err_cb2.lock() {
-                                *err = Some(format!("CPAL stream error: {e}"));
-                            }
-                        },
+                        make_err_handler(),
                         None,
                     )
                     .map_err(|e| format!("build_output_stream i16 failed: {e}"))?
@@ -376,6 +423,9 @@ fn run_audio_thread(rx: mpsc::Receiver<AudioCmd>) {
         stream
             .play()
             .map_err(|e| format!("stream.play failed: {e}"))?;
+        tracing::info!(
+            "CPAL output opened (tts_sr={sample_rate} device_sr={device_rate} ch={channels})"
+        );
         Ok(stream)
     };
 
@@ -406,11 +456,20 @@ fn run_audio_thread(rx: mpsc::Receiver<AudioCmd>) {
                 reply,
             } => {
                 let res = (|| {
-                    stream = Some(open_stream(
-                        sample_rate,
-                        playback.clone(),
-                        last_error.clone(),
-                    )?);
+                    let need_reopen = stream.is_none() || {
+                        let pb = playback.lock().map_err(|e| e.to_string())?;
+                        pb.stream_sample_rate != sample_rate
+                    };
+                    if need_reopen {
+                        stream = Some(open_stream(
+                            sample_rate,
+                            playback.clone(),
+                            last_error.clone(),
+                        )?);
+                    } else if let Ok(mut pb) = playback.lock() {
+                        pb.pending.clear();
+                        pb.read_pos = 0;
+                    }
                     Ok(())
                 })();
                 let _ = reply.send(res);
@@ -443,7 +502,8 @@ fn run_audio_thread(rx: mpsc::Receiver<AudioCmd>) {
                 let _ = reply.send(res);
             }
             AudioCmd::Stop { reply } => {
-                stream = None;
+                // Keep the device stream open. Dropping it on every job forces a
+                // PipeWire renegotiation and adds a large delay before speech.
                 if let Ok(mut pb) = playback.lock() {
                     pb.pending.clear();
                     pb.read_pos = 0;
@@ -597,6 +657,48 @@ mod tests {
         assert_eq!(sink.written_files.len(), 1);
         assert!(sink.written_files[0].exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resample_mono_identity_when_rates_match() {
+        let src = vec![0.1, 0.2, 0.3];
+        assert_eq!(resample_mono(&src, 24_000, 24_000), src);
+    }
+
+    #[test]
+    fn resample_mono_doubles_length_24k_to_48k() {
+        let src = vec![0.0, 1.0];
+        let out = resample_mono(&src, 24_000, 48_000);
+        assert_eq!(out.len(), 4);
+        assert!((out[0] - 0.0).abs() < 1e-5);
+        assert!((out[2] - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn write_mono_frames_duplicates_sample_per_stereo_frame() {
+        let mut buf = [0.0f32; 8];
+        let src = [1.0, 2.0, 3.0, 4.0];
+        let mut i = 0usize;
+        write_mono_frames(&mut buf, 2, || {
+            let s = src[i];
+            i += 1;
+            s
+        });
+        assert_eq!(buf, [1.0, 1.0, 2.0, 2.0, 3.0, 3.0, 4.0, 4.0]);
+        assert_eq!(i, 4);
+    }
+
+    #[test]
+    fn write_mono_frames_mono_is_one_to_one() {
+        let mut buf = [0.0f32; 3];
+        let src = [0.5, -0.5, 0.25];
+        let mut i = 0usize;
+        write_mono_frames(&mut buf, 1, || {
+            let s = src[i];
+            i += 1;
+            s
+        });
+        assert_eq!(buf, src);
     }
 
     #[tokio::test]

@@ -303,10 +303,33 @@ pub fn try_force_copy(timeout_s: f64) -> bool {
             return true;
         }
     }
-    if let Some(_dotool) = which("dotool") {
-        // stub
-        std::thread::sleep(Duration::from_millis(350));
-        return true;
+    if let Some(dotool) = which("dotool") {
+        let mut cmd = Command::new(&dotool);
+        cmd.stdin(std::process::Stdio::piped());
+        cmd.stdout(std::process::Stdio::null());
+        cmd.stderr(std::process::Stdio::null());
+        if let Ok(mut child) = cmd.spawn() {
+            if let Some(mut stdin) = child.stdin.take() {
+                use std::io::Write;
+                let _ = stdin.write_all(b"key Ctrl_L+c\n");
+            }
+            let start = std::time::Instant::now();
+            loop {
+                match child.try_wait() {
+                    Ok(Some(status)) if status.success() => {
+                        std::thread::sleep(Duration::from_millis(350));
+                        return true;
+                    }
+                    Ok(Some(_)) => break,
+                    Ok(None) if start.elapsed() > timeout => {
+                        let _ = child.kill();
+                        break;
+                    }
+                    Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+                    Err(_) => break,
+                }
+            }
+        }
     }
     if let Some(wtype) = which("wtype") {
         let mut cmd = Command::new(&wtype);
