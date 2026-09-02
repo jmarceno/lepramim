@@ -295,6 +295,49 @@ pub fn speed_to_slider(speed: f64) -> i32 {
     (clamped * 100.0).round() as i32
 }
 
+/// Map a Kokoro voice id to its native language id.
+///
+/// Kokoro voice prefixes encode the language:
+/// `a` = American English, `b` = British English, `e` = Spanish,
+/// `f` = French, `h` = Hindi, `i` = Italian, `j` = Japanese,
+/// `p` = Brazilian Portuguese, `z` = Mandarin Chinese.
+pub fn voice_language(voice_id: &str) -> &'static str {
+    let prefix = voice_id.split('_').next().unwrap_or("");
+    match prefix {
+        "af" | "am" => "en-us",
+        "bf" | "bm" => "en-gb",
+        "ef" | "em" => "es",
+        "ff" => "fr-fr",
+        "hf" | "hm" => "hi",
+        "if" | "im" => "it",
+        "jf" | "jm" => "ja",
+        "pf" | "pm" => "pt-br",
+        "zf" | "zm" => "zh",
+        _ => "en-us",
+    }
+}
+
+/// Return the voices that belong to `lang`. Unknown lang ids return everything.
+pub fn voices_for_lang(lang: &str) -> Vec<&'static VoiceEntry> {
+    let filtered: Vec<&'static VoiceEntry> = KOKORO_VOICES
+        .iter()
+        .filter(|v| voice_language(v.id) == lang)
+        .collect();
+    if filtered.is_empty() {
+        KOKORO_VOICES.iter().collect()
+    } else {
+        filtered
+    }
+}
+
+pub fn language_label(lang_id: &str) -> &str {
+    LANGUAGES
+        .iter()
+        .find(|l| l.id == lang_id)
+        .map(|l| l.label)
+        .unwrap_or(lang_id)
+}
+
 #[derive(Debug, Clone)]
 pub struct ControlForm {
     pub voice: String,
@@ -308,6 +351,8 @@ pub struct ControlForm {
     pub normalize_numbers: bool,
     pub status: String,
     pub unknown_voice_note: bool,
+    /// UI-only: when true, the voice pick list only shows voices for `lang`.
+    pub filter_voices_by_lang: bool,
 }
 
 impl Default for ControlForm {
@@ -330,6 +375,7 @@ impl ControlForm {
             normalize_numbers: cfg.preprocessor.normalize_numbers,
             status: String::new(),
             unknown_voice_note: false,
+            filter_voices_by_lang: false,
         };
         form.unknown_voice_note = !KOKORO_VOICES.iter().any(|v| v.id == form.voice);
         if form.unknown_voice_note {
@@ -353,6 +399,29 @@ impl ControlForm {
         cfg.preprocessor.expand_latin_abbreviations = self.expand_latin;
         cfg.preprocessor.normalize_numbers = self.normalize_numbers;
         cfg
+    }
+
+    /// Visible voices for the pick list, honoring the language filter.
+    pub fn visible_voices(&self) -> Vec<&'static VoiceEntry> {
+        if self.filter_voices_by_lang {
+            voices_for_lang(&self.lang)
+        } else {
+            KOKORO_VOICES.iter().collect()
+        }
+    }
+
+    /// If filtering is on and the current voice is not in the selected
+    /// language, snap it to the first voice of that language.
+    pub fn ensure_voice_matches_filter(&mut self) {
+        if !self.filter_voices_by_lang {
+            return;
+        }
+        if voice_language(&self.voice) != self.lang.as_str() {
+            if let Some(first) = voices_for_lang(&self.lang).first() {
+                self.voice = first.id.to_string();
+                self.unknown_voice_note = false;
+            }
+        }
     }
 }
 
@@ -422,5 +491,72 @@ mod tests {
         assert_eq!(merged.provider.voice, "am_adam");
         assert_eq!(merged.provider.lang, "ja");
         assert!(merged.advanced.overlay);
+    }
+
+    #[test]
+    fn voice_language_mapping() {
+        assert_eq!(voice_language("af_heart"), "en-us");
+        assert_eq!(voice_language("am_adam"), "en-us");
+        assert_eq!(voice_language("bf_alice"), "en-gb");
+        assert_eq!(voice_language("bm_george"), "en-gb");
+        assert_eq!(voice_language("ef_dora"), "es");
+        assert_eq!(voice_language("em_alex"), "es");
+        assert_eq!(voice_language("ff_siwis"), "fr-fr");
+        assert_eq!(voice_language("hf_alpha"), "hi");
+        assert_eq!(voice_language("hm_omega"), "hi");
+        assert_eq!(voice_language("if_sara"), "it");
+        assert_eq!(voice_language("im_nicola"), "it");
+        assert_eq!(voice_language("jf_alpha"), "ja");
+        assert_eq!(voice_language("jm_kumo"), "ja");
+        assert_eq!(voice_language("pf_dora"), "pt-br");
+        assert_eq!(voice_language("pm_alex"), "pt-br");
+        assert_eq!(voice_language("zf_xiaobei"), "zh");
+        assert_eq!(voice_language("zm_yunjian"), "zh");
+    }
+
+    #[test]
+    fn voices_for_lang_counts() {
+        assert_eq!(voices_for_lang("en-us").len(), 20);
+        assert_eq!(voices_for_lang("en-gb").len(), 8);
+        assert_eq!(voices_for_lang("es").len(), 3);
+        assert_eq!(voices_for_lang("ja").len(), 5);
+        assert_eq!(voices_for_lang("zh").len(), 8);
+        // Every voice belongs to exactly one language bucket.
+        let total: usize = LANGUAGES.iter().map(|l| voices_for_lang(l.id).len()).sum();
+        assert_eq!(total, KOKORO_VOICES.len());
+    }
+
+    #[test]
+    fn filter_snaps_voice_to_language() {
+        let mut form = ControlForm::default();
+        form.voice = "af_heart".into();
+        form.lang = "ja".into();
+        form.filter_voices_by_lang = true;
+        form.ensure_voice_matches_filter();
+        assert_eq!(voice_language(&form.voice), "ja");
+        assert_eq!(form.voice, "jf_alpha");
+
+        // Matching voice is left alone.
+        form.voice = "jm_kumo".into();
+        form.ensure_voice_matches_filter();
+        assert_eq!(form.voice, "jm_kumo");
+
+        // Filter off never snaps.
+        form.filter_voices_by_lang = false;
+        form.voice = "af_heart".into();
+        form.lang = "ja".into();
+        form.ensure_voice_matches_filter();
+        assert_eq!(form.voice, "af_heart");
+    }
+
+    #[test]
+    fn visible_voices_respects_filter() {
+        let mut form = ControlForm::default();
+        assert_eq!(form.visible_voices().len(), KOKORO_VOICES.len());
+        form.lang = "fr-fr".into();
+        form.filter_voices_by_lang = true;
+        let visible = form.visible_voices();
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].id, "ff_siwis");
     }
 }

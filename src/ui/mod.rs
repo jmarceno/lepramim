@@ -25,7 +25,8 @@ use crate::ui::hotkeys::{HotkeyEvent, HotkeyManager};
 use crate::ui::tray_service::{TrayEvent, TrayHandle, TraySharedState};
 use crate::ui::tray_state::{tray_icon_phase, tray_state_for_daemon, TrayIconPhase};
 use crate::ui::voices::{
-    ControlForm, KOKORO_VOICES, LANGUAGES, speed_from_slider, speed_hint_for_value,
+    ControlForm, KOKORO_VOICES, LANGUAGES, language_label, speed_from_slider,
+    speed_hint_for_value,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -75,6 +76,7 @@ enum Message {
     ControlTabSelected(usize),
     VoiceSelected(String),
     LangSelected(String),
+    FilterVoicesToggled(bool),
     SpeedChanged(i32),
     OverlayToggled(bool),
     DedupeToggled(bool),
@@ -613,10 +615,18 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         }
         Message::VoiceSelected(v) => {
             app.control_form.voice = v;
+            app.control_form.unknown_voice_note =
+                !KOKORO_VOICES.iter().any(|e| e.id == app.control_form.voice);
             Task::none()
         }
         Message::LangSelected(l) => {
             app.control_form.lang = l;
+            app.control_form.ensure_voice_matches_filter();
+            Task::none()
+        }
+        Message::FilterVoicesToggled(v) => {
+            app.control_form.filter_voices_by_lang = v;
+            app.control_form.ensure_voice_matches_filter();
             Task::none()
         }
         Message::SpeedChanged(v) => {
@@ -1013,7 +1023,8 @@ fn subscription(app: &App) -> Subscription<Message> {
         Subscription::none()
     };
     let opened = window::open_events().map(Message::SurfaceOpened);
-    Subscription::batch([tick, input, overlay, playback_watch, opened])
+    let closed = window::close_events().map(Message::WindowClosed);
+    Subscription::batch([tick, input, overlay, playback_watch, opened, closed])
 }
 
 fn title(app: &App, id: window::Id) -> String {
@@ -1037,7 +1048,8 @@ fn view(app: &App, id: window::Id) -> Element<'_, Message> {
 }
 
 fn view_control(app: &App) -> Element<'_, Message> {
-    let voice_labels: Vec<String> = KOKORO_VOICES.iter().map(|v| v.label.to_string()).collect();
+    let visible = app.control_form.visible_voices();
+    let voice_labels: Vec<String> = visible.iter().map(|v| v.label.to_string()).collect();
     let lang_labels: Vec<String> = LANGUAGES.iter().map(|l| l.label.to_string()).collect();
     let current_voice = KOKORO_VOICES
         .iter()
@@ -1095,33 +1107,67 @@ fn view_control(app: &App) -> Element<'_, Message> {
         ]
         .spacing(8)
         .into(),
-        _ => column![
-            pick_list(voice_labels, Some(current_voice), |label| {
-                let id = KOKORO_VOICES
-                    .iter()
-                    .find(|v| v.label == label)
-                    .map(|v| v.id.to_string())
-                    .unwrap_or(label);
-                Message::VoiceSelected(id)
-            }),
-            pick_list(lang_labels, Some(current_lang), |label| {
-                let id = LANGUAGES
-                    .iter()
-                    .find(|l| l.label == label)
-                    .map(|l| l.id.to_string())
-                    .unwrap_or(label);
-                Message::LangSelected(id)
-            }),
-            text(format!("Speed: {speed:.2}\u{00d7}")),
-            slider(
-                50..=200,
-                app.control_form.speed_slider,
-                Message::SpeedChanged
-            ),
-            text(speed_hint_for_value(speed)).size(12),
-        ]
-        .spacing(8)
-        .into(),
+        _ => {
+            let voice_count_note = if app.control_form.filter_voices_by_lang {
+                format!(
+                    "Showing {} of {} voices \u{00b7} {}",
+                    visible.len(),
+                    KOKORO_VOICES.len(),
+                    language_label(&app.control_form.lang),
+                )
+            } else {
+                format!(
+                    "{} voices available \u{2014} tick the box to narrow by language.",
+                    KOKORO_VOICES.len()
+                )
+            };
+            column![
+                pick_list(voice_labels, Some(current_voice), |label| {
+                    let id = app
+                        .control_form
+                        .visible_voices()
+                        .iter()
+                        .find(|v| v.label == label)
+                        .map(|v| v.id.to_string())
+                        .or_else(|| {
+                            KOKORO_VOICES
+                                .iter()
+                                .find(|v| v.label == label)
+                                .map(|v| v.id.to_string())
+                        })
+                        .unwrap_or(label);
+                    Message::VoiceSelected(id)
+                }),
+                row![
+                    pick_list(lang_labels, Some(current_lang), |label| {
+                        let id = LANGUAGES
+                            .iter()
+                            .find(|l| l.label == label)
+                            .map(|l| l.id.to_string())
+                            .unwrap_or(label);
+                        Message::LangSelected(id)
+                    })
+                    .width(Length::Fill),
+                    checkbox(
+                        "Filter by language",
+                        app.control_form.filter_voices_by_lang
+                    )
+                    .on_toggle(Message::FilterVoicesToggled),
+                ]
+                .spacing(12)
+                .align_y(Alignment::Center),
+                text(voice_count_note).size(12),
+                text(format!("Speed: {speed:.2}\u{00d7}")),
+                slider(
+                    50..=200,
+                    app.control_form.speed_slider,
+                    Message::SpeedChanged
+                ),
+                text(speed_hint_for_value(speed)).size(12),
+            ]
+            .spacing(8)
+            .into()
+        }
     };
 
     container(
