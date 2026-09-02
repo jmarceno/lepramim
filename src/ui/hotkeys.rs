@@ -1,4 +1,8 @@
 //! Global hotkeys: KGlobalAccel on KDE + session D-Bus service for GNOME.
+//!
+//! Qt `QKeySequence("Meta+R")[0].toCombined()` is `Qt::MetaModifier | Key_R`
+//! (`0x10000000 | 0x52` = 268435538). Registering any other int leaves Meta+R
+//! unbound, so the shortcut does nothing.
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use iced::futures::StreamExt;
@@ -9,11 +13,14 @@ use zbus::zvariant::OwnedObjectPath;
 
 const COMPONENT: &str = "lexaloud";
 const FRIENDLY: &str = "Lexaloud";
-/// Qt `QKeySequence::fromString("Meta+R")[0].toCombined()`.
-const QT_META: i32 = 0x0100_0000;
+/// Qt `MetaModifier` — not `0x01000000`.
+const QT_META: i32 = 0x1000_0000;
 const QT_KEY_R: i32 = 0x52;
 const QT_KEY_P: i32 = 0x50;
-const SET_SHORTCUT_FLAGS: u32 = 2;
+const SPEAK_KEY: i32 = QT_META | QT_KEY_R;
+const TOGGLE_KEY: i32 = QT_META | QT_KEY_P;
+/// KGlobalAccel `SetPresent`. Without this the key is saved but never grabbed.
+const SET_PRESENT: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HotkeyEvent {
@@ -138,15 +145,12 @@ async fn hotkey_service(tx: Sender<HotkeyEvent>) {
         tracing::warn!("hotkeys: request_name org.lexaloud.App: {e}");
     }
 
-    match register_and_listen(&conn, tx).await {
-        Ok(()) => {}
-        Err(e) => {
-            tracing::warn!(
-                "hotkeys: KGlobalAccel unavailable ({e}); org.lexaloud.App still exported"
-            );
-            std::future::pending::<()>().await;
-        }
+    if let Err(e) = register_and_listen(&conn, tx).await {
+        tracing::warn!(
+            "hotkeys: KGlobalAccel unavailable ({e}); org.lexaloud.App still exported"
+        );
     }
+    std::future::pending::<()>().await;
 }
 
 async fn register_and_listen(
@@ -155,12 +159,8 @@ async fn register_and_listen(
 ) -> Result<(), zbus::Error> {
     let accel = KGlobalAccelProxy::new(conn).await?;
     let actions = [
-        (
-            "speak-selection",
-            "Speak highlighted selection",
-            QT_META | QT_KEY_R,
-        ),
-        ("toggle", "Pause / resume", QT_META | QT_KEY_P),
+        ("speak-selection", "Speak highlighted selection", SPEAK_KEY),
+        ("toggle", "Pause / resume", TOGGLE_KEY),
     ];
     for (id, label, key) in actions {
         let action_id = vec![
@@ -170,10 +170,24 @@ async fn register_and_listen(
             label.to_string(),
         ];
         accel.do_register(action_id.clone()).await?;
-        let assigned = accel
-            .set_shortcut(action_id, vec![key], SET_SHORTCUT_FLAGS)
-            .await?;
-        tracing::info!("hotkeys: setShortcut {id} -> {assigned:?}");
+        let _ = accel.get_component(COMPONENT).await;
+        // busctl is the proven `asaiu` marshal for `ai` (same as the working
+        // Qt/Python path). zbus is the fallback if busctl is missing.
+        let assigned = match busctl_set_shortcut(id, label, key) {
+            Ok(keys) => keys,
+            Err(e) => {
+                tracing::warn!("hotkeys: busctl setShortcut {id} failed ({e}); trying zbus");
+                accel
+                    .set_shortcut(action_id, vec![key], SET_PRESENT)
+                    .await?
+            }
+        };
+        tracing::info!("hotkeys: setShortcut {id} key={key} -> {assigned:?}");
+        if !assigned.contains(&key) {
+            tracing::warn!(
+                "hotkeys: KWin did not keep {id} as {key} (got {assigned:?}); Meta combo may be taken"
+            );
+        }
     }
 
     let path = accel.get_component(COMPONENT).await?;
@@ -183,7 +197,9 @@ async fn register_and_listen(
         .await?;
     match component.is_active().await {
         Ok(true) => {}
-        Ok(false) => tracing::warn!("hotkeys: KGlobalAccel component is not active"),
+        Ok(false) => {
+            tracing::error!("hotkeys: KGlobalAccel component is inactive; Meta+R will do nothing");
+        }
         Err(e) => tracing::warn!("hotkeys: isActive: {e}"),
     }
 
@@ -195,8 +211,20 @@ async fn register_and_listen(
     let mut last_action = String::new();
     loop {
         let incoming = tokio::select! {
-            Some(s) = pressed.next() => s.args().ok().map(|a| a.action),
-            Some(s) = released.next() => s.args().ok().map(|a| a.action),
+            Some(s) = pressed.next() => match s.args() {
+                Ok(a) => Some(a.action),
+                Err(e) => {
+                    tracing::warn!("hotkeys: pressed args: {e}");
+                    None
+                }
+            },
+            Some(s) = released.next() => match s.args() {
+                Ok(a) => Some(a.action),
+                Err(e) => {
+                    tracing::warn!("hotkeys: released args: {e}");
+                    None
+                }
+            },
             else => break,
         };
         let Some(action) = incoming else {
@@ -208,6 +236,7 @@ async fn register_and_listen(
         }
         last_at = now;
         last_action = action.clone();
+        tracing::info!("hotkeys: KWin delivered {action}");
         match action.as_str() {
             "speak-selection" => {
                 let _ = tx.send(HotkeyEvent::SpeakSelection);
@@ -218,7 +247,69 @@ async fn register_and_listen(
             _ => {}
         }
     }
+    tracing::warn!("hotkeys: KGlobalAccel signal stream ended");
     Ok(())
+}
+
+fn busctl_set_shortcut(action: &str, label: &str, key: i32) -> Result<Vec<i32>, String> {
+    let output = std::process::Command::new("busctl")
+        .args([
+            "--user",
+            "call",
+            "org.kde.kglobalaccel",
+            "/kglobalaccel",
+            "org.kde.KGlobalAccel",
+            "setShortcut",
+            "asaiu",
+            "4",
+            COMPONENT,
+            action,
+            FRIENDLY,
+            label,
+            "1",
+            &key.to_string(),
+            &SET_PRESENT.to_string(),
+        ])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        let err = String::from_utf8_lossy(&output.stderr);
+        return Err(if err.trim().is_empty() {
+            format!("exit {}", output.status)
+        } else {
+            err.trim().to_string()
+        });
+    }
+    parse_busctl_ai(&String::from_utf8_lossy(&output.stdout))
+}
+
+fn parse_busctl_ai(stdout: &str) -> Result<Vec<i32>, String> {
+    let mut parts = stdout.split_whitespace();
+    match parts.next() {
+        Some("ai") => {}
+        other => {
+            return Err(format!(
+                "unexpected setShortcut reply {:?}: {}",
+                other,
+                stdout.trim()
+            ));
+        }
+    }
+    let n: usize = parts
+        .next()
+        .ok_or_else(|| stdout.trim().to_string())?
+        .parse()
+        .map_err(|_| stdout.trim().to_string())?;
+    let mut keys = Vec::with_capacity(n);
+    for _ in 0..n {
+        let value = parts
+            .next()
+            .ok_or_else(|| stdout.trim().to_string())?
+            .parse()
+            .map_err(|_| stdout.trim().to_string())?;
+        keys.push(value);
+    }
+    Ok(keys)
 }
 
 fn unregister_kglobal_accel_sync() {
@@ -230,4 +321,22 @@ fn unregister_kglobal_accel_sync() {
     };
     let _ = accel.unregister(COMPONENT, "speak-selection");
     let _ = accel.unregister(COMPONENT, "toggle");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn qt_meta_r_matches_working_python_binding() {
+        assert_eq!(SPEAK_KEY, 268_435_538);
+        assert_eq!(TOGGLE_KEY, 268_435_536);
+        assert_ne!(SPEAK_KEY, 0x0100_0000 | QT_KEY_R);
+    }
+
+    #[test]
+    fn parse_busctl_ai_reads_assigned_keys() {
+        assert_eq!(parse_busctl_ai("ai 1 268435538\n").unwrap(), vec![268435538]);
+        assert_eq!(parse_busctl_ai("ai 0\n").unwrap(), Vec::<i32>::new());
+    }
 }

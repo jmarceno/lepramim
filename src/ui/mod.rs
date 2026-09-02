@@ -98,6 +98,7 @@ enum Message {
     OverlayPause,
     OverlaySkip,
     OverlayStop,
+    InputPoll,
     SurfaceOpened(window::Id),
     WindowClosed(window::Id),
     SpeakNow,
@@ -398,16 +399,17 @@ fn spawn_daemon_task(daemon_child: Arc<Mutex<Option<std::process::Child>>>) -> T
 
 fn update(app: &mut App, message: Message) -> Task<Message> {
     match message {
-        Message::Tick => {
-            let mut pending = Task::none();
-            while let Ok(ev) = app.tray.rx.try_recv() {
-                pending = handle_tray(app, ev);
-                if app.quit_requested {
-                    return iced::exit();
-                }
+        Message::InputPoll => {
+            let pending = drain_input(app);
+            if app.quit_requested {
+                return iced::exit();
             }
-            while let Ok(ev) = app.hotkeys.receiver().try_recv() {
-                pending = Task::batch([pending, handle_hotkey(ev)]);
+            pending
+        }
+        Message::Tick => {
+            let pending = drain_input(app);
+            if app.quit_requested {
+                return iced::exit();
             }
             while let Some(rx) = app.download_rx.as_ref() {
                 match rx.try_recv() {
@@ -794,6 +796,20 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
     }
 }
 
+fn drain_input(app: &mut App) -> Task<Message> {
+    let mut pending = Task::none();
+    while let Ok(ev) = app.tray.rx.try_recv() {
+        pending = Task::batch([pending, handle_tray(app, ev)]);
+        if app.quit_requested {
+            return pending;
+        }
+    }
+    while let Ok(ev) = app.hotkeys.receiver().try_recv() {
+        pending = Task::batch([pending, handle_hotkey(ev)]);
+    }
+    pending
+}
+
 fn handle_tray(app: &mut App, ev: TrayEvent) -> Task<Message> {
     match ev {
         TrayEvent::ToggleDaemon => {
@@ -893,13 +909,14 @@ fn format_models_status(json: &serde_json::Value) -> String {
 
 fn subscription(app: &App) -> Subscription<Message> {
     let tick = time::every(Duration::from_secs(1)).map(|_| Message::Tick);
+    let input = time::every(Duration::from_millis(50)).map(|_| Message::InputPoll);
     let overlay = if app.overlay_visible {
         time::every(Duration::from_millis(200)).map(|_| Message::OverlayTick)
     } else {
         Subscription::none()
     };
     let opened = window::open_events().map(Message::SurfaceOpened);
-    Subscription::batch([tick, overlay, opened])
+    Subscription::batch([tick, input, overlay, opened])
 }
 
 fn title(app: &App, id: window::Id) -> String {
