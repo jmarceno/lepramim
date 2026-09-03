@@ -118,9 +118,9 @@ mod tests {
         assert!(!t.contains("Smith, 2023"));
     }
     #[test]
-    fn no_panic_unicode() {
+    fn numeric_range_list_stripped() {
         let t = strip_numeric_bracket_citations("Hello [1, 2–3] world");
-        assert!(!t.is_empty());
+        assert_eq!(t, "Hello world");
     }
     #[test]
     fn ref_bracket_preserved() {

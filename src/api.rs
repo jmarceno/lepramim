@@ -337,8 +337,10 @@ mod tests {
     async fn healthz_ok() {
         let state = test_state();
         let _router = create_router(state);
-        // Use axum test via hyper? We'll just test handler directly
         let resp = healthz().await.into_response();
         assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(v, serde_json::json!({"status": "ok"}));
     }
 }

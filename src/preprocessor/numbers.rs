@@ -452,8 +452,9 @@ mod tests {
         assert!(t.contains("fifty percent"), "got {}", t);
     }
     #[test]
-    fn no_panic_unicode() {
+    fn bare_integer_passes_through() {
+        // Bare integers without commas/decimals/currency are left alone.
         let t = normalize_numbers("Hello 123 world");
-        assert!(!t.is_empty());
+        assert_eq!(t, "Hello 123 world");
     }
 }

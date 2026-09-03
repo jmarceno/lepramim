@@ -318,12 +318,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn cpu_fallback_provider_list_has_no_cuda() {
-        let providers = ["CPUExecutionProvider".to_string()];
-        assert!(!providers.iter().any(|p| p.contains("CUDA")));
-    }
-
-    #[test]
     fn real_tts_smoke_opt_in() {
         if std::env::var("LEPRAMIM_REAL_TTS").ok().as_deref() != Some("1") {
             return;

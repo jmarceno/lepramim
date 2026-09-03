@@ -121,9 +121,9 @@ mod tests {
         assert!(t.contains("completed"), "got {}", t);
     }
     #[test]
-    fn no_panic_unicode() {
+    fn strips_soft_hyphen_keeps_dashes() {
         let t = clean_pdf_paste("Hello — world… \u{00ad} test");
-        assert!(!t.is_empty());
+        assert_eq!(t, "Hello — world… test");
     }
     #[test]
     fn idempotent_collapse() {

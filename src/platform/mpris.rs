@@ -122,10 +122,19 @@ mod tests {
     async fn mpris_connect_without_bus_fails_gracefully() {
         let mut m = MprisAdapter::new();
         let res = m.connect(|_| async {}).await;
-        // In CI without dbus session, expect error not panic
-        if res.is_ok() {
-            assert!(m.connected);
-            m.disconnect();
+        match res {
+            Ok(()) => {
+                assert!(m.connected);
+                m.disconnect();
+                assert!(!m.connected);
+            }
+            Err(e) => {
+                assert!(!m.connected);
+                assert!(
+                    e.contains("MPRIS") || e.contains("D-Bus"),
+                    "unexpected error: {e}"
+                );
+            }
         }
     }
 }

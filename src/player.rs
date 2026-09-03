@@ -775,9 +775,25 @@ mod tests {
         Player::new(provider, sink, 3)
     }
 
+    /// Player with a slow synthesizer plus handles to its call counters, so
+    /// tests can assert on job ids and cancellation instead of sleeping and
+    /// hoping. `delay_ms` must exceed every sleep before the control op.
+    type SlowPlayer = (
+        Arc<Player<FakeProvider, NullSink>>,
+        Arc<Mutex<Vec<(u64, String)>>>,
+        Arc<AtomicU64>,
+    );
+    fn slow_player(delay_ms: u64, secs_per_sentence: f64) -> SlowPlayer {
+        let mut provider = FakeProvider::new(24000, secs_per_sentence);
+        provider.synth_delay_ms = delay_ms;
+        let calls = provider.synthesize_calls.clone();
+        let cancelled = provider.cancelled_calls.clone();
+        (Player::new(provider, NullSink::new(), 3), calls, cancelled)
+    }
+
     #[tokio::test]
     async fn lifecycle_speak_and_idle() {
-        let p = test_player();
+        let (p, calls, _) = slow_player(10, 0.05);
         let sentences = vec!["Hello world.".to_string(), "Second sentence.".to_string()];
         let job = p.speak(sentences, "replace").await;
         assert!(job > 0);
@@ -786,21 +802,16 @@ mod tests {
         let st = p.state_snapshot().await;
         assert_eq!(st.state, State::Idle);
         assert_eq!(st.pending_count, 0);
+        // Both sentences were actually synthesized under this job.
+        let calls = calls.lock().await;
+        assert_eq!(calls.len(), 2);
+        assert!(calls.iter().all(|(jid, _)| *jid == job));
     }
 
     #[tokio::test]
     async fn pause_resume() {
-        // use longer sentences to allow pause observation
-        let provider = FakeProvider {
-            sample_rate: 24000,
-            seconds_per_sentence: 0.5,
-            frequency_hz: 440.0,
-            synth_delay_ms: 5,
-            synthesize_calls: Arc::new(Mutex::new(Vec::new())),
-            cancelled_calls: Arc::new(AtomicU64::new(0)),
-        };
-        let sink = NullSink::new();
-        let p = Player::new(provider, sink, 3);
+        // Slow synthesis guarantees the job is still in flight when we pause.
+        let (p, _, _) = slow_player(300, 0.5);
         p.speak(
             vec![
                 "Sentence one.".to_string(),
@@ -810,69 +821,87 @@ mod tests {
             "replace",
         )
         .await;
-        // give producer a moment to start
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(p.state_snapshot().await.state, State::Speaking);
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         p.pause().await;
-        let st = p.state_snapshot().await;
-        // might be speaking or paused depending on timing, but after pause should be paused if was speaking
-        // Ensure pause took effect if it was speaking
-        if st.state == State::Paused {
-            p.resume().await;
-            let st2 = p.state_snapshot().await;
-            assert_eq!(st2.state, State::Speaking);
-        }
+        assert_eq!(p.state_snapshot().await.state, State::Paused);
+        p.resume().await;
+        assert_eq!(p.state_snapshot().await.state, State::Speaking);
         p.stop().await;
-        let st3 = p.state_snapshot().await;
-        assert_eq!(st3.state, State::Idle);
+        assert_eq!(p.state_snapshot().await.state, State::Idle);
     }
 
     #[tokio::test]
     async fn append_mode() {
-        let p = test_player();
-        p.speak(vec!["First.".to_string()], "replace").await;
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        let (p, _, _) = slow_player(300, 0.05);
+        let job1 = p.speak(vec!["First.".to_string()], "replace").await;
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        // Producer is still synthesizing, so append must reuse the live job.
         let job2 = p.speak(vec!["Second.".to_string()], "append").await;
-        // append should return same job id if producer alive
-        // Not strictly guaranteed but should be same if still speaking
-        assert!(job2 > 0);
-        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        assert_eq!(job2, job1);
+        tokio::time::sleep(std::time::Duration::from_millis(900)).await;
         let st = p.state_snapshot().await;
         assert_eq!(st.state, State::Idle);
     }
 
     #[tokio::test]
     async fn skip_and_back() {
-        let p = test_player();
+        // Slow synthesis keeps the whole job queued: skip/back only requeue,
+        // so pending_count stays 3 throughout and the state stays Speaking.
+        let (p, _, _) = slow_player(500, 0.5);
         p.speak(
             vec!["One.".to_string(), "Two.".to_string(), "Three.".to_string()],
             "replace",
         )
         .await;
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         p.skip().await;
         let st = p.state_snapshot().await;
-        // after skip, either still speaking or idle depending on remaining
-        assert!(st.state == State::Speaking || st.state == State::Idle);
+        assert_eq!(st.state, State::Speaking);
+        assert_eq!(st.pending_count, 3);
         p.back().await;
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let st = p.state_snapshot().await;
+        assert_eq!(st.state, State::Speaking);
+        assert_eq!(st.pending_count, 3);
         p.stop().await;
-        assert_eq!(p.state_snapshot().await.state, State::Idle);
+        let st = p.state_snapshot().await;
+        assert_eq!(st.state, State::Idle);
+        assert_eq!(st.pending_count, 0);
     }
 
     #[tokio::test]
     async fn replace_cancels_previous() {
-        let p = test_player();
-        p.speak(
-            vec!["First job sentence.".to_string(), "More.".to_string()],
-            "replace",
-        )
-        .await;
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        let (p, calls, cancelled) = slow_player(300, 0.05);
+        let job1 = p
+            .speak(
+                vec!["First job sentence.".to_string(), "More.".to_string()],
+                "replace",
+            )
+            .await;
+        // First synthesis is still in flight, so replace must cancel it.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         let job2 = p.speak(vec!["Second job.".to_string()], "replace").await;
-        assert!(job2 > 0);
-        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        assert_ne!(job2, job1);
+        tokio::time::sleep(std::time::Duration::from_millis(700)).await;
         let st = p.state_snapshot().await;
         assert_eq!(st.state, State::Idle);
+        let calls = calls.lock().await;
+        // The new job's sentence was synthesized...
+        assert!(
+            calls
+                .iter()
+                .any(|(jid, s)| *jid == job2 && s == "Second job.")
+        );
+        // ...while the old job never got past its first sentence: "More."
+        // was cancelled before synthesis. (`cancelled_calls` only counts
+        // synthesizes that observe the stale job id; here the producer task
+        // is aborted mid-synthesis, so the call log is the evidence.)
+        assert!(
+            !calls.iter().any(|(_, s)| s == "More."),
+            "cancelled job kept synthesizing: {calls:?}"
+        );
+        drop(calls);
+        drop(cancelled);
     }
 
     #[tokio::test]

@@ -247,49 +247,42 @@ pub fn preprocess(text: &str, config: Option<&PreprocessorConfig>) -> Vec<String
 mod tests {
     use super::*;
     #[test]
-    fn pipeline_no_panic() {
+    fn pipeline_abbreviations_exact() {
         let sentences = preprocess(
             "Hello world. This is a test with Fig. 3 and e.g., stuff.",
             None,
         );
-        assert!(!sentences.is_empty());
-        for s in &sentences {
-            assert!(!s.is_empty());
-            assert!(
-                s.is_ascii()
-                    || s.chars().all(|c| c.is_alphanumeric()
-                        || c.is_whitespace()
-                        || ".,;:!?\"'()-".contains(c)
-                        || !c.is_ascii())
-            );
-        }
+        assert_eq!(
+            sentences,
+            vec![
+                "Hello world.".to_string(),
+                "This is a test with Figure 3 and for example stuff.".to_string(),
+            ]
+        );
     }
     #[test]
-    fn unicode_valid() {
-        let t = "Hello α → β world. Test ∞.";
-        let sentences = preprocess(t, None);
-        assert!(!sentences.is_empty());
-        for s in sentences {
-            assert!(s.is_ascii() || !s.is_empty());
-        }
+    fn pipeline_unicode_greek_exact() {
+        let sentences = preprocess("Hello α → β world. Test ∞.", None);
+        assert_eq!(
+            sentences,
+            vec![
+                "Hello alpha implies beta world.".to_string(),
+                "Test infinity.".to_string(),
+            ]
+        );
     }
     #[test]
-    fn idempotent_unicode() {
-        // Ensure output is valid unicode and second pass doesn't panic
-        let t = "Test with [12] citation (Smith, 2023).";
-        let s1 = preprocess(t, None);
-        let joined = s1.join(" ");
-        let s2 = preprocess(&joined, None);
-        assert!(!s2.is_empty());
-    }
-    #[test]
-    fn pipeline_smoke() {
-        let s = preprocess("Hello world. Test.", None);
-        assert!(!s.is_empty());
+    fn pipeline_citation_strip_idempotent() {
+        // Numeric brackets are stripped, parentheticals kept (disabled by
+        // default); a second pass over the output must be a fixed point.
+        let s1 = preprocess("Test with [12] citation (Smith, 2023).", None);
+        assert_eq!(s1, vec!["Test with citation (Smith, 2023).".to_string()]);
+        let s2 = preprocess(&s1.join(" "), None);
+        assert_eq!(s2, s1);
     }
 
     #[test]
-    fn markdown_fixture_pipeline() {
+    fn markdown_pipeline_exact() {
         let cfg = PreprocessorConfig {
             dedupe_mathjax_selection: true,
             strip_markdown: true,
@@ -312,162 +305,271 @@ mod tests {
     }
 
     #[test]
-    fn preprocessor_fixtures_json() {
-        #[derive(serde::Deserialize)]
-        struct FixtureFile {
-            cases: Vec<FixtureCase>,
+    fn pipeline_mathjax_stacked_dedupe() {
+        // Stacked one-char-per-line MathJax duplicates are removed; the
+        // surviving sentence gets symbol expansion.
+        let sentences = preprocess(
+            "ρ\nρ\nX\nX\nu∈U\nu∈U\nThe policy is defined as ρ(x) = 1.",
+            None,
+        );
+        assert_eq!(
+            sentences,
+            vec!["The policy is defined as rho of x equals 1.".to_string()]
+        );
+        let joined = sentences.join(" ");
+        for debris in ["X X", "x∈X x∈X", "u∈U u∈U"] {
+            assert!(!joined.contains(debris), "debris {debris:?} survived");
         }
-        #[derive(serde::Deserialize)]
-        struct FixtureCase {
-            id: String,
-            input: Option<String>,
-            input_file: Option<String>,
-            config: Option<serde_json::Value>,
-            expected_sentences: Option<Vec<String>>,
-            expectations: Option<Expectations>,
-            must_not_contain: Option<Vec<String>>,
-        }
-        #[derive(serde::Deserialize)]
-        struct Expectations {
-            #[serde(default)]
-            non_empty: bool,
-            min_sentences: Option<usize>,
-            contains_lower: Option<Vec<String>>,
-            must_not_contain: Option<Vec<String>>,
-            no_sentence_starts_with_hash: bool,
-        }
+    }
 
-        fn fixture_config(v: &serde_json::Value) -> PreprocessorConfig {
-            if v.is_null() || v.as_str() == Some("default") {
-                return PreprocessorConfig::default();
-            }
-            let mut cfg = PreprocessorConfig::default();
-            if let Some(obj) = v.as_object() {
-                macro_rules! set_bool {
-                    ($field:ident, $key:literal) => {
-                        if let Some(b) = obj.get($key).and_then(|x| x.as_bool()) {
-                            cfg.$field = b;
-                        }
-                    };
-                }
-                set_bool!(dedupe_mathjax_selection, "dedupe_mathjax_selection");
-                set_bool!(strip_markdown, "strip_markdown");
-                set_bool!(
-                    strip_numeric_bracket_citations,
-                    "strip_numeric_bracket_citations"
-                );
-                set_bool!(
-                    strip_parenthetical_citations,
-                    "strip_parenthetical_citations"
-                );
-                set_bool!(expand_latin_abbreviations, "expand_latin_abbreviations");
-                set_bool!(
-                    expand_academic_abbreviations,
-                    "expand_academic_abbreviations"
-                );
-                set_bool!(normalize_numbers, "normalize_numbers");
-                set_bool!(normalize_urls, "normalize_urls");
-                set_bool!(normalize_math_symbols, "normalize_math_symbols");
-                set_bool!(pdf_cleanup, "pdf_cleanup");
-                // Partial citation-only configs inherit Python test defaults (no abbreviation expansion).
-                let citation_only = obj
-                    .keys()
-                    .all(|k| k.contains("citation") || k.starts_with("strip_"));
-                if citation_only {
-                    cfg.expand_latin_abbreviations = false;
-                    cfg.expand_academic_abbreviations = false;
-                }
-            }
-            cfg
-        }
+    #[test]
+    fn pipeline_numeric_brackets() {
+        let sentences = preprocess(
+            "As shown in [1] and [2-4], the method works [1,3,5]. Keep [a] and [hello].",
+            None,
+        );
+        assert_eq!(
+            sentences,
+            vec![
+                "As shown in and the method works.".to_string(),
+                "Keep [a] and [hello].".to_string(),
+            ]
+        );
+    }
 
-        let raw = include_str!("../../tests/fixtures/preprocessor_fixtures.json");
-        let fixtures: FixtureFile = serde_json::from_str(raw).expect("parse fixtures");
-        for case in fixtures.cases {
-            let input = if let Some(s) = case.input {
-                s
-            } else if let Some(rel) = case.input_file {
-                let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("tests")
-                    .join(rel);
-                match std::fs::read_to_string(path) {
-                    Ok(s) => s,
-                    Err(_) => continue,
-                }
+    #[test]
+    fn pipeline_parenthetical_disabled_by_default() {
+        // Parentheticals are kept, but abbreviation expansion still runs, so
+        // "et al." becomes "et alia." and the segmenter splits there.
+        let sentences = preprocess(
+            "This was shown (Smith 2023) and (Doe et al. 2021) but keep (see Fig. 3).",
+            None,
+        );
+        assert_eq!(
+            sentences,
+            vec![
+                "This was shown (Smith 2023) and (Doe et alia.".to_string(),
+                "2021) but keep (see Figure 3).".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn pipeline_parenthetical_enabled() {
+        let cfg = PreprocessorConfig {
+            strip_parenthetical_citations: true,
+            ..Default::default()
+        };
+        let sentences = preprocess(
+            "This was shown (Smith 2023) and (Doe et al. 2021). Keep (hello world).",
+            Some(&cfg),
+        );
+        assert_eq!(
+            sentences,
+            vec![
+                "This was shown and.".to_string(),
+                "Keep (hello world).".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn pipeline_latin_abbreviations() {
+        let sentences = preprocess("e.g. this is i.e. an example etc. and et al.", None);
+        assert_eq!(
+            sentences,
+            vec!["for example this is that is an example et cetera and et alia.".to_string()]
+        );
+    }
+
+    #[test]
+    fn pipeline_academic_abbreviations() {
+        let sentences = preprocess(
+            "See Fig. 3 and Eq. 2 in Sec. 4. By Thm. 1, Chap. 2 is relevant. Ref. [1].",
+            None,
+        );
+        assert_eq!(
+            sentences,
+            vec![
+                "See Figure 3 and Equation 2 in Section 4.".to_string(),
+                "By Theorem 1, Chapter 2 is relevant.".to_string(),
+                "Reference [1].".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn pipeline_numbers_cardinal_percent_currency() {
+        let sentences = preprocess("There are 1,234 items and 50% of $100. See Figure 3.", None);
+        let joined = sentences.join(" ");
+        for needle in [
+            "one thousand two hundred thirty-four",
+            "fifty percent",
+            "one hundred dollars",
+            "Figure 3",
+        ] {
+            assert!(joined.contains(needle), "missing {needle:?} in {joined:?}");
+        }
+    }
+
+    #[test]
+    fn pipeline_numbers_ordinals_decimals_date_preserved() {
+        // Hyphenated dates are protected, not spoken digit-by-digit.
+        let sentences = preprocess("On 2024-01-15, 3.14 and 1st, 2nd, 3rd places.", None);
+        let joined = sentences.join(" ");
+        assert!(joined.contains("2024-01-15"), "got {joined:?}");
+        for needle in ["three point one four", "first", "second", "third"] {
+            assert!(joined.contains(needle), "missing {needle:?} in {joined:?}");
+        }
+    }
+
+    #[test]
+    fn pipeline_math_symbols() {
+        let sentences = preprocess("Let α = β + γ where α ≤ β and x → y.", None);
+        assert_eq!(
+            sentences,
+            vec![
+                "Let alpha = beta + gamma where alpha less than or equal to beta and x implies y."
+                    .to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn pipeline_urls_emails() {
+        let sentences = preprocess(
+            "Visit https://example.com/path and email test@example.com",
+            None,
+        );
+        assert_eq!(
+            sentences,
+            vec!["Visit link to example.com and email test at example.com".to_string()]
+        );
+    }
+
+    #[test]
+    fn pipeline_pdf_hyphenation() {
+        let sentences = preprocess(
+            "This is a hyphen-\nated word and  multiple   spaces.\n\nNew paragraph.",
+            None,
+        );
+        assert_eq!(
+            sentences,
+            vec![
+                "This is a hyphenated word and multiple spaces.".to_string(),
+                "New paragraph.".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn pipeline_segmentation_protects_references() {
+        let sentences = preprocess(
+            "Dr. Smith went to Washington. He met Mr. Jones. See Fig. 3 for details. This is sentence four.",
+            None,
+        );
+        assert_eq!(
+            sentences,
+            vec![
+                "Dr. Smith went to Washington.".to_string(),
+                "He met Mr. Jones.".to_string(),
+                "See Figure 3 for details.".to_string(),
+                "This is sentence four.".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn pipeline_ellipsis_and_quotes() {
+        let sentences = preprocess(
+            "He said \"Hello... is anyone there?\" She replied: Yes! Indeed.",
+            None,
+        );
+        assert_eq!(
+            sentences,
+            vec![
+                "He said \"Hello... is anyone there?\"".to_string(),
+                "She replied: Yes!".to_string(),
+                "Indeed.".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn pipeline_latex_without_sre_keeps_words() {
+        // Without the optional SRE binary the LaTeX span passes through, but
+        // the surrounding words must survive intact either way.
+        let sentences = preprocess(
+            "The equation $\\alpha + \\beta = \\gamma$ is important.",
+            None,
+        );
+        let joined = sentences.join(" ");
+        assert!(joined.contains("equation"), "got {joined:?}");
+        assert!(joined.contains("important"), "got {joined:?}");
+    }
+
+    #[test]
+    fn pipeline_mathjax_sample_end_to_end() {
+        // Inline MathJax/KaTeX paste: stacked duplicates removed, symbols
+        // expanded, no markdown/zalgo debris in the output.
+        let input = "Reinforcement Learning Problem\nRL systems are defined by a tuple of elements\n{\nX\n,\nU\n,\nT\n,\nR\n,\nρ\n0\n}\n{X,U,T,R,ρ\u{a0}\n0\n\u{200b}\n\u{a0}}. Here\u{a0}\nX\nX stands for the set of possible agent states i.e.\u{a0}\nx\n∈\nX\nx∈X, for instance the position and velocity of the child and bike in the above example.\u{a0}\nu\n∈\nU\nu∈U is the action taken to steer the evolution of the state, e.g., the forces exerted on the bike pedals. Numerically\u{a0}\nx\nx and\u{a0}\nu\nu are usually vectors whose entries include quantities that the agent can acquire and implement.";
+        let sentences = preprocess(input, None);
+        assert!(!sentences.is_empty());
+        assert!(sentences.len() >= 3, "got {sentences:?}");
+        let joined = sentences.join(" ");
+        assert!(
+            joined.to_lowercase().contains("rho"),
+            "missing rho in {joined:?}"
+        );
+        for debris in [
+            "X X",
+            "x∈X x∈X",
+            "u∈U u∈U",
+            "**",
+            "~~",
+            "```",
+            "\u{200b}",
+            "\u{a0}",
+        ] {
+            assert!(!joined.contains(debris), "debris {debris:?} in {joined:?}");
+        }
+        for s in &sentences {
+            assert!(!s.starts_with('#'), "hash sentence: {s:?}");
+        }
+        // A second pass must not change the sentence count.
+        let again = preprocess(&joined, None);
+        assert_eq!(again.len(), sentences.len());
+    }
+
+    #[test]
+    fn pipeline_regression_properties() {
+        // No panics, valid Unicode, bounded output, idempotent cleanup.
+        let inputs = [
+            "Hello world.",
+            "Fig. 3 and Eq. 2",
+            "https://example.com",
+            "\u{200b}\u{a0}test\u{200b}",
+            "   ",
+        ];
+        for input in inputs {
+            let out = preprocess(input, None);
+            let joined = out.join(" ");
+            assert!(
+                joined.len() <= 4 * input.len() + 64,
+                "output blew up for {input:?}: {joined:?}"
+            );
+            let again = preprocess(&joined, None);
+            if input.trim().is_empty() {
+                assert!(out.is_empty(), "whitespace must yield nothing");
             } else {
-                continue;
-            };
-            let cfg = case.config.as_ref().map(fixture_config).unwrap_or_default();
-            let sentences = preprocess(&input, Some(&cfg));
-
-            if let Some(expected) = case.expected_sentences {
-                if expected.len() == 1 {
-                    assert_eq!(
-                        sentences.join(" "),
-                        expected[0],
-                        "fixture {} mismatch",
-                        case.id
-                    );
-                } else {
-                    assert_eq!(sentences, expected, "fixture {} mismatch", case.id);
-                }
-            }
-            if let Some(must_not) = case.must_not_contain {
-                let joined = sentences.join(" ");
-                for needle in must_not {
-                    assert!(
-                        !joined.contains(&needle),
-                        "fixture {} must not contain {:?}",
-                        case.id,
-                        needle
-                    );
-                }
-            }
-            if let Some(exp) = case.expectations {
-                if exp.non_empty {
-                    assert!(!sentences.is_empty(), "fixture {} empty", case.id);
-                }
-                if let Some(min) = exp.min_sentences {
-                    assert!(
-                        sentences.len() >= min,
-                        "fixture {} needs >= {} sentences",
-                        case.id,
-                        min
-                    );
-                }
-                let joined_lower = sentences.join(" ").to_lowercase();
-                if let Some(needles) = exp.contains_lower {
-                    for n in needles {
-                        assert!(
-                            joined_lower.contains(&n),
-                            "fixture {} missing {:?}",
-                            case.id,
-                            n
-                        );
-                    }
-                }
-                if let Some(must_not) = exp.must_not_contain {
-                    let joined = sentences.join(" ");
-                    for needle in must_not {
-                        assert!(
-                            !joined.contains(&needle),
-                            "fixture {} must not contain {:?}",
-                            case.id,
-                            needle
-                        );
-                    }
-                }
-                if exp.no_sentence_starts_with_hash {
-                    for s in &sentences {
-                        assert!(
-                            !s.starts_with('#'),
-                            "fixture {} hash sentence: {:?}",
-                            case.id,
-                            s
-                        );
-                    }
-                }
+                assert!(!out.is_empty(), "lost input {input:?}");
+                assert_eq!(again, out, "not idempotent for {input:?}");
             }
         }
+    }
+
+    #[test]
+    fn pipeline_empty_and_whitespace() {
+        assert!(preprocess("   \n\n  \n", None).is_empty());
     }
 }

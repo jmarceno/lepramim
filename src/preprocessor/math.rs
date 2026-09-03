@@ -241,8 +241,8 @@ mod tests {
         assert!(t.contains("foo at bar.com"), "got {}", t);
     }
     #[test]
-    fn no_panic() {
+    fn greek_and_infinity_expanded() {
         let t = normalize_math_symbols("Hello π world ∞");
-        assert!(!t.is_empty());
+        assert_eq!(t, "Hello pi world infinity");
     }
 }

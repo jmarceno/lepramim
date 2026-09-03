@@ -96,8 +96,8 @@ mod tests {
         assert!(!t2.contains("such that"), "got {}", t2);
     }
     #[test]
-    fn unicode_valid() {
+    fn expands_latin_and_academic_together() {
         let t = expand_all_abbreviations("Hello e.g. world Fig. 2");
-        assert!(t.is_ascii() || !t.is_empty());
+        assert_eq!(t, "Hello for example world Figure 2");
     }
 }

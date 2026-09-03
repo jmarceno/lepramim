@@ -248,12 +248,14 @@ mod tests {
     }
     #[test]
     fn utf8_truncate_multibyte() {
-        // "héllo" -> h(1) é(2) l(1) l(1) o(1) = 6 bytes; truncate at 3 should not split é
-        let s = "héllo";
-        let data = s.as_bytes();
+        // "héllo" -> h(1) é(2) l(1) l(1) o(1) = 6 bytes; cut at 3 lands
+        // exactly after é, so the result must be "hé", not "h".
+        let data = "héllo".as_bytes();
         let t = utf8_safe_truncate(data, 3);
-        // Should be "h" + maybe? Let's ensure valid utf8
-        assert!(String::from_utf8(t).is_ok());
+        assert_eq!(String::from_utf8(t).unwrap(), "hé");
+        // Cut at 2 would split é; the truncate must back off to "h".
+        let t2 = utf8_safe_truncate(data, 2);
+        assert_eq!(String::from_utf8(t2).unwrap(), "h");
     }
     #[test]
     fn finalize_truncated() {

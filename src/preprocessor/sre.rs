@@ -223,11 +223,4 @@ mod tests {
         let t = latex_to_speech("Hello world", 1.0, "clearspeak", None);
         assert_eq!(t, "Hello world");
     }
-    #[test]
-    fn missing_sre_passthrough() {
-        // Ensure if no SRE binary, latex is passed through
-        let t = latex_to_speech("See $x^2$ here", 0.1, "clearspeak", None);
-        // Should either be original or spoken if SRE present; but not panic
-        assert!(!t.is_empty());
-    }
 }

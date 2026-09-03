@@ -275,8 +275,8 @@ mod tests {
     }
 
     #[test]
-    fn unicode_valid() {
+    fn inline_emphasis_stripped() {
         let t = markdown_to_tts_prose("Hello **bold** world.");
-        assert!(!t.is_empty());
+        assert_eq!(t, "Hello bold world.");
     }
 }
