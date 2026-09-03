@@ -1,6 +1,6 @@
 # Model artifacts
 
-Lexaloud uses the **Kokoro-82M** neural TTS model by [hexgrad on Hugging
+Lepramim uses the **Kokoro-82M** neural TTS model by [hexgrad on Hugging
 Face](https://huggingface.co/hexgrad/Kokoro-82M), accessed via the
 [`kokoro-onnx`](https://github.com/thewh1teagle/kokoro-onnx) ONNX
 wrapper.
@@ -19,16 +19,20 @@ refuses to load the model.
 ## Download location
 
 ```
-~/.cache/lexaloud/models/
+~/.cache/lepramim/models/
 ├── kokoro-v1.0.onnx
 └── voices-v1.0.bin
 ```
 
-Override with `XDG_CACHE_HOME`:
+Override with `XDG_CACHE_HOME` when launching the app — for example, to keep
+models on a bigger drive:
 
 ```bash
-XDG_CACHE_HOME=/mnt/big-drive/.cache lexaloud download-models
+XDG_CACHE_HOME=/mnt/big-drive/.cache ./Lepramim-*-x86_64.AppImage
 ```
+
+The welcome window and the control window's **Models** tab download and verify
+the files for you.
 
 ## Licensing
 
@@ -39,13 +43,13 @@ XDG_CACHE_HOME=/mnt/big-drive/.cache lexaloud download-models
 - **Voices**: bundled with the `voices-v1.0.bin` file under the same
   Apache-2.0 license as the weights.
 
-Lexaloud does not modify or repackage the weights. Users redistributing
-a Lexaloud installation in bulk (e.g., AppImage, native package) should ensure
+Lepramim does not modify or repackage the weights. Users redistributing
+a Lepramim installation in bulk (e.g., AppImage, native package) should ensure
 their distribution respects the upstream Apache-2.0 and MIT terms.
 
 ## Voices
 
-Kokoro v1.0 ships with 54 voices. Lexaloud's control window exposes the
+Kokoro v1.0 ships with 54 voices. Lepramim's control window exposes the
 complete bundled catalog:
 
 | ID | Description |
@@ -73,14 +77,19 @@ The control window includes `en-us`, `en-gb`, `es`, `fr-fr`, `hi`, `it`,
 Neural TTS tradeoffs. Kokoro is intentionally small as neural models
 go — the closest comparable open-weights models (XTTS-v2, Mars-5) are
 hundreds of MB to multiple GB. 310 MB is a one-time download that
-lives in `~/.cache` and persists across Lexaloud reinstalls.
+lives in `~/.cache` and persists across Lepramim reinstalls.
 
 ## Recovering from a corrupt download
 
+Quit the app, delete the model folder, and relaunch — the welcome window
+downloads both files again:
+
 ```bash
-rm -rf ~/.cache/lexaloud/models
-lexaloud download-models
+rm -rf ~/.cache/lepramim/models
 ```
+
+Alternatively, press **Download missing models** in the control window's
+**Models** tab.
 
 The daemon checks SHA256 and refuses to start with a corrupt file,
 so "it just feels slow lately" is never a corrupt model — the daemon

@@ -1,11 +1,4 @@
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
-
-static WARNED: OnceLock<Mutex<bool>> = OnceLock::new();
-
-fn warned() -> &'static Mutex<bool> {
-    WARNED.get_or_init(|| Mutex::new(false))
-}
 
 #[derive(Debug, Clone)]
 pub struct LlmNormalizerConfig {
@@ -93,31 +86,6 @@ impl LlmNormalizer {
         unknown.len() >= 2
     }
 
-    pub async fn warmup(&self) -> Result<(), String> {
-        if !self.config.enabled {
-            return Ok(());
-        }
-        // Stub: check model file existence
-        let model_path = if self.config.model_path.is_empty() {
-            crate::models::default_cache_dir().join(&self.config.model_file)
-        } else {
-            std::path::PathBuf::from(&self.config.model_path)
-        };
-        if !model_path.is_file() {
-            let mut w = warned().lock().unwrap();
-            if !*w {
-                tracing::warn!(
-                    "LLM model file not found: {}. Run `lexaloud download-models --llm`",
-                    model_path.display()
-                );
-                *w = true;
-            }
-            return Err(format!("model not found: {}", model_path.display()));
-        }
-        tracing::info!("LLM warmup stub for {}", model_path.display());
-        Ok(())
-    }
-
     pub async fn normalize(&self, text: String) -> String {
         let t = self.apply_glossary(&text);
         if !self.needs_llm(&t) {
@@ -138,27 +106,6 @@ impl LlmNormalizer {
         // Real inference would happen here; stub returns glossary-applied text
         tracing::warn!("LLM normalize stub: returning glossary-applied text (no inference)");
         t
-    }
-
-    pub fn shutdown(&self) {
-        tracing::info!("LLM normalizer shutdown");
-    }
-
-    fn postprocess(&self, original: &str, output: &str) -> String {
-        let out = output.trim().to_string();
-        if out.is_empty() {
-            tracing::warn!("LLM returned empty output; using original");
-            return original.to_string();
-        }
-        let ratio = out.len() as f64 / original.len().max(1) as f64;
-        if !(0.1..=3.0).contains(&ratio) {
-            tracing::warn!(
-                "LLM output ratio {} outside [0.1,3.0]; using original",
-                ratio
-            );
-            return original.to_string();
-        }
-        out
     }
 }
 

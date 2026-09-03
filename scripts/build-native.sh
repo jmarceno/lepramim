@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lexaloud native build — single Rust binary (Iced tray UI in-process).
+# Lepramim native build — single Rust binary (Iced tray UI in-process).
 #
 # Usage:
 #   ./scripts/build-native.sh [--debug|--release] [--stage <absolute-path>] [--features llm]
@@ -43,7 +43,7 @@ done
 [[ -z "$STAGE" ]] && STAGE="$PROJECT_ROOT/build/stage"
 [[ "$STAGE" == /* ]] || { echo "error: --stage must be absolute: $STAGE" >&2; exit 2; }
 
-echo "=== Lexaloud build-native ==="
+echo "=== Lepramim build-native ==="
 echo "project root: $PROJECT_ROOT"
 echo "build type:   $BUILD_TYPE"
 echo "stage:        $STAGE"
@@ -60,9 +60,9 @@ if [[ -n "$FEATURES" ]]; then
 fi
 cargo "${CARGO_ARGS[@]}"
 if [[ "$BUILD_TYPE" == "release" ]]; then
-  RUST_BIN="$PROJECT_ROOT/target/release/lexaloud"
+  RUST_BIN="$PROJECT_ROOT/target/release/lepramim"
 else
-  RUST_BIN="$PROJECT_ROOT/target/debug/lexaloud"
+  RUST_BIN="$PROJECT_ROOT/target/debug/lepramim"
 fi
 [[ -x "$RUST_BIN" ]] || { echo "error: binary missing: $RUST_BIN" >&2; exit 1; }
 echo "Cargo build finished."
@@ -73,64 +73,61 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE/bin" \
          "$STAGE/share/applications" \
          "$STAGE/share/icons/hicolor/scalable/apps" \
-         "$STAGE/share/doc/lexaloud" \
-         "$STAGE/share/lexaloud"
+         "$STAGE/share/doc/lepramim" \
+         "$STAGE/share/lepramim"
 
-install -m 0755 "$RUST_BIN" "$STAGE/bin/lexaloud"
+install -m 0755 "$RUST_BIN" "$STAGE/bin/lepramim"
 if [[ "$BUILD_TYPE" == "release" ]] && command -v strip >/dev/null 2>&1; then
-  strip --strip-unneeded "$STAGE/bin/lexaloud" 2>/dev/null || strip "$STAGE/bin/lexaloud" 2>/dev/null || true
+  strip --strip-unneeded "$STAGE/bin/lepramim" 2>/dev/null || strip "$STAGE/bin/lepramim" 2>/dev/null || true
 fi
 
 DESKTOP_SRC=""
 for cand in \
-  "$PROJECT_ROOT/packaging/appimage/lexaloud.desktop" \
-  "$PROJECT_ROOT/src/lexaloud/templates/lexaloud.desktop.template" \
+  "$PROJECT_ROOT/packaging/appimage/lepramim.desktop" \
+  "$PROJECT_ROOT/src/lepramim/templates/lepramim.desktop.template" \
 ; do
   [[ -f "$cand" ]] && DESKTOP_SRC="$cand" && break
 done
 if [[ -n "$DESKTOP_SRC" ]]; then
   if [[ "$DESKTOP_SRC" == *.template ]]; then
-    sed 's|{indicator_binary}|lexaloud|g' "$DESKTOP_SRC" > "$STAGE/share/applications/lexaloud.desktop"
+    sed 's|{indicator_binary}|lepramim|g' "$DESKTOP_SRC" > "$STAGE/share/applications/lepramim.desktop"
   else
-    install -m 0644 "$DESKTOP_SRC" "$STAGE/share/applications/lexaloud.desktop"
+    install -m 0644 "$DESKTOP_SRC" "$STAGE/share/applications/lepramim.desktop"
   fi
-  chmod 0644 "$STAGE/share/applications/lexaloud.desktop"
+  chmod 0644 "$STAGE/share/applications/lepramim.desktop"
 else
-  cat > "$STAGE/share/applications/lexaloud.desktop" <<'DESKTOP'
+  cat > "$STAGE/share/applications/lepramim.desktop" <<'DESKTOP'
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Lexaloud
+Name=Lepramim
 GenericName=Text to Speech
 Comment=Local Kokoro text-to-speech tool
-Exec=lexaloud
-Icon=lexaloud
+Exec=lepramim
+Icon=lepramim
 Terminal=false
 Categories=AudioVideo;Audio;Accessibility;
 StartupNotify=false
 DESKTOP
-  chmod 0644 "$STAGE/share/applications/lexaloud.desktop"
+  chmod 0644 "$STAGE/share/applications/lepramim.desktop"
 fi
 
-ICON_SRC="$PROJECT_ROOT/src/lexaloud/icons/lexaloud.svg"
-[[ -f "$ICON_SRC" ]] && install -m 0644 "$ICON_SRC" "$STAGE/share/icons/hicolor/scalable/apps/lexaloud.svg"
-
-SYSTEMD_TEMPLATE="$PROJECT_ROOT/src/lexaloud/templates/systemd.service.template"
-[[ -f "$SYSTEMD_TEMPLATE" ]] && install -m 0644 "$SYSTEMD_TEMPLATE" "$STAGE/share/lexaloud/systemd.service.template"
+ICON_SRC="$PROJECT_ROOT/src/lepramim/icons/lepramim.svg"
+[[ -f "$ICON_SRC" ]] && install -m 0644 "$ICON_SRC" "$STAGE/share/icons/hicolor/scalable/apps/lepramim.svg"
 
 for f in LICENSE THIRD_PARTY_LICENSES.md; do
-  [[ -f "$PROJECT_ROOT/$f" ]] && install -m 0644 "$PROJECT_ROOT/$f" "$STAGE/share/doc/lexaloud/$f"
+  [[ -f "$PROJECT_ROOT/$f" ]] && install -m 0644 "$PROJECT_ROOT/$f" "$STAGE/share/doc/lepramim/$f"
 done
 
-CONFIG_EXAMPLE="$PROJECT_ROOT/src/lexaloud/templates/config.example.toml"
-[[ -f "$CONFIG_EXAMPLE" ]] && install -m 0644 "$CONFIG_EXAMPLE" "$STAGE/share/lexaloud/config.example.toml"
+CONFIG_EXAMPLE="$PROJECT_ROOT/src/lepramim/templates/config.example.toml"
+[[ -f "$CONFIG_EXAMPLE" ]] && install -m 0644 "$CONFIG_EXAMPLE" "$STAGE/share/lepramim/config.example.toml"
 
 echo "--- Verifying staged binary ---"
 if command -v ldd >/dev/null 2>&1; then
-  LDD_OUT="$(env -u LD_LIBRARY_PATH ldd "$STAGE/bin/lexaloud" 2>&1 || true)"
+  LDD_OUT="$(env -u LD_LIBRARY_PATH ldd "$STAGE/bin/lepramim" 2>&1 || true)"
   echo "$LDD_OUT" | sed 's/^/  /'
   if echo "$LDD_OUT" | grep -qiE 'libQt|Qt6'; then
-    echo "error: lexaloud must not link Qt" >&2
+    echo "error: lepramim must not link Qt" >&2
     exit 1
   fi
   if echo "$LDD_OUT" | grep -q "not found"; then
@@ -145,5 +142,5 @@ find "$STAGE" -type f | sort > "$MANIFEST"
 echo
 echo "=== build-native complete ==="
 echo "stage:    $STAGE"
-echo "binary:   $STAGE/bin/lexaloud"
+echo "binary:   $STAGE/bin/lepramim"
 echo "manifest: $MANIFEST"

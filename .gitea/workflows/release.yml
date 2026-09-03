@@ -65,23 +65,23 @@ jobs:
           ./scripts/build-appimage.sh
 
       - name: Smoke AppImage
-        run: ./scripts/smoke-appimage.sh build/appimage/Lexaloud-*.AppImage
+        run: ./scripts/smoke-appimage.sh build/appimage/Lepramim-*.AppImage
 
       - name: Generate SHA256 and manifests
         run: |
           set -e
           mkdir -p dist
-          cp build/appimage/Lexaloud-*.AppImage dist/ 2>/dev/null || true
-          cd dist && sha256sum Lexaloud-*.AppImage > SHA256SUMS 2>/dev/null || true
+          cp build/appimage/Lepramim-*.AppImage dist/ 2>/dev/null || true
+          cd dist && sha256sum Lepramim-*.AppImage > SHA256SUMS 2>/dev/null || true
           cd "$GITHUB_WORKSPACE" || cd "$PWD"
           find build/stage -type f | sort > dist/staged-files.txt 2>/dev/null || true
           find build/appdir -type f | sort > dist/appdir-files.txt 2>/dev/null || true
           {
-            echo "# Lexaloud release manifest"
+            echo "# Lepramim release manifest"
             echo "version: ${GITEA_REF_NAME:-unknown}"
             echo
-            echo "## ldd lexaloud"
-            env -u LD_LIBRARY_PATH ldd build/stage/bin/lexaloud 2>&1 || true
+            echo "## ldd lepramim"
+            env -u LD_LIBRARY_PATH ldd build/stage/bin/lepramim 2>&1 || true
           } > dist/MANIFEST.txt
 
       - name: Create Gitea release and upload assets
@@ -98,10 +98,10 @@ jobs:
           curl_config="$(mktemp)"
           trap 'rm -f "$notes_file" "$curl_config"' EXIT
           awk -v ver="$version" '$0 ~ "^## \\[" ver "\\]" { found=1; next } found && /^## \\[/ { exit } found { print }' CHANGELOG.md > "$notes_file"
-          [[ -s "$notes_file" ]] || echo "Lexaloud $version" > "$notes_file"
+          [[ -s "$notes_file" ]] || echo "Lepramim $version" > "$notes_file"
           printf 'header = "Authorization: token %s"\n' "$GITEA_TOKEN" > "$curl_config"
           chmod 0600 "$curl_config"
-          payload="$(jq -n --arg tag "$GITEA_REF_NAME" --arg name "Lexaloud $version" --rawfile body "$notes_file" '{tag_name: $tag, name: $name, body: $body, draft: false, prerelease: false}')"
+          payload="$(jq -n --arg tag "$GITEA_REF_NAME" --arg name "Lepramim $version" --rawfile body "$notes_file" '{tag_name: $tag, name: $name, body: $body, draft: false, prerelease: false}')"
           release="$(curl --fail --silent --show-error --config "$curl_config" --request POST --header 'Content-Type: application/json' --data "$payload" "$GITEA_API_URL/repos/$GITEA_REPOSITORY/releases")"
           release_id="$(jq -er '.id' <<<"$release")"
           for asset in dist/*; do

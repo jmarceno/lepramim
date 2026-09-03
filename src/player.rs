@@ -153,7 +153,6 @@ where
     state: Mutex<State>,
     last_error: Mutex<Option<String>>,
     control_lock: Mutex<()>,
-    ready_queue_depth: usize,
     warmup_complete: AtomicBool,
     queued_speak: Mutex<Option<(Vec<String>, String)>>,
     early_stream_job: AtomicU64,
@@ -184,7 +183,6 @@ where
             state: Mutex::new(State::Idle),
             last_error: Mutex::new(None),
             control_lock: Mutex::new(()),
-            ready_queue_depth: depth,
             warmup_complete: AtomicBool::new(true),
             queued_speak: Mutex::new(None),
             early_stream_job: AtomicU64::new(0),
@@ -280,7 +278,7 @@ where
                         let _ = self.ready_tx.send(None).await;
                         sentinel_sent = true;
                         if attempts > 0 && successes == 0 {
-                            let msg = "Synthesis produced no audio for any sentence in this job. Check the daemon log (`journalctl --user -u lexaloud -n 100`) for details — likely causes: invalid voice name in config, GPU out-of-memory, or corrupted model files.".to_string();
+                            let msg = "Synthesis produced no audio for any sentence in this job. Check the daemon log (`journalctl --user -u lepramim -n 100`) for details — likely causes: invalid voice name in config, GPU out-of-memory, or corrupted model files.".to_string();
                             *self.last_error.lock().await = Some(msg.clone());
                             tracing::error!("job={}: {}", job_id, msg);
                         }
@@ -555,12 +553,6 @@ where
             h.abort();
             let _ = h.await;
         }
-    }
-
-    fn drain_ready_queue_sync(&self) {
-        // Try to drain without async lock? Need async.
-        // This is called from within async context holding control_lock, so we can lock rx.
-        // But we make it async in caller.
     }
 
     async fn drain_ready_queue(&self) {

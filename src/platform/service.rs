@@ -74,11 +74,11 @@ pub fn shell_quote(path: &str) -> String {
     format!("\"{}\"", path.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// Resolve the lexaloud binary path for AppImage / source installs.
-/// AppImage children must be spawned from `$LEXALOUD_APPIMAGE` so they keep
+/// Resolve the lepramim binary path for AppImage / source installs.
+/// AppImage children must be spawned from `$LEPRAMIM_APPIMAGE` so they keep
 /// their own mount; never point at `/tmp/.mount_*`.
 pub fn resolve_binary_path() -> std::path::PathBuf {
-    if let Ok(appimage) = std::env::var("LEXALOUD_APPIMAGE") {
+    if let Ok(appimage) = std::env::var("LEPRAMIM_APPIMAGE") {
         let p = std::path::PathBuf::from(&appimage);
         if p.is_file() {
             return p;
@@ -93,7 +93,7 @@ pub fn resolve_binary_path() -> std::path::PathBuf {
     if let Ok(exe) = std::env::current_exe() {
         return exe;
     }
-    std::path::PathBuf::from("lexaloud")
+    std::path::PathBuf::from("lepramim")
 }
 
 /// XDG autostart desktop file path.
@@ -102,7 +102,7 @@ pub fn autostart_path() -> std::path::PathBuf {
         if !base.is_empty() {
             return std::path::PathBuf::from(base)
                 .join("autostart")
-                .join("lexaloud.desktop");
+                .join("lepramim.desktop");
         }
     }
     directories::BaseDirs::new()
@@ -110,9 +110,9 @@ pub fn autostart_path() -> std::path::PathBuf {
             d.home_dir()
                 .join(".config")
                 .join("autostart")
-                .join("lexaloud.desktop")
+                .join("lepramim.desktop")
         })
-        .unwrap_or_else(|| std::path::PathBuf::from(".config/autostart/lexaloud.desktop"))
+        .unwrap_or_else(|| std::path::PathBuf::from(".config/autostart/lepramim.desktop"))
 }
 
 /// Desktop file path under XDG_DATA_HOME.
@@ -121,7 +121,7 @@ pub fn desktop_file_path() -> std::path::PathBuf {
         if !base.is_empty() {
             return std::path::PathBuf::from(base)
                 .join("applications")
-                .join("lexaloud.desktop");
+                .join("lepramim.desktop");
         }
     }
     directories::BaseDirs::new()
@@ -130,9 +130,9 @@ pub fn desktop_file_path() -> std::path::PathBuf {
                 .join(".local")
                 .join("share")
                 .join("applications")
-                .join("lexaloud.desktop")
+                .join("lepramim.desktop")
         })
-        .unwrap_or_else(|| std::path::PathBuf::from(".local/share/applications/lexaloud.desktop"))
+        .unwrap_or_else(|| std::path::PathBuf::from(".local/share/applications/lepramim.desktop"))
 }
 
 /// Generate an XDG desktop entry that launches the AppImage / binary with no args.
@@ -140,7 +140,7 @@ pub fn generate_autostart_desktop(exec_path: &Path) -> String {
     format!(
         "[Desktop Entry]\n\
 Type=Application\n\
-Name=Lexaloud\n\
+Name=Lepramim\n\
 GenericName=Text to Speech\n\
 Comment=Local Kokoro text-to-speech tool\n\
 Exec={}\n\
@@ -181,31 +181,6 @@ pub fn systemd_user_dir() -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from(".config/systemd/user"))
 }
 
-/// Generate systemd user unit file content (legacy leftover; not used at runtime).
-pub fn generate_systemd_unit(exec_path: &Path) -> String {
-    format!(
-        r#"[Unit]
-Description=Lexaloud TTS daemon
-After=default.target
-
-[Service]
-Type=simple
-ExecStart={} daemon
-Restart=on-failure
-RestartSec=2
-TimeoutStopSec=10
-UnsetEnvironment=PYTHONPATH
-RuntimeDirectory=lexaloud
-RuntimeDirectoryMode=0700
-WorkingDirectory=%h
-
-[Install]
-WantedBy=default.target
-"#,
-        shell_quote(&exec_path.to_string_lossy())
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,7 +189,7 @@ mod tests {
     #[test]
     fn socket_valid_inside() {
         let rt = PathBuf::from("/run/user/1000");
-        let sock = PathBuf::from("/run/user/1000/lexaloud/lexaloud.sock");
+        let sock = PathBuf::from("/run/user/1000/lepramim/lepramim.sock");
         let res = socket_path_valid(&sock, &rt);
         assert!(res.is_ok(), "got {:?}", res);
     }
@@ -228,16 +203,9 @@ mod tests {
     }
 
     #[test]
-    fn generate_unit_contains_exec() {
-        let unit = generate_systemd_unit(Path::new("/usr/bin/lexaloud"));
-        assert!(unit.contains("ExecStart=\"/usr/bin/lexaloud\" daemon"));
-        assert!(unit.contains("RuntimeDirectory=lexaloud"));
-    }
-
-    #[test]
     fn autostart_desktop_quotes_exec() {
-        let desk = generate_autostart_desktop(Path::new("/opt/Lexaloud-0.2.0-x86_64.AppImage"));
-        assert!(desk.contains("Exec=\"/opt/Lexaloud-0.2.0-x86_64.AppImage\""));
+        let desk = generate_autostart_desktop(Path::new("/opt/Lepramim-0.2.0-x86_64.AppImage"));
+        assert!(desk.contains("Exec=\"/opt/Lepramim-0.2.0-x86_64.AppImage\""));
         assert!(desk.contains("Terminal=false"));
         assert!(!desk.contains("systemd"));
     }
@@ -245,14 +213,14 @@ mod tests {
     #[test]
     fn stale_cleanup_refuses_live_socket() {
         let base = std::env::temp_dir().join(format!(
-            "lexaloud_svc_test_{}_{}",
+            "lepramim_svc_test_{}_{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()
         ));
-        let sock = base.join("lexaloud.sock");
+        let sock = base.join("lepramim.sock");
         std::fs::create_dir_all(base.parent().unwrap_or(&base)).ok();
         std::fs::create_dir_all(sock.parent().unwrap()).unwrap();
         // Live listener: cleanup must refuse to steal it.

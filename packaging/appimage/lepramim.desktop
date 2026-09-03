@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Lexaloud
+Name=Lepramim
 GenericName=Text to Speech
 Comment=Local Kokoro text-to-speech tool
-Exec=lexaloud
-Icon=lexaloud
+Exec=lepramim
+Icon=lepramim
 Terminal=false
 Categories=AudioVideo;Audio;Accessibility;
 Keywords=tts;text-to-speech;kokoro;read;aloud;narrate;

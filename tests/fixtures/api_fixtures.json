@@ -1,10 +1,10 @@
 {
-  "$schema": "lexaloud://fixtures/api/v1",
-  "generated_from": "tests/test_daemon_smoke.py, tests/test_platform.py, docs/http-api.md, src/lexaloud/daemon.py:257-319, src/api.rs",
-  "base_url": "http://lexaloud",
-  "socket": "$XDG_RUNTIME_DIR/lexaloud/lexaloud.sock",
+  "$schema": "lepramim://fixtures/api/v1",
+  "generated_from": "tests/test_daemon_smoke.py, tests/test_platform.py, docs/http-api.md, src/lepramim/daemon.py:257-319, src/api.rs",
+  "base_url": "http://lepramim",
+  "socket": "$XDG_RUNTIME_DIR/lepramim/lepramim.sock",
   "headers": {
-    "Host": "lexaloud",
+    "Host": "lepramim",
     "Connection": "close"
   },
   "cases": [
@@ -216,8 +216,8 @@
     "method_not_allowed": 405
   },
   "curl_examples": [
-    "curl --unix-socket $XDG_RUNTIME_DIR/lexaloud/lexaloud.sock http://lexaloud/healthz",
-    "curl --unix-socket $XDG_RUNTIME_DIR/lexaloud/lexaloud.sock http://lexaloud/state",
-    "curl --unix-socket $XDG_RUNTIME_DIR/lexaloud/lexaloud.sock -X POST -H 'Content-Type: application/json' -d '{\"text\":\"hello\",\"mode\":\"replace\"}' http://lexaloud/speak"
+    "curl --unix-socket $XDG_RUNTIME_DIR/lepramim/lepramim.sock http://lepramim/healthz",
+    "curl --unix-socket $XDG_RUNTIME_DIR/lepramim/lepramim.sock http://lepramim/state",
+    "curl --unix-socket $XDG_RUNTIME_DIR/lepramim/lepramim.sock -X POST -H 'Content-Type: application/json' -d '{\"text\":\"hello\",\"mode\":\"replace\"}' http://lepramim/speak"
   ]
 }

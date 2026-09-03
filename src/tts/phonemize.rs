@@ -6,7 +6,7 @@ static ESPEAK_EXE: OnceLock<Option<String>> = OnceLock::new();
 static PHONEME_CACHE: Mutex<Option<HashMap<(String, String), String>>> = Mutex::new(None);
 const MAX_CACHE_ENTRIES: usize = 1024;
 
-/// Map Lexaloud lang codes to espeak-ng voice names.
+/// Map Lepramim lang codes to espeak-ng voice names.
 fn espeak_voice(lang: &str) -> &str {
     match lang {
         "en-gb" => "en-gb",

@@ -18,7 +18,7 @@ if [[ "$APPIMAGE_PATH" == *"*"* ]]; then
 fi
 [[ -e "$APPIMAGE_PATH" ]] || { echo "error: not found: $APPIMAGE_PATH" >&2; exit 1; }
 
-WORKDIR="$(mktemp -d -t lexaloud-smoke-XXXXXX)"
+WORKDIR="$(mktemp -d -t lepramim-smoke-XXXXXX)"
 cleanup() {
   local rc=$?
   [[ -n "${DAEMON_PID:-}" ]] && kill "$DAEMON_PID" 2>/dev/null || true
@@ -38,27 +38,27 @@ else
   cd "$PROJECT_ROOT"
 fi
 
-[[ -x "$APPDIR/usr/bin/lexaloud" ]] || { echo "error: missing usr/bin/lexaloud" >&2; exit 1; }
+[[ -x "$APPDIR/usr/bin/lepramim" ]] || { echo "error: missing usr/bin/lepramim" >&2; exit 1; }
 [[ -x "$APPDIR/AppRun" ]] || { echo "error: missing AppRun" >&2; exit 1; }
-[[ ! -e "$APPDIR/usr/bin/lexaloud-ui" ]] || {
-  echo "error: AppDir must not ship the deleted lexaloud-ui binary" >&2
+[[ ! -e "$APPDIR/usr/bin/lepramim-ui" ]] || {
+  echo "error: AppDir must not ship the deleted lepramim-ui binary" >&2
   exit 1
 }
 
-LEXALOUD_BIN="$APPDIR/usr/bin/lexaloud"
-"$LEXALOUD_BIN" --version
+LEPRAMIM_BIN="$APPDIR/usr/bin/lepramim"
+"$LEPRAMIM_BIN" --version
 
-RUNTIME_BASE="$(mktemp -d -t lexaloud-runtime-XXXXXX)"
-CONFIG_BASE="$(mktemp -d -t lexaloud-config-XXXXXX)"
-CACHE_BASE="$(mktemp -d -t lexaloud-cache-XXXXXX)"
+RUNTIME_BASE="$(mktemp -d -t lepramim-runtime-XXXXXX)"
+CONFIG_BASE="$(mktemp -d -t lepramim-config-XXXXXX)"
+CACHE_BASE="$(mktemp -d -t lepramim-cache-XXXXXX)"
 export XDG_RUNTIME_DIR="$RUNTIME_BASE"
 export XDG_CONFIG_HOME="$CONFIG_BASE"
 export XDG_CACHE_HOME="$CACHE_BASE"
-mkdir -p "$XDG_RUNTIME_DIR/lexaloud"
+mkdir -p "$XDG_RUNTIME_DIR/lepramim"
 chmod 0700 "$XDG_RUNTIME_DIR"
 
-SOCKET="$XDG_RUNTIME_DIR/lexaloud/lexaloud.sock"
-"$LEXALOUD_BIN" daemon >"$WORKDIR/daemon.log" 2>&1 &
+SOCKET="$XDG_RUNTIME_DIR/lepramim/lepramim.sock"
+"$LEPRAMIM_BIN" daemon >"$WORKDIR/daemon.log" 2>&1 &
 DAEMON_PID=$!
 for _ in $(seq 1 50); do
   [[ -S "$SOCKET" ]] && break
@@ -75,8 +75,8 @@ for _ in $(seq 1 50); do
 done
 
 if [[ -S "$SOCKET" ]]; then
-  curl --silent --fail --unix-socket "$SOCKET" http://lexaloud/healthz >/dev/null
-  curl --silent --fail --unix-socket "$SOCKET" http://lexaloud/state >/dev/null
+  curl --silent --fail --unix-socket "$SOCKET" http://lepramim/healthz >/dev/null
+  curl --silent --fail --unix-socket "$SOCKET" http://lepramim/state >/dev/null
 elif [[ -n "$DAEMON_PID" ]]; then
   echo "error: daemon socket not ready"
   cat "$WORKDIR/daemon.log"
@@ -84,12 +84,12 @@ elif [[ -n "$DAEMON_PID" ]]; then
 fi
 
 if command -v xvfb-run >/dev/null 2>&1; then
-  echo "Launching lexaloud app under xvfb for 3s..."
+  echo "Launching lepramim app under xvfb for 3s..."
   timeout 3s xvfb-run -a env \
     XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
     XDG_CONFIG_HOME="$XDG_CONFIG_HOME" \
     XDG_CACHE_HOME="$CACHE_BASE" \
-    "$LEXALOUD_BIN" app >"$WORKDIR/app.log" 2>&1 || true
+    "$LEPRAMIM_BIN" app >"$WORKDIR/app.log" 2>&1 || true
   echo "App smoke log head:"
   head -20 "$WORKDIR/app.log" 2>/dev/null || true
 else

@@ -1,6 +1,6 @@
 {
-  "$schema": "lexaloud://fixtures/selection/v1",
-  "generated_from": "tests/test_selection.py, tests/test_platform.py, src/lexaloud/selection.py, src/platform/selection.rs",
+  "$schema": "lepramim://fixtures/selection/v1",
+  "generated_from": "tests/test_selection.py, tests/test_platform.py, src/lepramim/selection.py, src/platform/selection.rs",
   "notes": "Wayland primary selection first, X11 fallback, UTF-8-safe max_bytes enforcement, compositor/tool detection, timeout, invalid UTF-8, stale clipboard.",
   "capture_methods": {
     "primary": ["wl-paste --primary", "xclip -o -selection primary", "klipper via qdbus"],
@@ -93,7 +93,7 @@
       "expected": {
         "exit_code": 5,
         "stderr_contains": "cannot reach display server",
-        "notification": "Lexaloud: cannot reach display server"
+        "notification": "Lepramim: cannot reach display server"
       }
     },
     {
@@ -104,7 +104,7 @@
       "expected": {
         "exit_code": 5,
         "stderr_contains": "capture tool missing",
-        "notification": "Lexaloud: capture tool missing"
+        "notification": "Lepramim: capture tool missing"
       }
     },
     {
@@ -142,7 +142,7 @@
       "expected": {
         "exit_code": 5,
         "error": "Timeout: wl-paste did not return within 2.0s",
-        "notification": "Lexaloud: capture timed out"
+        "notification": "Lepramim: capture timed out"
       }
     },
     {
@@ -155,7 +155,7 @@
     {
       "id": "speak_clipboard_requires_copy",
       "description": "speak-clipboard on empty clipboard reminds to press Ctrl+C",
-      "command": "lexaloud speak-clipboard",
+      "command": "lepramim speak-clipboard",
       "mock": { "clipboard": "" },
       "expected": {
         "exit_code": 2,

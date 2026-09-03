@@ -6,7 +6,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-BUILDER_TAG="lexaloud-builder:24.04"
+BUILDER_TAG="lepramim-builder:24.04"
 CONTAINERFILE="$PROJECT_ROOT/packaging/Containerfile.builder"
 
 restore_output_ownership() {
@@ -39,18 +39,18 @@ if ! podman image exists "$BUILDER_TAG" 2>/dev/null; then
 fi
 
 # Cargo registry + git cache volumes survive across builds (save re-downloading crates)
-podman volume create lexaloud-cargo-registry >/dev/null 2>&1 || true
-podman volume create lexaloud-cargo-git >/dev/null 2>&1 || true
+podman volume create lepramim-cargo-registry >/dev/null 2>&1 || true
+podman volume create lepramim-cargo-git >/dev/null 2>&1 || true
 # Pip cache kept for Phase 9 branch compatibility (removed in Phase 10)
-podman volume create lexaloud-pip-cache >/dev/null 2>&1 || true
+podman volume create lepramim-pip-cache >/dev/null 2>&1 || true
 
 echo "Running native build inside $BUILDER_TAG (incremental, cargo cache mounted)..."
 podman run --rm \
   -v "$PROJECT_ROOT:/workspace:Z" -w /workspace \
-  -v lexaloud-cargo-registry:/root/.cargo/registry \
-  -v lexaloud-cargo-git:/root/.cargo/git \
-  -v lexaloud-pip-cache:/root/.cache/pip \
-  -e LEXALOUD_INCREMENTAL=1 \
+  -v lepramim-cargo-registry:/root/.cargo/registry \
+  -v lepramim-cargo-git:/root/.cargo/git \
+  -v lepramim-pip-cache:/root/.cache/pip \
+  -e LEPRAMIM_INCREMENTAL=1 \
   -e CARGO_HOME=/root/.cargo \
   -e PIP_CACHE_DIR=/root/.cache/pip \
   "$BUILDER_TAG" ./scripts/build-appimage.sh "$@"

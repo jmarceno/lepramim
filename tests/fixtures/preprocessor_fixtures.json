@@ -1,6 +1,6 @@
 {
-  "$schema": "lexaloud://fixtures/preprocessor/v1",
-  "generated_from": "tests/test_preprocessor_*.py and src/lexaloud/preprocessor/__init__.py pipeline order",
+  "$schema": "lepramim://fixtures/preprocessor/v1",
+  "generated_from": "tests/test_preprocessor_*.py and src/lepramim/preprocessor/__init__.py pipeline order",
   "pipeline_order": [
     "dedupe_mathjax_selection",
     "strip_markdown",

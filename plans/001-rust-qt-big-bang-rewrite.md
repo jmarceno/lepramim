@@ -1,7 +1,7 @@
 # Plan 001: Rust core + Qt Widgets big-bang rewrite
 
-> **Historical:** This plan described the Qt 6 `lexaloud-ui` stack, which was
-> superseded by the in-process Iced tray UI (single `lexaloud` binary). Keep
+> **Historical:** This plan described the Qt 6 `lepramim-ui` stack, which was
+> superseded by the in-process Iced tray UI (single `lepramim` binary). Keep
 > this document for archaeology only; do not treat it as the active product spec.
 
 > **Executor instructions:** Follow the phases in order and run each gate before
@@ -21,7 +21,7 @@
 
 ## Outcome
 
-Replace Lexaloud completely with a native Linux application whose core,
+Replace Lepramim completely with a native Linux application whose core,
 daemon, CLI, TTS, preprocessing, player, and platform services are written in
 Rust and whose thin GUI is compiled C++ using Qt 6 Widgets.
 The final repository and release contain no Python runtime, Python application
@@ -53,7 +53,7 @@ binary, staged user migration, or retained legacy code.
 | Area | Decision |
 |---|---|
 | Language | Stable Rust, edition 2024, committed `Cargo.lock` |
-| Product shape | Rust `lexaloud` executable for CLI/daemon/core plus C++ `lexaloud-ui` for Qt windows/tray, shipped together |
+| Product shape | Rust `lepramim` executable for CLI/daemon/core plus C++ `lepramim-ui` for Qt windows/tray, shipped together |
 | Async runtime/API | Tokio + Axum/Hyper over the existing Unix domain socket |
 | GUI | Qt 6 Widgets in compiled C++, mechanically ported from the existing PySide6 behavior |
 | Integration boundary | The Qt frontend talks to Rust through the owner-only UDS API; no Rust/C++ FFI in v1 |
@@ -89,10 +89,10 @@ selects CPU.
 The replacement is allowed to change internals freely. These externally useful
 contracts remain stable so the rewrite does not become a product redesign:
 
-- Configuration: `~/.config/lexaloud/config.toml`.
-- Models: `~/.cache/lexaloud/models/`, using the existing Kokoro model and
+- Configuration: `~/.config/lepramim/config.toml`.
+- Models: `~/.cache/lepramim/models/`, using the existing Kokoro model and
   voices artifacts and their recorded hashes.
-- Runtime socket: `$XDG_RUNTIME_DIR/lexaloud/lexaloud.sock`, inside a mode-0700
+- Runtime socket: `$XDG_RUNTIME_DIR/lepramim/lepramim.sock`, inside a mode-0700
   directory.
 - Service: the per-user systemd service continues to start the daemon.
 - HTTP API: `GET /healthz`, `GET /state`, and `POST /speak`, `/pause`,
@@ -120,16 +120,16 @@ CLI/UI -> HTTP over owner-only Unix socket -> player -> preprocessor -> Kokoro
 
 The existing implementation anchors are:
 
-- `src/lexaloud/daemon.py:257-319` — API routes.
-- `src/lexaloud/player.py:84-428` — state machine, bounded queue, cancellation,
+- `src/lepramim/daemon.py:257-319` — API routes.
+- `src/lepramim/player.py:84-428` — state machine, bounded queue, cancellation,
   100 ms sub-chunks, and 180 ms padding.
-- `src/lexaloud/preprocessor/__init__.py:47-132` — ordered text pipeline.
-- `src/lexaloud/providers/kokoro.py:54-230` — model initialization, warmup,
+- `src/lepramim/preprocessor/__init__.py:47-132` — ordered text pipeline.
+- `src/lepramim/providers/kokoro.py:54-230` — model initialization, warmup,
   synthesis, and execution-provider verification.
-- `src/lexaloud/selection.py` — compositor-aware capture and size limiting.
-- `src/lexaloud/app.py`, `indicator.py`, `overlay.py`, and `gui_control/` — UI
+- `src/lepramim/selection.py` — compositor-aware capture and size limiting.
+- `src/lepramim/app.py`, `indicator.py`, `overlay.py`, and `gui_control/` — UI
   behavior and Qt widget structure to translate mechanically into C++.
-- `src/lexaloud/mpris.py`, `shortcuts.py`, and
+- `src/lepramim/mpris.py`, `shortcuts.py`, and
   `gui_control/keybindings.py` — desktop integration behavior.
 
 ## Why this target
@@ -165,7 +165,7 @@ Current upstream evidence checked for this decision:
   support.
 
 Do not use `kokoro-en` or another young all-in-one Kokoro crate as an opaque
-production dependency. It may be read as a reference, but Lexaloud must own the
+production dependency. It may be read as a reference, but Lepramim must own the
 small adapter that loads the existing model/voices artifacts, produces the
 expected phoneme/tensor inputs, calls `ort`, and validates the selected
 execution provider. This isolates immature ecosystem risk without rebuilding
@@ -355,7 +355,7 @@ profile before proceeding.
 path.
 
 1. Port each transformation as a small pure function and preserve the exact
-   stage order from `src/lexaloud/preprocessor/__init__.py`.
+   stage order from `src/lepramim/preprocessor/__init__.py`.
 2. Use `regex`, Unicode-aware string handling, and a Markdown parser; port the
    existing rules and exceptions rather than replacing them with an unrelated
    generic text-normalization crate.
@@ -427,7 +427,7 @@ Python process is involved.
 **Goal:** Get the existing UI behavior working with the least redesign and
 least new framework risk.
 
-1. Add a CMake-built `lexaloud-ui` executable using Qt 6 Core, Gui, Widgets,
+1. Add a CMake-built `lepramim-ui` executable using Qt 6 Core, Gui, Widgets,
    Network, DBus, and Svg only where actually required. Use C++20, CMake
    `AUTOMOC`, `AUTOUIC`, and `AUTORCC`; do not introduce QML, Qt Quick, CXX-Qt,
    a Rust Qt binding, or another GUI toolkit.
@@ -458,7 +458,7 @@ least new framework risk.
    daemon-down/reconnect behavior, close-to-tray, and overlay state. Run widget
    tests with `QT_QPA_PLATFORM=offscreen`; keep a real desktop smoke matrix for
    behavior that offscreen Qt cannot prove.
-10. Add the CMake/Ninja build and QtTest CI job as soon as `lexaloud-ui` exists,
+10. Add the CMake/Ninja build and QtTest CI job as soon as `lepramim-ui` exists,
     including one real UDS integration test against the Rust daemon. Do not wait
     for packaging to discover cross-language build failures.
 
@@ -515,8 +515,8 @@ accepted by CI or release automation.
    ./scripts/build-native.sh --release --stage "$PWD/build/stage"
    ```
 
-4. Staging produces a deterministic layout containing `bin/lexaloud`,
-   `bin/lexaloud-ui`, desktop/service files, icons, model metadata, licenses,
+4. Staging produces a deterministic layout containing `bin/lepramim`,
+   `bin/lepramim-ui`, desktop/service files, icons, model metadata, licenses,
    and only necessary shared libraries/assets. Fail if either executable or a
    declared runtime dependency is missing.
 5. Set Rust release profile initially to `lto = "thin"`,
@@ -574,12 +574,12 @@ names. CI must contain these independently visible jobs:
    ```bash
    ./scripts/build-native.sh --release --stage "$PWD/build/stage"
    ./scripts/build-appimage.sh
-   ./scripts/smoke-appimage.sh build/appimage/Lexaloud-*.AppImage
+   ./scripts/smoke-appimage.sh build/appimage/Lepramim-*.AppImage
    ```
 
    The smoke script extracts the AppImage, runs both `--version` commands,
    starts the daemon under a temporary XDG runtime, checks `/healthz` and
-   `/state` over UDS, launches `lexaloud-ui` offscreen long enough to prove it
+   `/state` over UDS, launches `lepramim-ui` offscreen long enough to prove it
    starts and connects, and exits cleanly. Upload the AppImage, staged-file
    manifest, `ldd` reports, and size report as CI artifacts.
 
@@ -629,7 +629,7 @@ source/CUDA instructions activate and verify CUDA 12 on the reference host.
 
 Delete, after their Rust replacements pass:
 
-- `src/lexaloud/`, `src/lexaloud.egg-info/`, and every `.py`/`.pyi` file.
+- `src/lepramim/`, `src/lepramim.egg-info/`, and every `.py`/`.pyi` file.
 - All Python tests and helpers under `tests/`; keep only converted fixtures and
   Rust tests.
 - `pyproject.toml`, Python lock/requirements files, PyInstaller spec/entrypoint,
@@ -657,7 +657,7 @@ cmake --build --preset release --parallel
 QT_QPA_PLATFORM=offscreen ctest --preset release --output-on-failure
 ./scripts/build-native.sh --release --stage "$PWD/build/stage"
 ./scripts/build-appimage.sh
-./scripts/smoke-appimage.sh build/appimage/Lexaloud-*.AppImage
+./scripts/smoke-appimage.sh build/appimage/Lepramim-*.AppImage
 ```
 
 Then prove the legacy removal and artifact linkage:
@@ -667,11 +667,11 @@ test -z "$(find . -path ./.git -prune -o -type f \
   \( -name '*.py' -o -name '*.pyi' -o -name '*.spec' \) -print)"
 ! rg -n -i 'python|pyside|pyqt|fastapi|pyinstaller|numpy|sounddevice|pydantic|uvicorn|pytest|ruff|mypy|pip install|pypi' \
   --glob '!.git/**' --glob '!plans/**' .
-ldd target/release/lexaloud | tee /tmp/lexaloud-core-ldd.txt
-ldd build/ui-release/lexaloud-ui | tee /tmp/lexaloud-ui-ldd.txt
-! rg -i 'python|PySide|PyQt|Qt[056]' /tmp/lexaloud-core-ldd.txt
-! rg -i 'python|PySide|PyQt' /tmp/lexaloud-ui-ldd.txt
-rg 'Qt6Core|Qt6Gui|Qt6Widgets' /tmp/lexaloud-ui-ldd.txt
+ldd target/release/lepramim | tee /tmp/lepramim-core-ldd.txt
+ldd build/ui-release/lepramim-ui | tee /tmp/lepramim-ui-ldd.txt
+! rg -i 'python|PySide|PyQt|Qt[056]' /tmp/lepramim-core-ldd.txt
+! rg -i 'python|PySide|PyQt' /tmp/lepramim-ui-ldd.txt
+rg 'Qt6Core|Qt6Gui|Qt6Widgets' /tmp/lepramim-ui-ldd.txt
 ```
 
 Inspect the AppImage contents and a live process map too; `ldd` alone does not
@@ -680,9 +680,9 @@ show dynamically loaded libraries:
 ```bash
 ./scripts/build-appimage.sh
 ./build/appimage/*.AppImage --appimage-extract
-find squashfs-root -type f | sort > /tmp/lexaloud-appimage-files.txt
+find squashfs-root -type f | sort > /tmp/lepramim-appimage-files.txt
 ! rg -i 'python|pyside|pyqt|pyinstaller|site-packages|\.py[co]$' \
-  /tmp/lexaloud-appimage-files.txt
+  /tmp/lepramim-appimage-files.txt
 ```
 
 Start the extracted AppImage, inspect `/proc/$PID/maps`, exercise the UDS API,
@@ -706,14 +706,14 @@ The rewrite is complete only when all of the following are true:
 - GNOME, KDE Plasma, COSMIC, and X11 validation evidence is recorded; tier-1
   distro tests pass and tier-2 gaps are stated accurately.
 - The installed/release application needs no Python or PySide. Only
-  `lexaloud-ui` loads the pruned native Qt runtime; the Rust CLI/daemon do not.
+  `lepramim-ui` loads the pruned native Qt runtime; the Rust CLI/daemon do not.
 - The repository contains no legacy Python source/test/build path and no stale
   instructions that can install or release it.
 - The native AppDir is at least 40% smaller than the measured 336 MB baseline
   before external model files (target: at most 200 MB). Any miss requires an
   itemized size report and explicit acceptance before merge; it must not delay
   a working build for speculative Iced work.
-- `lexaloud --help` is at most 50 ms p95 and daemon-backed `lexaloud status` is
+- `lepramim --help` is at most 50 ms p95 and daemon-backed `lepramim status` is
   at most 100 ms p95 on the same baseline machine over 30 warm runs.
 - Warm synthesis is not more than 5% slower than baseline on the same model,
   backend, text, and hardware. Any claimed speedup is backed by the recorded

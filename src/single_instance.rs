@@ -1,6 +1,6 @@
-//! Single-instance guard for the Lexaloud desktop app.
+//! Single-instance guard for the Lepramim desktop app.
 //!
-//! Only one `lexaloud` app (tray + daemon + UI) may run per user. The first
+//! Only one `lepramim` app (tray + daemon + UI) may run per user. The first
 //! (primary) instance binds `app.sock` under the XDG runtime dir and listens
 //! for activation requests. A second instance detects the live socket,
 //! notifies the primary to show its control window, then exits without
@@ -54,10 +54,12 @@ impl Drop for SingleInstanceGuard {
 
 /// Runtime IPC socket for app singleton signalling.
 ///
-/// Distinct from the daemon socket (`lexaloud.sock`) so CLI subcommands that
+/// Distinct from the daemon socket (`lepramim.sock`) so CLI subcommands that
 /// talk to the daemon are unaffected.
 pub fn app_socket_path() -> PathBuf {
-    crate::config::runtime_dir().join("lexaloud").join("app.sock")
+    crate::config::runtime_dir()
+        .join("lepramim")
+        .join("app.sock")
 }
 
 /// True if something is listening on `path` (connect succeeds).
@@ -163,7 +165,7 @@ fn spawn_primary(path: &Path, listener: UnixListener) -> Result<SingleInstanceGu
     let (tx, rx) = crossbeam_channel::unbounded();
     let path_buf = path.to_path_buf();
     std::thread::Builder::new()
-        .name("lexaloud-single-instance".into())
+        .name("lepramim-single-instance".into())
         .spawn(move || accept_loop(listener, tx))
         .map_err(|e| format!("failed to start single-instance listener: {e}"))?;
     Ok(SingleInstanceGuard {
@@ -214,7 +216,7 @@ mod tests {
     fn temp_sock(name: &str) -> PathBuf {
         let mut p = std::env::temp_dir();
         p.push(format!(
-            "lexaloud_single_test_{}_{}_{}",
+            "lepramim_single_test_{}_{}_{}",
             std::process::id(),
             name,
             std::time::SystemTime::now()
@@ -295,7 +297,7 @@ mod tests {
     #[test]
     fn app_socket_path_shape() {
         let p = app_socket_path();
-        assert!(p.ends_with("lexaloud/app.sock"), "got {}", p.display());
+        assert!(p.ends_with("lepramim/app.sock"), "got {}", p.display());
         assert_ne!(p, crate::config::socket_path());
     }
 }

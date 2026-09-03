@@ -48,7 +48,7 @@ impl Default for TraySharedState {
             icon_running: false,
             icon_phase: TrayIconPhase::Idle,
             breath_mix: 0.0,
-            tooltip: "Lexaloud: stopped".into(),
+            tooltip: "Lepramim: stopped".into(),
             toggle_label: "Start daemon".into(),
             speak_enabled: false,
             pause_enabled: false,
@@ -59,12 +59,12 @@ impl Default for TraySharedState {
     }
 }
 
-struct LexaloudTray {
+struct LepramimTray {
     tx: Sender<TrayEvent>,
     state: TraySharedState,
 }
 
-impl LexaloudTray {
+impl LepramimTray {
     fn send(&self, ev: TrayEvent) {
         let _ = self.tx.send(ev);
     }
@@ -77,13 +77,13 @@ impl LexaloudTray {
     }
 }
 
-impl Tray for LexaloudTray {
+impl Tray for LepramimTray {
     fn id(&self) -> String {
-        "lexaloud".into()
+        "lepramim".into()
     }
 
     fn title(&self) -> String {
-        "Lexaloud".into()
+        "Lepramim".into()
     }
 
     fn status(&self) -> ksni::Status {
@@ -192,7 +192,7 @@ impl Tray for LexaloudTray {
 
 pub struct TrayHandle {
     pub rx: Receiver<TrayEvent>,
-    handle: Handle<LexaloudTray>,
+    handle: Handle<LepramimTray>,
     breath_stop: Arc<AtomicBool>,
 }
 
@@ -212,14 +212,14 @@ impl TrayHandle {
         }
 
         let (tx, rx) = unbounded();
-        let service = TrayService::new(LexaloudTray {
+        let service = TrayService::new(LepramimTray {
             tx,
             state: TraySharedState::default(),
         });
         let handle = service.handle();
         let (err_tx, err_rx) = std::sync::mpsc::channel();
         thread::Builder::new()
-            .name("lexaloud-tray".into())
+            .name("lepramim-tray".into())
             .spawn(move || {
                 if let Err(e) = service.run() {
                     let _ = err_tx.send(e.to_string());
@@ -239,7 +239,7 @@ impl TrayHandle {
         let breath_handle = handle.clone();
         let breath_flag = Arc::clone(&breath_stop);
         thread::Builder::new()
-            .name("lexaloud-tray-breath".into())
+            .name("lepramim-tray-breath".into())
             .spawn(move || tray_breath_loop(breath_handle, breath_flag))
             .map_err(|e| format!("failed to start tray breath thread: {e}"))?;
 
@@ -261,7 +261,7 @@ impl TrayHandle {
     }
 }
 
-fn tray_breath_loop(handle: Handle<LexaloudTray>, stop: Arc<AtomicBool>) {
+fn tray_breath_loop(handle: Handle<LepramimTray>, stop: Arc<AtomicBool>) {
     let start = Instant::now();
     while !stop.load(Ordering::Relaxed) {
         thread::sleep(Duration::from_millis(100));

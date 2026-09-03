@@ -89,7 +89,7 @@ fn find_tool(name: &str) -> Option<String> {
 
 fn command_with_wayland(program: &str) -> Command {
     let mut command = Command::new(program);
-    if let Ok(display) = std::env::var("LEXALOUD_WAYLAND_DISPLAY") {
+    if let Ok(display) = std::env::var("LEPRAMIM_WAYLAND_DISPLAY") {
         command.env("WAYLAND_DISPLAY", display);
     }
     if std::env::var("YDOTOOL_SOCKET").is_err() {
@@ -307,7 +307,7 @@ pub fn capture_highlighted_text() -> SelectionCapture {
 pub fn notify_empty_selection() {
     crate::platform::notifications::try_notify(
         "Select text first",
-        Some("Lexaloud could not capture a selection. Copy the text (Ctrl+C) and try again."),
+        Some("Lepramim could not capture a selection. Copy the text (Ctrl+C) and try again."),
         3.0,
     );
 }
@@ -315,7 +315,7 @@ pub fn notify_empty_selection() {
 pub fn notify_truncated_selection() {
     crate::platform::notifications::try_notify(
         "Selection truncated",
-        Some("Lexaloud captured the first part of a larger selection."),
+        Some("Lepramim captured the first part of a larger selection."),
         3.0,
     );
 }
@@ -323,30 +323,17 @@ pub fn notify_truncated_selection() {
 pub fn notify_speak_result(r: &crate::ui::client::ApiResult) {
     if r.is_daemon_down() {
         crate::platform::notifications::try_notify(
-            "Lexaloud",
+            "Lepramim",
             Some("Speech daemon is not running."),
             3.0,
         );
     } else if !r.is_success() {
         crate::platform::notifications::try_notify(
-            "Lexaloud",
+            "Lepramim",
             Some("Could not start speech. Is the control window working?"),
             3.0,
         );
     }
-}
-
-pub fn speak_captured_selection() {
-    let cap = capture_highlighted_text();
-    if cap.text.is_empty() {
-        notify_empty_selection();
-        return;
-    }
-    if cap.truncated {
-        notify_truncated_selection();
-    }
-    let r = crate::ui::client::post_speak(&cap.text, "replace");
-    notify_speak_result(&r);
 }
 
 pub fn toggle_playback() {

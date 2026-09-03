@@ -1,6 +1,6 @@
 {
-  "$schema": "lexaloud://fixtures/player/v1",
-  "generated_from": "tests/test_player_lifecycle.py, tests/test_player_review_regressions.py, src/lexaloud/player.py:84-428, src/player.rs",
+  "$schema": "lepramim://fixtures/player/v1",
+  "generated_from": "tests/test_player_lifecycle.py, tests/test_player_review_regressions.py, src/lepramim/player.py:84-428, src/player.rs",
   "constants": {
     "ready_queue_depth_default": 3,
     "sub_chunk_seconds": 0.1,

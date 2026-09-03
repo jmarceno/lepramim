@@ -52,19 +52,19 @@ pub fn tray_state_for_daemon(state_str: &str, active: bool, cpu_fallback: bool) 
     let (icon_running, tooltip, toggle_label) = if is_warming {
         (
             true,
-            "Lexaloud: warming up".to_string(),
+            "Lepramim: warming up".to_string(),
             "Stop daemon (warming\u{2026})".to_string(),
         )
     } else if active {
         (
             true,
-            "Lexaloud: running".to_string(),
+            "Lepramim: running".to_string(),
             "Stop daemon".to_string(),
         )
     } else {
         (
             false,
-            "Lexaloud: stopped".to_string(),
+            "Lepramim: stopped".to_string(),
             "Start daemon".to_string(),
         )
     };
@@ -89,7 +89,7 @@ pub const MENU_PAUSE: &str = "Pause / resume";
 pub const MENU_STOP: &str = "Stop current playback";
 pub const MENU_CONTROL: &str = "Control window\u{2026}";
 pub const MENU_AUTOSTART: &str = "Start with desktop";
-pub const MENU_QUIT: &str = "Quit Lexaloud";
+pub const MENU_QUIT: &str = "Quit Lepramim";
 
 #[cfg(test)]
 mod tests {
@@ -104,7 +104,7 @@ mod tests {
         assert!(!s.pause_enabled);
         assert!(!s.stop_enabled);
         assert!(!s.icon_running);
-        assert_eq!(s.tooltip, "Lexaloud: stopped");
+        assert_eq!(s.tooltip, "Lepramim: stopped");
         assert_eq!(s.toggle_label, "Start daemon");
     }
 
@@ -156,10 +156,7 @@ mod tests {
 
     #[test]
     fn icon_phase_preparing_while_idle_and_flag_set() {
-        assert_eq!(
-            tray_icon_phase("idle", true, ""),
-            TrayIconPhase::Preparing
-        );
+        assert_eq!(tray_icon_phase("idle", true, ""), TrayIconPhase::Preparing);
     }
 
     #[test]

@@ -9,12 +9,6 @@ pub struct VoiceBank {
     pub rows: usize,
 }
 
-#[derive(Debug, Clone)]
-pub struct VoiceEmbedding {
-    pub name: String,
-    pub data: Vec<f32>,
-}
-
 /// Load all voice style banks from voices-v1.0.bin (npz zip bundle).
 pub fn load_all_voices(path: &Path) -> Result<HashMap<String, VoiceBank>, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;

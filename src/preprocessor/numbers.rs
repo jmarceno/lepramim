@@ -9,10 +9,6 @@ static CARDINAL_COMMA_RE: OnceLock<Regex> = OnceLock::new();
 static DECIMAL_RE: OnceLock<Regex> = OnceLock::new();
 static ORDINAL_RE: OnceLock<Regex> = OnceLock::new();
 static YEAR_CONTEXT_RE: OnceLock<Regex> = OnceLock::new();
-static IP_RE: OnceLock<Regex> = OnceLock::new();
-static VERSION_RE: OnceLock<Regex> = OnceLock::new();
-static PHONE_RE: OnceLock<Regex> = OnceLock::new();
-static HYPH_RE: OnceLock<Regex> = OnceLock::new();
 
 fn currency_re() -> &'static Regex {
     CURRENCY_RE.get_or_init(|| Regex::new(r"\$(\d{1,3}(?:,\d{3})*(?:\.\d{1,2})?)\b").unwrap())

@@ -325,7 +325,7 @@ mod tests {
 
     #[test]
     fn real_tts_smoke_opt_in() {
-        if std::env::var("LEXALOUD_REAL_TTS").ok().as_deref() != Some("1") {
+        if std::env::var("LEPRAMIM_REAL_TTS").ok().as_deref() != Some("1") {
             return;
         }
         let cache = crate::models::default_cache_dir();

@@ -1,4 +1,4 @@
-# Cached builder image for Lexaloud native AppImage (Rust + Iced).
+# Cached builder image for Lepramim native AppImage (Rust + Iced).
 FROM docker.io/library/ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive

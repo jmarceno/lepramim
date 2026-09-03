@@ -221,11 +221,16 @@ impl AudioSink for WavSink {
 enum AudioCmd {
     Warmup {
         sample_rate: u32,
+        // Accepted at the sink API boundary but unused: the CPAL backend is
+        // mono-only, so handlers match this as `channels: _`.
+        #[allow(dead_code)]
         channels: u16,
         reply: mpsc::Sender<Result<(), String>>,
     },
     BeginStream {
         sample_rate: u32,
+        // See above: mono-only backend ignores the channel count.
+        #[allow(dead_code)]
         channels: u16,
         reply: mpsc::Sender<Result<(), String>>,
     },
@@ -561,7 +566,7 @@ impl CpalSink {
     pub fn new() -> Self {
         let (tx, rx) = mpsc::channel();
         let thread = thread::Builder::new()
-            .name("lexaloud-audio".into())
+            .name("lepramim-audio".into())
             .spawn(move || run_audio_thread(rx))
             .expect("spawn audio thread");
         Self {
@@ -696,7 +701,7 @@ mod tests {
 
     #[tokio::test]
     async fn wav_sink_writes_file() {
-        let dir = std::env::temp_dir().join(format!("lexaloud_wav_test_{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("lepramim_wav_test_{}", std::process::id()));
         let mut sink = WavSink::new(&dir).unwrap();
         sink.begin_stream(24000, 1).await.unwrap();
         let chunk = AudioChunk::new(vec![0.5; 2400], 24000);

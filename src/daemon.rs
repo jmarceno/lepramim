@@ -25,15 +25,15 @@ pub fn build_components(cfg: Option<Config>) -> Result<DaemonComponents, String>
     tracing::info!("ORT distribution: {}", ort_dist);
 
     let prefer_cuda = (ort_dist.contains("gpu")
-        || std::env::var("LEXALOUD_ORT_DISTS")
+        || std::env::var("LEPRAMIM_ORT_DISTS")
             .map(|s| s.contains("onnxruntime-gpu"))
             .unwrap_or(false))
-        && std::env::var("LEXALOUD_PREFER_CUDA")
+        && std::env::var("LEPRAMIM_PREFER_CUDA")
             .map(|s| s == "1" || s.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
 
     let artifacts = crate::models::ensure_artifacts(None, false).map_err(|e| {
-        format!("{e}. Models download automatically when you open the Lexaloud AppImage.")
+        format!("{e}. Models download automatically when you open the Lepramim AppImage.")
     })?;
 
     let model_path = artifacts
@@ -176,7 +176,7 @@ mod tests {
     fn build_components_missing_models_fails() {
         let _guard = ENV_LOCK.lock().unwrap();
         let orig = std::env::var("XDG_CACHE_HOME").ok();
-        let tmp = std::env::temp_dir().join(format!("lexaloud_daemon_test_{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("lepramim_daemon_test_{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         unsafe { std::env::set_var("XDG_CACHE_HOME", tmp.to_string_lossy().as_ref()) };
         let cfg = Config::default();

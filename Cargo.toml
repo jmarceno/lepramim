@@ -1,18 +1,18 @@
 [package]
-name = "lexaloud"
+name = "lepramim"
 version = "0.2.0"
 edition = "2024"
-description = "Lexaloud - local private Linux text-to-speech"
-authors = ["Lexaloud"]
+description = "Lepramim - local private Linux text-to-speech"
+authors = ["Lepramim"]
 license = "MIT"
 rust-version = "1.85"
 
 [lib]
-name = "lexaloud"
+name = "lepramim"
 path = "src/lib.rs"
 
 [[bin]]
-name = "lexaloud"
+name = "lepramim"
 path = "src/main.rs"
 
 [dependencies]

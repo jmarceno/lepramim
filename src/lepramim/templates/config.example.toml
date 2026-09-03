@@ -1,23 +1,21 @@
-# Lexaloud example configuration.
+# Lepramim example configuration.
 #
-# Copy this file to ~/.config/lexaloud/config.toml and edit to taste.
+# Copy this file to ~/.config/lepramim/config.toml and edit to taste.
 # Missing sections or keys fall back to the defaults shown below.
 #
-# For a full reference, see docs/configuration.md.
+# Most settings are editable in the control window; see the README and
+# docs/architecture.md for the full picture.
 
 [capture]
 # Maximum selection size in bytes. Larger selections are truncated on
-# a UTF-8 character boundary and the CLI shows a notification.
+# a UTF-8 character boundary and a desktop notification is shown.
 max_bytes = 204800  # 200 KB
 # Timeout for the wl-paste / xclip / xsel subprocess call.
 subprocess_timeout_s = 2.0
 
 [daemon]
-# host/port are deprecated in v0.1.0: the daemon binds a Unix domain
-# socket at $XDG_RUNTIME_DIR/lexaloud/lexaloud.sock instead. These
-# fields are kept for forward compat and will be removed in v0.2.
-host = "127.0.0.1"
-port = 5487
+# The daemon binds a Unix domain socket at
+# $XDG_RUNTIME_DIR/lepramim/lepramim.sock (mode 0700).
 # Max completed sentence chunks buffered between the provider and the
 # audio sink. Bounds memory during pause or slow playback.
 ready_queue_depth = 3
@@ -64,15 +62,15 @@ normalize_math_symbols = true
 pdf_cleanup = true
 
 [advanced]
-# Show a floating overlay bar when Lexaloud is speaking. The overlay
+# Show a floating overlay bar when Lepramim is speaking. The overlay
 # displays the current sentence and has pause/skip/stop buttons.
-# Off by default to keep Lexaloud discreet. Enable if you want visual
+# Off by default to keep Lepramim discreet. Enable if you want visual
 # feedback during playback.
 overlay = false
 
 # --- LLM-based text normalization (optional) ---
-# Requires: install.sh --with-llm  and  lexaloud download-models --llm
-#           (fetches optional GGUF model)
+# Requires a source install with LLM support (install.sh --with-llm);
+# fetch the optional GGUF model from the control window's Models tab.
 # Uses a local ~1.5B parameter model to normalize edge cases the
 # rule-based pipeline can't handle (complex math, domain acronyms,
 # OCR artifacts, tables). Adds ~1.2 GB VRAM usage. Off by default.

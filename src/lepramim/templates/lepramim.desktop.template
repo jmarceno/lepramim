@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Lexaloud
+Name=Lepramim
 GenericName=Text to Speech
 Comment=Local Kokoro TTS indicator — highlight text, press the hotkey, hear it read
 Exec={indicator_binary}

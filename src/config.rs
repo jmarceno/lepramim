@@ -12,8 +12,8 @@ fn get_uid() -> u32 {
 /// Return the path to the user config file.
 ///
 /// Returns the path to the user config file (XDG-aware).
-/// - if `$XDG_CONFIG_HOME` is set, use `$XDG_CONFIG_HOME/lexaloud/config.toml` (resolved)
-/// - else `~/.config/lexaloud/config.toml`
+/// - if `$XDG_CONFIG_HOME` is set, use `$XDG_CONFIG_HOME/lepramim/config.toml` (resolved)
+/// - else `~/.config/lepramim/config.toml`
 pub fn config_path() -> PathBuf {
     if let Ok(base) = std::env::var("XDG_CONFIG_HOME") {
         if !base.is_empty() {
@@ -27,14 +27,14 @@ pub fn config_path() -> PathBuf {
                     .join(&p)
             };
             let resolved = std::fs::canonicalize(&abs).unwrap_or(abs);
-            return resolved.join("lexaloud").join("config.toml");
+            return resolved.join("lepramim").join("config.toml");
         }
     }
     let home = directories::BaseDirs::new()
         .map(|d| d.home_dir().to_path_buf())
         .or_else(|| std::env::var("HOME").map(PathBuf::from).ok())
         .unwrap_or_else(|| PathBuf::from("/tmp"));
-    home.join(".config").join("lexaloud").join("config.toml")
+    home.join(".config").join("lepramim").join("config.toml")
 }
 
 /// Return the XDG runtime directory for the current user.
@@ -52,10 +52,10 @@ pub fn runtime_dir() -> PathBuf {
 /// Return the absolute path to the daemon's Unix domain socket.
 ///
 /// Returns the absolute path to the daemon Unix domain socket.
-/// `$XDG_RUNTIME_DIR/lexaloud/lexaloud.sock` inside a mode-0700 directory.
+/// `$XDG_RUNTIME_DIR/lepramim/lepramim.sock` inside a mode-0700 directory.
 /// Intentionally NOT resolved.
 pub fn socket_path() -> PathBuf {
-    runtime_dir().join("lexaloud").join("lexaloud.sock")
+    runtime_dir().join("lepramim").join("lepramim.sock")
 }
 
 // ---------------------------------------------------------------------------
@@ -88,20 +88,10 @@ impl Default for CaptureConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonConfig {
-    #[serde(default = "default_host")]
-    pub host: String,
-    #[serde(default = "default_port")]
-    pub port: u16,
     #[serde(default = "default_ready_queue_depth")]
     pub ready_queue_depth: usize,
 }
 
-fn default_host() -> String {
-    "127.0.0.1".to_string()
-}
-fn default_port() -> u16 {
-    5487
-}
 fn default_ready_queue_depth() -> usize {
     3
 }
@@ -109,8 +99,6 @@ fn default_ready_queue_depth() -> usize {
 impl Default for DaemonConfig {
     fn default() -> Self {
         Self {
-            host: default_host(),
-            port: default_port(),
             ready_queue_depth: default_ready_queue_depth(),
         }
     }
@@ -353,7 +341,7 @@ mod tests {
     // To keep `cargo check --all-targets` without extra deps, we implement simple helper.
 
     fn write_temp(content: &str) -> PathBuf {
-        let p = std::env::temp_dir().join(format!("lexaloud_test_{}.toml", rand_suffix()));
+        let p = std::env::temp_dir().join(format!("lepramim_test_{}.toml", rand_suffix()));
         // Simple random suffix without extra crate: use pid + nanos
         std::fs::write(&p, content).unwrap();
         p
@@ -373,8 +361,6 @@ mod tests {
         let cfg = Config::default();
         assert_eq!(cfg.capture.max_bytes, 200 * 1024);
         assert!((cfg.capture.subprocess_timeout_s - 2.0).abs() < 1e-9);
-        assert_eq!(cfg.daemon.host, "127.0.0.1");
-        assert_eq!(cfg.daemon.port, 5487);
         assert_eq!(cfg.daemon.ready_queue_depth, 3);
         assert_eq!(cfg.provider.voice, "af_heart");
         assert_eq!(cfg.provider.lang, "en-us");
@@ -425,7 +411,7 @@ mod tests {
         assert!((cfg.provider.speed - 1.5).abs() < 1e-9);
         assert!(cfg.advanced.overlay);
         // defaults preserved for unspecified
-        assert_eq!(cfg.daemon.port, 5487);
+        assert_eq!(cfg.daemon.ready_queue_depth, 3);
         let _ = std::fs::remove_file(&path);
     }
 
@@ -461,7 +447,7 @@ mod tests {
 
     #[test]
     fn load_missing_file_returns_defaults() {
-        let p = PathBuf::from("/tmp/lexaloud_nonexistent_12345.toml");
+        let p = PathBuf::from("/tmp/lepramim_nonexistent_12345.toml");
         let _ = std::fs::remove_file(&p);
         let cfg = load_config(Some(&p));
         assert_eq!(cfg.provider.voice, "af_heart");
@@ -470,13 +456,13 @@ mod tests {
     #[test]
     fn config_path_respects_xdg() {
         let _g = env_lock();
-        let tmp = std::env::temp_dir().join("lexaloud_xdg_test");
+        let tmp = std::env::temp_dir().join("lepramim_xdg_test");
         std::fs::create_dir_all(&tmp).unwrap();
         let orig = std::env::var("XDG_CONFIG_HOME").ok();
         unsafe { std::env::set_var("XDG_CONFIG_HOME", &tmp) };
         let p = config_path();
         assert!(p.starts_with(&tmp));
-        assert!(p.ends_with("lexaloud/config.toml"));
+        assert!(p.ends_with("lepramim/config.toml"));
         // restore
         if let Some(v) = orig {
             unsafe { std::env::set_var("XDG_CONFIG_HOME", v) };
@@ -495,7 +481,7 @@ mod tests {
         let expected = format!("/run/user/{}", get_uid());
         assert_eq!(rd, PathBuf::from(expected));
         let sock = socket_path();
-        assert_eq!(sock, rd.join("lexaloud").join("lexaloud.sock"));
+        assert_eq!(sock, rd.join("lepramim").join("lepramim.sock"));
         if let Some(v) = orig {
             unsafe { std::env::set_var("XDG_RUNTIME_DIR", v) };
         }
@@ -509,7 +495,7 @@ mod tests {
         assert_eq!(runtime_dir(), PathBuf::from("/tmp/my_runtime"));
         assert_eq!(
             socket_path(),
-            PathBuf::from("/tmp/my_runtime/lexaloud/lexaloud.sock")
+            PathBuf::from("/tmp/my_runtime/lepramim/lepramim.sock")
         );
         if let Some(v) = orig {
             unsafe { std::env::set_var("XDG_RUNTIME_DIR", v) };

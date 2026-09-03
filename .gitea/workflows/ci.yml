@@ -100,4 +100,4 @@ jobs:
           ./scripts/build-appimage.sh
 
       - name: Smoke AppImage
-        run: ./scripts/smoke-appimage.sh build/appimage/Lexaloud-*.AppImage
+        run: ./scripts/smoke-appimage.sh build/appimage/Lepramim-*.AppImage

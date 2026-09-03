@@ -11,8 +11,8 @@ use std::time::{Duration, Instant};
 use zbus::interface;
 use zbus::zvariant::OwnedObjectPath;
 
-const COMPONENT: &str = "lexaloud";
-const FRIENDLY: &str = "Lexaloud";
+const COMPONENT: &str = "lepramim";
+const FRIENDLY: &str = "Lepramim";
 /// Qt `MetaModifier` — not `0x01000000`.
 const QT_META: i32 = 0x1000_0000;
 const QT_KEY_R: i32 = 0x52;
@@ -42,7 +42,7 @@ struct AppDBus {
     tx: Sender<HotkeyEvent>,
 }
 
-#[interface(name = "org.lexaloud.App")]
+#[interface(name = "org.lepramim.App")]
 impl AppDBus {
     fn speak_selection(&self) {
         let _ = self.tx.send(HotkeyEvent::SpeakSelection);
@@ -104,7 +104,7 @@ impl HotkeyManager {
         let (tx, rx) = unbounded();
         let tx_thread = tx.clone();
         thread::Builder::new()
-            .name("lexaloud-hotkeys".into())
+            .name("lepramim-hotkeys".into())
             .spawn(move || {
                 let rt = match tokio::runtime::Builder::new_current_thread()
                     .enable_all()
@@ -135,18 +135,18 @@ async fn hotkey_service(tx: Sender<HotkeyEvent>) {
 
     if let Err(e) = conn
         .object_server()
-        .at("/org/lexaloud/App", AppDBus { tx: tx.clone() })
+        .at("/org/lepramim/App", AppDBus { tx: tx.clone() })
         .await
     {
-        tracing::error!("hotkeys: export org.lexaloud.App failed: {e}");
+        tracing::error!("hotkeys: export org.lepramim.App failed: {e}");
         return;
     }
-    if let Err(e) = conn.request_name("org.lexaloud.App").await {
-        tracing::warn!("hotkeys: request_name org.lexaloud.App: {e}");
+    if let Err(e) = conn.request_name("org.lepramim.App").await {
+        tracing::warn!("hotkeys: request_name org.lepramim.App: {e}");
     }
 
     if let Err(e) = register_and_listen(&conn, tx).await {
-        tracing::warn!("hotkeys: KGlobalAccel unavailable ({e}); org.lexaloud.App still exported");
+        tracing::warn!("hotkeys: KGlobalAccel unavailable ({e}); org.lepramim.App still exported");
     }
     std::future::pending::<()>().await;
 }

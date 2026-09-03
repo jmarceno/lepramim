@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Lexaloud installer — native Rust + Iced (single binary).
+# Lepramim installer — native Rust + Iced (single binary).
 #
-# Installs lexaloud plus desktop, icon, and systemd template.
+# Installs lepramim plus desktop, icon, and systemd template.
 # icon, and systemd template. Supports:
 #   - AppImage install (default for releases; no build tools required)
 #   - Source build install (--from-source; requires Rust + GUI libs)
@@ -18,14 +18,14 @@
 #   ./scripts/install.sh --prefix ~/.local            # install to prefix (default: ~/.local)
 #   ./scripts/install.sh --system                     # install to /usr/local (requires sudo)
 #   ./scripts/install.sh --from-source                # build from source (cargo)
-#   ./scripts/install.sh --appimage dist/Lexaloud-*.AppImage  # install from AppImage
+#   ./scripts/install.sh --appimage dist/Lepramim-*.AppImage  # install from AppImage
 #   ./scripts/install.sh --with-math-speech           # also install speech-rule-engine (node >=18)
 #
 set -euo pipefail
 
 REPO_ROOT="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 PREFIX_DEFAULT="$HOME/.local"
-PREFIX="${LEXALOUD_PREFIX:-$PREFIX_DEFAULT}"
+PREFIX="${LEPRAMIM_PREFIX:-$PREFIX_DEFAULT}"
 BACKEND="auto"
 WITH_MATH_SPEECH=0
 FROM_SOURCE=0
@@ -59,7 +59,7 @@ while (( "$#" )); do
       echo "Examples:"
       echo "  $0 --backend cpu --prefix ~/.local"
       echo "  $0 --from-source --backend cpu"
-      echo "  $0 --appimage dist/Lexaloud-0.2.0-x86_64.AppImage"
+      echo "  $0 --appimage dist/Lepramim-0.2.0-x86_64.AppImage"
       echo "  $0 --system --backend auto"
       exit 0
       ;;
@@ -81,7 +81,7 @@ if [[ $SYSTEM -eq 1 && "$PREFIX" == "/usr/local" && $EUID -ne 0 ]]; then
   echo "Note: --system installs to /usr/local; you may need sudo" >&2
 fi
 
-echo "=== Lexaloud installer (native) ==="
+echo "=== Lepramim installer (native) ==="
 echo "repo root: $REPO_ROOT"
 echo "prefix:    $PREFIX"
 echo "backend:   $BACKEND"
@@ -281,7 +281,7 @@ elif [[ $FROM_SOURCE -eq 1 ]]; then
 else
   # Auto: prefer existing AppImage in build/appimage or dist, else build from source
   CANDIDATE=""
-  for pat in "$REPO_ROOT/build/appimage/Lexaloud-"*.AppImage "$REPO_ROOT/dist/Lexaloud-"*.AppImage "$REPO_ROOT/build/appimage/Lexaloud-"*.AppImage.tar.gz; do
+  for pat in "$REPO_ROOT/build/appimage/Lepramim-"*.AppImage "$REPO_ROOT/dist/Lepramim-"*.AppImage "$REPO_ROOT/build/appimage/Lepramim-"*.AppImage.tar.gz; do
     for f in $pat; do
       [[ -f "$f" && "$f" != *"*.AppImage"* ]] || continue
       CANDIDATE="$f"
@@ -312,7 +312,7 @@ if [[ "$INSTALL_MODE" == "source" ]]; then
     exit 1
   fi
   "$REPO_ROOT/scripts/build-native.sh" --release --stage "$STAGE"
-  if [[ ! -x "$STAGE/bin/lexaloud" ]]; then
+  if [[ ! -x "$STAGE/bin/lepramim" ]]; then
     echo "ERROR: build-native failed to produce staged binary" >&2
     exit 1
   fi
@@ -326,28 +326,28 @@ echo "--- Installing to $PREFIX ---"
 mkdir -p "$PREFIX/bin"
 mkdir -p "$PREFIX/share/applications"
 mkdir -p "$PREFIX/share/icons/hicolor/scalable/apps"
-mkdir -p "$PREFIX/share/doc/lexaloud"
-mkdir -p "$PREFIX/share/lexaloud"
+mkdir -p "$PREFIX/share/doc/lepramim"
+mkdir -p "$PREFIX/share/lepramim"
 
 if [[ "$INSTALL_MODE" == "appimage" ]]; then
   # AppImage install: copy AppImage to prefix/bin and set up desktop integration
   APPIMAGE_NAME="$(basename "$INSTALL_SRC")"
   # If source is a dummy tar wrapper, still copy it
-  TARGET_APPIMAGE="$PREFIX/bin/Lexaloud-x86_64.AppImage"
+  TARGET_APPIMAGE="$PREFIX/bin/Lepramim-x86_64.AppImage"
   # For release, use versioned name if available
-  if [[ "$APPIMAGE_NAME" == Lexaloud-*.AppImage ]]; then
+  if [[ "$APPIMAGE_NAME" == Lepramim-*.AppImage ]]; then
     TARGET_APPIMAGE="$PREFIX/bin/$APPIMAGE_NAME"
   fi
   echo "Copying AppImage to $TARGET_APPIMAGE"
   cp -a "$INSTALL_SRC" "$TARGET_APPIMAGE"
   chmod 0755 "$TARGET_APPIMAGE"
-  # Create wrapper so `lexaloud` resolves to AppImage
-  cat > "$PREFIX/bin/lexaloud" <<WRAP
+  # Create wrapper so `lepramim` resolves to AppImage
+  cat > "$PREFIX/bin/lepramim" <<WRAP
 #!/usr/bin/env bash
 exec "$TARGET_APPIMAGE" "\$@"
 WRAP
-  chmod 0755 "$PREFIX/bin/lexaloud"
-  echo "Created wrapper: $PREFIX/bin/lexaloud"
+  chmod 0755 "$PREFIX/bin/lepramim"
+  echo "Created wrapper: $PREFIX/bin/lepramim"
 
   # Try to extract desktop/icon from AppImage for prefix integration
   TMP_EXTRACT="$(mktemp -d)"
@@ -371,33 +371,33 @@ WRAP
     EXTRACTED="$TMP_EXTRACT"
   fi
   if [[ -n "$EXTRACTED" ]]; then
-    if [[ -f "$EXTRACTED/usr/share/applications/lexaloud.desktop" ]]; then
-      cp -a "$EXTRACTED/usr/share/applications/lexaloud.desktop" "$PREFIX/share/applications/lexaloud.desktop"
+    if [[ -f "$EXTRACTED/usr/share/applications/lepramim.desktop" ]]; then
+      cp -a "$EXTRACTED/usr/share/applications/lepramim.desktop" "$PREFIX/share/applications/lepramim.desktop"
       # Fix Exec to point to installed wrapper
-      sed -i "s|^Exec=.*|Exec=$PREFIX/bin/lexaloud|" "$PREFIX/share/applications/lexaloud.desktop" 2>/dev/null || true
+      sed -i "s|^Exec=.*|Exec=$PREFIX/bin/lepramim|" "$PREFIX/share/applications/lepramim.desktop" 2>/dev/null || true
       echo "Installed desktop file from AppImage"
     fi
-    if [[ -f "$EXTRACTED/usr/share/icons/hicolor/scalable/apps/lexaloud.svg" ]]; then
-      cp -a "$EXTRACTED/usr/share/icons/hicolor/scalable/apps/lexaloud.svg" "$PREFIX/share/icons/hicolor/scalable/apps/lexaloud.svg"
+    if [[ -f "$EXTRACTED/usr/share/icons/hicolor/scalable/apps/lepramim.svg" ]]; then
+      cp -a "$EXTRACTED/usr/share/icons/hicolor/scalable/apps/lepramim.svg" "$PREFIX/share/icons/hicolor/scalable/apps/lepramim.svg"
       echo "Installed icon from AppImage"
     fi
     for f in LICENSE THIRD_PARTY_LICENSES.md; do
-      if [[ -f "$EXTRACTED/usr/share/doc/lexaloud/$f" ]]; then
-        cp -a "$EXTRACTED/usr/share/doc/lexaloud/$f" "$PREFIX/share/doc/lexaloud/$f"
+      if [[ -f "$EXTRACTED/usr/share/doc/lepramim/$f" ]]; then
+        cp -a "$EXTRACTED/usr/share/doc/lepramim/$f" "$PREFIX/share/doc/lepramim/$f"
       fi
     done
   fi
   rm -rf "$TMP_EXTRACT" 2>/dev/null || true
   trap - EXIT
   # Fallback if extraction failed: copy from repo
-  if [[ ! -f "$PREFIX/share/applications/lexaloud.desktop" && -f "$REPO_ROOT/packaging/appimage/lexaloud.desktop" ]]; then
-    cp -a "$REPO_ROOT/packaging/appimage/lexaloud.desktop" "$PREFIX/share/applications/lexaloud.desktop"
+  if [[ ! -f "$PREFIX/share/applications/lepramim.desktop" && -f "$REPO_ROOT/packaging/appimage/lepramim.desktop" ]]; then
+    cp -a "$REPO_ROOT/packaging/appimage/lepramim.desktop" "$PREFIX/share/applications/lepramim.desktop"
     echo "Installed desktop file from repo fallback"
   fi
-  if [[ ! -f "$PREFIX/share/icons/hicolor/scalable/apps/lexaloud.svg" ]]; then
-    for cand in "$REPO_ROOT/packaging/appimage/lexaloud.svg" "$REPO_ROOT/src/lexaloud/icons/lexaloud.svg"; do
+  if [[ ! -f "$PREFIX/share/icons/hicolor/scalable/apps/lepramim.svg" ]]; then
+    for cand in "$REPO_ROOT/packaging/appimage/lepramim.svg" "$REPO_ROOT/src/lepramim/icons/lepramim.svg"; do
       if [[ -f "$cand" ]]; then
-        cp -a "$cand" "$PREFIX/share/icons/hicolor/scalable/apps/lexaloud.svg"
+        cp -a "$cand" "$PREFIX/share/icons/hicolor/scalable/apps/lepramim.svg"
         echo "Installed icon from $cand"
         break
       fi
@@ -406,35 +406,30 @@ WRAP
 else
   # Source stage install: copy binaries and assets directly
   echo "Copying staged binaries to $PREFIX/bin/"
-  install -m 0755 "$STAGE/bin/lexaloud" "$PREFIX/bin/lexaloud"
+  install -m 0755 "$STAGE/bin/lepramim" "$PREFIX/bin/lepramim"
 
-  if [[ -f "$STAGE/share/applications/lexaloud.desktop" ]]; then
-    install -m 0644 "$STAGE/share/applications/lexaloud.desktop" "$PREFIX/share/applications/lexaloud.desktop"
+  if [[ -f "$STAGE/share/applications/lepramim.desktop" ]]; then
+    install -m 0644 "$STAGE/share/applications/lepramim.desktop" "$PREFIX/share/applications/lepramim.desktop"
     # Fix Exec to installed path
-    sed -i "s|^Exec=lexaloud.*|Exec=$PREFIX/bin/lexaloud|" "$PREFIX/share/applications/lexaloud.desktop" 2>/dev/null || true
-  elif [[ -f "$REPO_ROOT/packaging/appimage/lexaloud.desktop" ]]; then
-    install -m 0644 "$REPO_ROOT/packaging/appimage/lexaloud.desktop" "$PREFIX/share/applications/lexaloud.desktop"
-    sed -i "s|^Exec=.*|Exec=$PREFIX/bin/lexaloud|" "$PREFIX/share/applications/lexaloud.desktop" 2>/dev/null || true
+    sed -i "s|^Exec=lepramim.*|Exec=$PREFIX/bin/lepramim|" "$PREFIX/share/applications/lepramim.desktop" 2>/dev/null || true
+  elif [[ -f "$REPO_ROOT/packaging/appimage/lepramim.desktop" ]]; then
+    install -m 0644 "$REPO_ROOT/packaging/appimage/lepramim.desktop" "$PREFIX/share/applications/lepramim.desktop"
+    sed -i "s|^Exec=.*|Exec=$PREFIX/bin/lepramim|" "$PREFIX/share/applications/lepramim.desktop" 2>/dev/null || true
   fi
 
-  if [[ -f "$STAGE/share/icons/hicolor/scalable/apps/lexaloud.svg" ]]; then
-    install -m 0644 "$STAGE/share/icons/hicolor/scalable/apps/lexaloud.svg" "$PREFIX/share/icons/hicolor/scalable/apps/lexaloud.svg"
+  if [[ -f "$STAGE/share/icons/hicolor/scalable/apps/lepramim.svg" ]]; then
+    install -m 0644 "$STAGE/share/icons/hicolor/scalable/apps/lepramim.svg" "$PREFIX/share/icons/hicolor/scalable/apps/lepramim.svg"
   fi
   if [[ -f "$REPO_ROOT/LICENSE" ]]; then
-    install -m 0644 "$REPO_ROOT/LICENSE" "$PREFIX/share/doc/lexaloud/LICENSE" 2>/dev/null || true
+    install -m 0644 "$REPO_ROOT/LICENSE" "$PREFIX/share/doc/lepramim/LICENSE" 2>/dev/null || true
   fi
   if [[ -f "$REPO_ROOT/THIRD_PARTY_LICENSES.md" ]]; then
-    install -m 0644 "$REPO_ROOT/THIRD_PARTY_LICENSES.md" "$PREFIX/share/doc/lexaloud/THIRD_PARTY_LICENSES.md" 2>/dev/null || true
+    install -m 0644 "$REPO_ROOT/THIRD_PARTY_LICENSES.md" "$PREFIX/share/doc/lepramim/THIRD_PARTY_LICENSES.md" 2>/dev/null || true
   fi
-  if [[ -f "$STAGE/share/lexaloud/config.example.toml" ]]; then
-    install -m 0644 "$STAGE/share/lexaloud/config.example.toml" "$PREFIX/share/lexaloud/config.example.toml"
-  elif [[ -f "$REPO_ROOT/src/lexaloud/templates/config.example.toml" ]]; then
-    install -m 0644 "$REPO_ROOT/src/lexaloud/templates/config.example.toml" "$PREFIX/share/lexaloud/config.example.toml"
-  fi
-  if [[ -f "$STAGE/share/lexaloud/systemd.service.template" ]]; then
-    install -m 0644 "$STAGE/share/lexaloud/systemd.service.template" "$PREFIX/share/lexaloud/systemd.service.template"
-  elif [[ -f "$REPO_ROOT/src/lexaloud/templates/systemd.service.template" ]]; then
-    install -m 0644 "$REPO_ROOT/src/lexaloud/templates/systemd.service.template" "$PREFIX/share/lexaloud/systemd.service.template"
+  if [[ -f "$STAGE/share/lepramim/config.example.toml" ]]; then
+    install -m 0644 "$STAGE/share/lepramim/config.example.toml" "$PREFIX/share/lepramim/config.example.toml"
+  elif [[ -f "$REPO_ROOT/src/lepramim/templates/config.example.toml" ]]; then
+    install -m 0644 "$REPO_ROOT/src/lepramim/templates/config.example.toml" "$PREFIX/share/lepramim/config.example.toml"
   fi
 fi
 
@@ -447,7 +442,7 @@ if command -v gtk-update-icon-cache >/dev/null 2>&1; then
 fi
 
 echo "Installed binaries:"
-ls -lh "$PREFIX/bin/lexaloud" 2>/dev/null | sed 's/^/  /'
+ls -lh "$PREFIX/bin/lepramim" 2>/dev/null | sed 's/^/  /'
 
 # --- optional: Speech Rule Engine for LaTeX-to-speech ------------------
 if (( WITH_MATH_SPEECH == 1 )); then
@@ -478,7 +473,7 @@ NPM_MISSING
     echo "ERROR: --with-math-speech requires Node.js >= 18 (found major=$NODE_MAJOR)" >&2
     exit 1
   fi
-  SRE_PREFIX="$PREFIX/share/lexaloud/sre"
+  SRE_PREFIX="$PREFIX/share/lepramim/sre"
   echo "installing speech-rule-engine@4.1.3 into $SRE_PREFIX"
   mkdir -p "$SRE_PREFIX"
   npm install --prefix "$SRE_PREFIX" speech-rule-engine@4.1.3
@@ -509,16 +504,16 @@ if [[ ":$PATH:" != *":$PREFIX/bin:"* ]]; then
   echo "Add to your PATH if needed:"
   echo "  export PATH=\"\$PATH:$PREFIX/bin\""
   echo "Or symlink:"
-  echo "  ln -sf $PREFIX/bin/lexaloud ~/.local/bin/lexaloud"
+  echo "  ln -sf $PREFIX/bin/lepramim ~/.local/bin/lepramim"
   echo
 fi
 echo "Next:"
-echo "  $PREFIX/bin/lexaloud setup        # download models, create systemd unit"
-echo "  $PREFIX/bin/lexaloud app          # tray UI (requires display server)"
+echo "  $PREFIX/bin/lepramim setup        # download models, create systemd unit"
+echo "  $PREFIX/bin/lepramim app          # tray UI (requires display server)"
 echo
 if [[ "$PREFIX" == "$HOME/.local" ]]; then
-  echo "Systemd unit will be at ~/.config/systemd/user/lexaloud.service"
+  echo "Systemd unit will be at ~/.config/systemd/user/lepramim.service"
   echo "Activate with:"
   echo "  systemctl --user daemon-reload"
-  echo "  systemctl --user enable --now lexaloud.service"
+  echo "  systemctl --user enable --now lepramim.service"
 fi

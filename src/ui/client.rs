@@ -33,7 +33,7 @@ pub fn default_socket_path() -> std::path::PathBuf {
 pub fn build_request(method: &str, path: &str, body: &[u8]) -> Vec<u8> {
     let mut req = Vec::with_capacity(256 + body.len());
     req.extend_from_slice(format!("{method} {path} HTTP/1.1\r\n").as_bytes());
-    req.extend_from_slice(b"Host: lexaloud\r\nConnection: close\r\n");
+    req.extend_from_slice(b"Host: lepramim\r\nConnection: close\r\n");
     if !body.is_empty() {
         req.extend_from_slice(b"Content-Type: application/json\r\n");
         req.extend_from_slice(format!("Content-Length: {}\r\n", body.len()).as_bytes());
@@ -236,7 +236,7 @@ mod tests {
         let req = build_request("GET", "/state", &[]);
         let s = String::from_utf8_lossy(&req);
         assert!(s.contains("GET /state"));
-        assert!(s.contains("Host: lexaloud"));
+        assert!(s.contains("Host: lepramim"));
     }
 
     #[test]

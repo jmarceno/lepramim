@@ -1,17 +1,17 @@
 {
-  "$schema": "lexaloud://fixtures/cli/v1",
-  "generated_from": "tests/test_cli_daemon_down.py, tests/test_cli_llm_download.py, tests/test_bug_report.py, tests/test_setup.py, tests/test_uninstall.py, src/lexaloud/cli.py, src/cli.rs",
+  "$schema": "lepramim://fixtures/cli/v1",
+  "generated_from": "tests/test_cli_daemon_down.py, tests/test_cli_llm_download.py, tests/test_bug_report.py, tests/test_setup.py, tests/test_uninstall.py, src/lepramim/cli.py, src/cli.rs",
   "notes": "Only stable user-facing text asserted; dynamic paths/timestamps not asserted. Covers all CLI commands, exit codes, daemon-down errors, --help/--version.",
   "global_flags": [
     {
       "id": "help",
       "args": ["--help"],
-      "expected": { "exit": 0, "stdout_contains": ["lexaloud", "Usage", "Commands"], "stderr": "" }
+      "expected": { "exit": 0, "stdout_contains": ["lepramim", "Usage", "Commands"], "stderr": "" }
     },
     {
       "id": "version",
       "args": ["--version"],
-      "expected": { "exit": 0, "stdout_matches": "lexaloud 0\\..*" }
+      "expected": { "exit": 0, "stdout_matches": "lepramim 0\\..*" }
     },
     {
       "id": "unknown_command",
@@ -43,9 +43,9 @@
       "expected": {
         "exit": 3,
         "stderr_contains": [
-          "Lexaloud daemon is not running or unresponsive",
-          "systemctl --user start lexaloud.service",
-          "lexaloud setup"
+          "Lepramim daemon is not running or unresponsive",
+          "systemctl --user start lepramim.service",
+          "lepramim setup"
         ]
       }
     },
@@ -164,7 +164,7 @@
       "precondition": "no config.toml",
       "expected": {
         "exit": 0,
-        "creates": ["~/.config/lexaloud/config.toml"],
+        "creates": ["~/.config/lepramim/config.toml"],
         "stdout_contains": ["Wrote config", "Systemd unit preview"]
       }
     },
@@ -176,21 +176,21 @@
     {
       "id": "daemon_command_starts",
       "args": ["daemon"],
-      "expected": { "exit": 0, "stdout_contains": ["Starting Lexaloud daemon"] }
+      "expected": { "exit": 0, "stdout_contains": ["Starting Lepramim daemon"] }
     },
     {
       "id": "uninstall_removes_socket",
       "args": ["uninstall"],
       "precondition": "socket exists",
-      "expected": { "exit": 0, "removes": ["$XDG_RUNTIME_DIR/lexaloud/lexaloud.sock"] }
+      "expected": { "exit": 0, "removes": ["$XDG_RUNTIME_DIR/lepramim/lepramim.sock"] }
     },
     {
       "id": "bug_report_redacted_by_default",
       "args": ["bug-report"],
-      "precondition": "config exists at /home/alice/.config/lexaloud/config.toml",
+      "precondition": "config exists at /home/alice/.config/lepramim/config.toml",
       "expected": {
         "exit": 0,
-        "stdout_contains": ["Lexaloud bug report", "Config", "Daemon state"],
+        "stdout_contains": ["Lepramim bug report", "Config", "Daemon state"],
         "must_not_contain": ["/home/alice"]
       }
     },
@@ -209,10 +209,10 @@
     "5": "display or tool missing / capture failure"
   },
   "stable_text": [
-    "Lexaloud daemon is not running or unresponsive. Start it with: systemctl --user start lexaloud.service",
+    "Lepramim daemon is not running or unresponsive. Start it with: systemctl --user start lepramim.service",
     "No selection found. Select text and press Meta+R again.",
     "Selection too large for the daemon to accept.",
-    "Lexaloud: cannot reach display server",
-    "Lexaloud: capture tool missing"
+    "Lepramim: cannot reach display server",
+    "Lepramim: capture tool missing"
   ]
 }

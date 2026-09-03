@@ -1,7 +1,7 @@
 {
-  "$schema": "lexaloud://fixtures/models/v1",
-  "generated_from": "tests/test_models_verify.py, src/lexaloud/models.py, src/models.rs, docs/models.md",
-  "cache_dir": "~/.cache/lexaloud/models/",
+  "$schema": "lepramim://fixtures/models/v1",
+  "generated_from": "tests/test_models_verify.py, src/lepramim/models.py, src/models.rs, docs/models.md",
+  "cache_dir": "~/.cache/lepramim/models/",
   "artifacts": [
     {
       "filename": "kokoro-v1.0.onnx",
@@ -40,20 +40,20 @@
     {
       "id": "cpu_explicit",
       "config": { "provider": { "voice": "af_heart", "lang": "en-us" } },
-      "env": { "LEXALOUD_ORT_DISTS": "onnxruntime" },
+      "env": { "LEPRAMIM_ORT_DISTS": "onnxruntime" },
       "expected": { "ort_distribution": "onnxruntime", "provider": "CPUExecutionProvider", "cuda_active": false }
     },
     {
       "id": "cuda_selected_and_active",
       "config": { "provider": { "voice": "af_heart" } },
-      "env": { "LEXALOUD_ORT_DISTS": "onnxruntime-gpu" },
+      "env": { "LEPRAMIM_ORT_DISTS": "onnxruntime-gpu" },
       "cuda_available": true,
       "expected": { "ort_distribution": "onnxruntime-gpu", "provider": "CUDAExecutionProvider", "cuda_active": true }
     },
     {
       "id": "cuda_selected_but_not_active_fails_loudly",
       "config": { "provider": { "voice": "af_heart" } },
-      "env": { "LEXALOUD_ORT_DISTS": "onnxruntime-gpu" },
+      "env": { "LEPRAMIM_ORT_DISTS": "onnxruntime-gpu" },
       "cuda_available": false,
       "ort_error": "CUDAExecutionProvider not found after session creation",
       "expected": { "error": "daemon startup fails, never silently falls back to CPU" }
@@ -65,7 +65,7 @@
     },
     {
       "id": "both_dists_broken_state",
-      "env": { "LEXALOUD_ORT_DISTS": "onnxruntime,onnxruntime-gpu" },
+      "env": { "LEPRAMIM_ORT_DISTS": "onnxruntime,onnxruntime-gpu" },
       "expected": { "error": "both onnxruntime and onnxruntime-gpu installed (broken coexistence)" }
     }
   ],
@@ -80,7 +80,7 @@
     "default_repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
     "default_file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
     "description": "Optional LLM for normalization; ~1.2 GB VRAM; downloaded via download-models --llm",
-    "cache_path": "~/.cache/lexaloud/models/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+    "cache_path": "~/.cache/lepramim/models/qwen2.5-1.5b-instruct-q4_k_m.gguf"
   },
   "verification_cases": [
     {

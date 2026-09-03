@@ -1,4 +1,4 @@
-# Lexaloud implementation plans
+# Lepramim implementation plans
 
 | ID | Plan | Status | Priority | Effort | Risk |
 |---|---|---|---|---|---|

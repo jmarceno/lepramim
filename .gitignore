@@ -1,10 +1,10 @@
-# Lexaloud — native Rust + Qt ignores
+# Lepramim — native Rust + Qt ignores
 
 # OS metadata
 .DS_Store
 Thumbs.db
 
-# Model artifacts are cached under ~/.cache/lexaloud/ by design — not in the repo
+# Model artifacts are cached under ~/.cache/lepramim/ by design — not in the repo
 # This entry is just defensive in case someone runs cwd-relative caching.
 models/
 *.onnx

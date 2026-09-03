@@ -44,7 +44,7 @@ impl MprisAdapter {
             }
         };
 
-        conn.request_name("org.mpris.MediaPlayer2.lexaloud")
+        conn.request_name("org.mpris.MediaPlayer2.lepramim")
             .await
             .map_err(|e| format!("MPRIS name request failed: {e}"))?;
 
@@ -62,7 +62,7 @@ impl MprisAdapter {
         });
 
         self.connected = true;
-        tracing::info!("MPRIS2 registered as org.mpris.MediaPlayer2.lexaloud");
+        tracing::info!("MPRIS2 registered as org.mpris.MediaPlayer2.lepramim");
         Ok(())
     }
 

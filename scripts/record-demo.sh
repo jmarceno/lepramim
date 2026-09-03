@@ -4,7 +4,7 @@
 #
 # Workflow:
 #   1. Run this script.
-#   2. When prompted, trigger a Lexaloud speak (e.g., select text + hotkey).
+#   2. When prompted, trigger a Lepramim speak (e.g., select text + hotkey).
 #   3. The script stops recording after DURATION seconds.
 #   4. ffmpeg converts the recording to an optimised GIF.
 #
@@ -64,13 +64,13 @@ mkdir -p "$OUT_DIR"
 TMP_VIDEO="$(mktemp --suffix=.mp4)"
 trap 'rm -f "$TMP_VIDEO"' EXIT
 
-echo "=== Lexaloud demo recorder ==="
+echo "=== Lepramim demo recorder ==="
 echo "session type: $SESSION_TYPE"
 echo "recorder: $RECORDER"
 echo "duration: ${DURATION}s"
 echo "output: $OUT_GIF"
 echo
-echo "Press Enter to start recording, then trigger a Lexaloud speak."
+echo "Press Enter to start recording, then trigger a Lepramim speak."
 read -r
 
 echo "Recording for ${DURATION}s..."

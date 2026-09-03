@@ -1,6 +1,6 @@
 {
-  "$schema": "lexaloud://fixtures/config/v1",
-  "generated_from": "tests/test_config.py, tests/test_config_normalizer.py, src/lexaloud/config.py, src/config.rs, docs/configuration.md",
+  "$schema": "lepramim://fixtures/config/v1",
+  "generated_from": "tests/test_config.py, tests/test_config_normalizer.py, src/lepramim/config.py, src/config.rs, docs/configuration.md",
   "notes": "Covers defaults, valid examples, rejected values, path rules, unknown keys, malformed TOML, per-section overrides.",
   "defaults": {
     "capture": {
@@ -8,8 +8,6 @@
       "subprocess_timeout_s": 2.0
     },
     "daemon": {
-      "host": "127.0.0.1",
-      "port": 5487,
       "ready_queue_depth": 3
     },
     "provider": {
@@ -61,9 +59,9 @@
     },
     {
       "id": "partial_override_daemon_and_provider",
-      "toml": "[daemon]\nport = 9999\n\n[provider]\nvoice = \"bf_emma\"",
+      "toml": "[daemon]\nready_queue_depth = 9\n\n[provider]\nvoice = \"bf_emma\"",
       "expected": {
-        "daemon": { "port": 9999, "host": "127.0.0.1" },
+        "daemon": { "ready_queue_depth": 9 },
         "provider": { "voice": "bf_emma", "lang": "en-us" }
       }
     },
@@ -108,9 +106,9 @@
   "unknown_keys_ignored": [
     {
       "id": "unknown_top_level_and_section_keys",
-      "toml": "[daemon]\nnonexistent_key = \"value\"\nport = 8080\n\n[unknown_section]\nfoo = 1",
+      "toml": "[daemon]\nnonexistent_key = \"value\"\nready_queue_depth = 8\n\n[unknown_section]\nfoo = 1",
       "expected": {
-        "daemon": { "port": 8080 }
+        "daemon": { "ready_queue_depth": 8 }
       },
       "must_not_error": true
     }
@@ -138,19 +136,19 @@
     {
       "id": "config_path_default",
       "env": {},
-      "expected": "$HOME/.config/lexaloud/config.toml",
+      "expected": "$HOME/.config/lepramim/config.toml",
       "description": "When XDG_CONFIG_HOME unset, use $HOME/.config"
     },
     {
       "id": "config_path_xdg_override",
       "env": { "XDG_CONFIG_HOME": "/tmp/myconfig" },
-      "expected": "/tmp/myconfig/lexaloud/config.toml",
+      "expected": "/tmp/myconfig/lepramim/config.toml",
       "notes": "Path(base).resolve() canonicalizes base if exists"
     },
     {
       "id": "config_path_xdg_relative",
       "env": { "XDG_CONFIG_HOME": "relative/path" },
-      "expected": "$PWD/relative/path/lexaloud/config.toml",
+      "expected": "$PWD/relative/path/lepramim/config.toml",
       "notes": "Relative XDG_CONFIG_HOME resolved against current_dir"
     },
     {
@@ -167,12 +165,12 @@
     {
       "id": "socket_path",
       "env": { "XDG_RUNTIME_DIR": "/run/user/1000" },
-      "expected": "/run/user/1000/lexaloud/lexaloud.sock",
+      "expected": "/run/user/1000/lepramim/lepramim.sock",
       "notes": "Parent dir mode 0700; stale socket owned by current user removed, foreign owners refused"
     },
     {
       "id": "socket_parent_permissions",
-      "socket_dir": "/run/user/1000/lexaloud",
+      "socket_dir": "/run/user/1000/lepramim",
       "expected_mode": "0700",
       "must_be_owner_only": true
     }
@@ -188,7 +186,7 @@
       },
       {
         "id": "redact_home_in_bug_report",
-        "input": "Config at /home/alice/.config/lexaloud/config.toml",
+        "input": "Config at /home/alice/.config/lepramim/config.toml",
         "must_not_contain": ["/home/alice"]
       }
     ]

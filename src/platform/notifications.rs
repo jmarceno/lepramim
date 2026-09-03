@@ -12,7 +12,7 @@ pub fn try_notify(summary: &str, body: Option<&str>, timeout_s: f64) {
     let mut args = vec![
         notify,
         "--app-name".to_string(),
-        "Lexaloud".to_string(),
+        "Lepramim".to_string(),
         "--expire-time".to_string(),
         "3000".to_string(),
         "--".to_string(),

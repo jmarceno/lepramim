@@ -1,20 +1,20 @@
-# Lexaloud architecture
+# Lepramim architecture
 
-Lexaloud is a **single Rust binary** with an in-process **Iced** desktop shell and a **child daemon** for speech synthesis.
+Lepramim is a **single Rust binary** with an in-process **Iced** desktop shell and a **child daemon** for speech synthesis.
 
 ## Processes
 
 ```mermaid
 flowchart TD
-    subgraph AppProc["lexaloud app process"]
+    subgraph AppProc["lepramim app process"]
         Iced["iced::daemon"]
         Tray["ksni StatusNotifier tray"]
-        HK["D-Bus org.lexaloud.App + KGlobalAccel"]
+        HK["D-Bus org.lepramim.App + KGlobalAccel"]
         Cap["selection capture"]
         Win["Control / Overlay / Onboarding windows"]
     end
 
-    subgraph DaemonProc["lexaloud daemon child"]
+    subgraph DaemonProc["lepramim daemon child"]
         API["Axum UDS HTTP"]
         Player["Player + Kokoro + CPAL"]
     end
@@ -27,7 +27,7 @@ flowchart TD
     Cap -->|"POST /speak"| API
     Iced -->|"GET /state poll"| API
     Iced -->|"GET/POST /config"| API
-    AppProc -->|"spawn lexaloud daemon"| DaemonProc
+    AppProc -->|"spawn lepramim daemon"| DaemonProc
 ```
 
 ## Components
@@ -37,16 +37,17 @@ flowchart TD
 | GUI | Iced 0.13 (tiny-skia) | Tray-first daemon; windows on demand |
 | Tray | ksni (StatusNotifier) | Tray menu without GTK |
 | Hotkeys | zbus + KGlobalAccel | Meta+R speak, Meta+P toggle |
-| Capture | wl-paste / xclip / synthetic Ctrl+C | Unified Qt-algorithm port in `src/ui/capture.rs` |
+| Capture | wl-paste / xclip / synthetic Ctrl+C | Selection capture in `src/ui/capture.rs` |
 | Daemon API | Axum over Unix socket | TTS, audio, MPRIS, config |
 | Models | ureq + SHA-256 verify | Kokoro ONNX + voice bank download |
 
 ## Lifecycle
 
-1. `lexaloud` / `lexaloud app` ensures config exists (not blocking on model download).
-2. Iced starts tray + hotkeys; onboarding opens if artifacts are missing.
-3. When models are ready, the app spawns `lexaloud daemon`.
-4. Tray quit calls `POST /shutdown` and waits for the child.
+1. Opening the app ensures the config file exists (without waiting for models).
+2. The app starts the tray icon and hotkeys; the welcome window opens if the
+   speech models are missing.
+3. When models are ready, the app spawns its speech-engine child process.
+4. Quitting from the tray menu shuts the engine down and waits for it to exit.
 
 ## Configuration
 

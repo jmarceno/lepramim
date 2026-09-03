@@ -380,7 +380,7 @@ impl ControlForm {
         form.unknown_voice_note = !KOKORO_VOICES.iter().any(|v| v.id == form.voice);
         if form.unknown_voice_note {
             form.status = format!(
-                "Note: current voice '{}' is outside the curated list; edit ~/.config/lexaloud/config.toml directly to keep it.",
+                "Note: current voice '{}' is outside the curated list; edit ~/.config/lepramim/config.toml directly to keep it.",
                 form.voice
             );
         }
@@ -528,10 +528,12 @@ mod tests {
 
     #[test]
     fn filter_snaps_voice_to_language() {
-        let mut form = ControlForm::default();
-        form.voice = "af_heart".into();
-        form.lang = "ja".into();
-        form.filter_voices_by_lang = true;
+        let mut form = ControlForm {
+            voice: "af_heart".into(),
+            lang: "ja".into(),
+            filter_voices_by_lang: true,
+            ..ControlForm::default()
+        };
         form.ensure_voice_matches_filter();
         assert_eq!(voice_language(&form.voice), "ja");
         assert_eq!(form.voice, "jf_alpha");

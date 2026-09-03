@@ -266,14 +266,14 @@ async fn diagnostics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     JsonResponse(diag)
 }
 
-// UDS HTTP client helpers for CLI
+// UDS HTTP client helper (health check used by the GUI to detect a live daemon)
 pub async fn uds_get(path: &str) -> Result<serde_json::Value, String> {
     let sock = crate::config::socket_path();
     let mut stream = tokio::net::UnixStream::connect(&sock)
         .await
         .map_err(|e| format!("daemon not running: {}", e))?;
     let req = format!(
-        "GET {} HTTP/1.1\r\nHost: lexaloud\r\nConnection: close\r\n\r\n",
+        "GET {} HTTP/1.1\r\nHost: lepramim\r\nConnection: close\r\n\r\n",
         path
     );
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -302,53 +302,6 @@ pub async fn uds_get(path: &str) -> Result<serde_json::Value, String> {
         .and_then(|c| c.parse().ok())
         .unwrap_or(0);
     if code >= 400 {
-        return Err(format!("daemon returned {}: {}", code, body));
-    }
-    let v: serde_json::Value = serde_json::from_str(body.trim()).unwrap_or(serde_json::Value::Null);
-    Ok(v)
-}
-
-pub async fn uds_post(path: &str, body: &serde_json::Value) -> Result<serde_json::Value, String> {
-    let sock = crate::config::socket_path();
-    let mut stream = tokio::net::UnixStream::connect(&sock)
-        .await
-        .map_err(|e| format!("daemon not running: {}", e))?;
-    let body_str = serde_json::to_string(body).unwrap();
-    let req = format!(
-        "POST {} HTTP/1.1\r\nHost: lexaloud\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        path,
-        body_str.len(),
-        body_str
-    );
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    stream
-        .write_all(req.as_bytes())
-        .await
-        .map_err(|e| e.to_string())?;
-    stream.flush().await.map_err(|e| e.to_string())?;
-    let mut buf = Vec::new();
-    let read_fut = stream.read_to_end(&mut buf);
-    let n = tokio::time::timeout(std::time::Duration::from_secs(5), read_fut)
-        .await
-        .map_err(|_| "timeout".to_string())?
-        .map_err(|e| e.to_string())?;
-    if n == 0 {
-        return Err("empty response".to_string());
-    }
-    let resp = String::from_utf8_lossy(&buf);
-    let header_end = resp.find("\r\n\r\n").unwrap_or(0);
-    let header = &resp[..header_end];
-    let body = &resp[header_end + 4..];
-    let status_line = header.lines().next().unwrap_or("");
-    let code: u16 = status_line
-        .split_whitespace()
-        .nth(1)
-        .and_then(|c| c.parse().ok())
-        .unwrap_or(0);
-    if code >= 400 {
-        if code == 413 {
-            return Err("payload too large".to_string());
-        }
         return Err(format!("daemon returned {}: {}", code, body));
     }
     let v: serde_json::Value = serde_json::from_str(body.trim()).unwrap_or(serde_json::Value::Null);

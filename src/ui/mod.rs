@@ -15,19 +15,20 @@ use iced::widget::{
     Space, button, checkbox, column, container, horizontal_space, pick_list, progress_bar, row,
     scrollable, slider, text,
 };
-use iced::{Alignment, Background, Border, Color, Element, Length, Subscription, Task, Theme, window};
+use iced::{
+    Alignment, Background, Border, Color, Element, Length, Subscription, Task, Theme, window,
+};
 
 use crate::config::Config;
 use crate::models;
 use crate::single_instance::SingleInstanceEvent;
-use crate::ui::capture::{toggle_playback, SelectionCapture};
+use crate::ui::capture::{SelectionCapture, toggle_playback};
 use crate::ui::client::ApiResult;
 use crate::ui::hotkeys::{HotkeyEvent, HotkeyManager};
 use crate::ui::tray_service::{TrayEvent, TrayHandle, TraySharedState};
-use crate::ui::tray_state::{tray_icon_phase, tray_state_for_daemon, TrayIconPhase};
+use crate::ui::tray_state::{TrayIconPhase, tray_icon_phase, tray_state_for_daemon};
 use crate::ui::voices::{
-    ControlForm, KOKORO_VOICES, LANGUAGES, language_label, speed_from_slider,
-    speed_hint_for_value,
+    ControlForm, KOKORO_VOICES, LANGUAGES, language_label, speed_from_slider, speed_hint_for_value,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -67,8 +68,6 @@ enum Message {
     Tick,
     OverlayTick,
     PlaybackPoll,
-    Tray(TrayEvent),
-    Hotkey(HotkeyEvent),
     DaemonSpawned(Result<(), String>),
     StatePolled(Result<ApiResult, ()>),
     OverlayPolled(Result<ApiResult, ()>),
@@ -91,13 +90,9 @@ enum Message {
     TestSpeakDone(Result<ApiResult, ()>),
     CloseControl,
     OpenControl,
-    OpenOverlay,
-    CloseOverlay,
     OpenOnboarding,
-    CloseOnboarding,
     OnboardingSkip,
     OnboardingContinue,
-    DownloadProgress(DownloadProgress),
     DownloadFinished(Result<(), String>),
     StartDownload,
     RefreshModels,
@@ -110,8 +105,6 @@ enum Message {
     SpeakNow,
     SelectionCaptured(SelectionCapture),
     SelectionPosted(Result<ApiResult, ()>),
-    Quit,
-    ShowWarning(String),
     CloseWarning,
 }
 
@@ -254,7 +247,7 @@ impl App {
 
 pub fn run(show_control: bool, force_overlay: bool) -> i32 {
     println!(
-        "Lexaloud {} — local text-to-speech",
+        "Lepramim {} — local text-to-speech",
         env!("CARGO_PKG_VERSION")
     );
 
@@ -263,7 +256,7 @@ pub fn run(show_control: bool, force_overlay: bool) -> i32 {
     // before we touch display/tray/daemon state.
     let _single_guard = match crate::single_instance::acquire() {
         Ok(crate::single_instance::AcquireOutcome::Secondary) => {
-            eprintln!("Lexaloud is already running — showing the existing control window.");
+            eprintln!("Lepramim is already running — showing the existing control window.");
             return 0;
         }
         Ok(crate::single_instance::AcquireOutcome::Primary(g)) => Some(g),
@@ -274,9 +267,7 @@ pub fn run(show_control: bool, force_overlay: bool) -> i32 {
             None
         }
     };
-    let single_rx = _single_guard
-        .as_ref()
-        .map(|g| g.receiver().clone());
+    let single_rx = _single_guard.as_ref().map(|g| g.receiver().clone());
 
     if let Err(e) = ensure_config_only() {
         eprintln!("{e}");
@@ -293,7 +284,7 @@ pub fn run(show_control: bool, force_overlay: bool) -> i32 {
     let tray = match TrayHandle::start() {
         Ok(tray) => tray,
         Err(e) => {
-            eprintln!("Lexaloud cannot start without a system tray: {e}");
+            eprintln!("Lepramim cannot start without a system tray: {e}");
             return 1;
         }
     };
@@ -304,7 +295,7 @@ pub fn run(show_control: bool, force_overlay: bool) -> i32 {
 
     let result = iced::daemon(title, update, view)
         .settings(iced::Settings {
-            id: Some("lexaloud".into()),
+            id: Some("lepramim".into()),
             ..Default::default()
         })
         .subscription(subscription)
@@ -353,7 +344,7 @@ fn configure_iced_backend() {
     //
     // SAFETY: this runs before the tray, hotkey, daemon, or Iced threads start.
     unsafe {
-        std::env::set_var("LEXALOUD_WAYLAND_DISPLAY", wayland_display);
+        std::env::set_var("LEPRAMIM_WAYLAND_DISPLAY", wayland_display);
         std::env::remove_var("WAYLAND_DISPLAY");
     }
     tracing::info!("using XWayland for Iced to avoid Plasma's phantom winit task");
@@ -380,7 +371,7 @@ async fn spawn_daemon_async(
     }
     let bin =
         std::env::current_exe().unwrap_or_else(|_| crate::platform::service::resolve_binary_path());
-    let rt = crate::config::runtime_dir().join("lexaloud");
+    let rt = crate::config::runtime_dir().join("lepramim");
     let _ = std::fs::create_dir_all(&rt);
     let log_path = rt.join("daemon.log");
     let mut cmd = std::process::Command::new(&bin);
@@ -419,7 +410,7 @@ fn shutdown_daemon_sync(daemon_child: Arc<Mutex<Option<std::process::Child>>>) {
         let sock = crate::config::socket_path();
         if let Ok(mut stream) = tokio::net::UnixStream::connect(&sock).await {
             use tokio::io::AsyncWriteExt;
-            let req = b"POST /shutdown HTTP/1.1\r\nHost: lexaloud\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}";
+            let req = b"POST /shutdown HTTP/1.1\r\nHost: lepramim\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}";
             let _ = stream.write_all(req).await;
             let _ = stream.flush().await;
         }
@@ -458,7 +449,7 @@ fn open_window(app: &mut App, kind: WindowKind, width: f32, height: f32) -> Task
         transparent,
         level,
         platform_specific: window::settings::PlatformSpecific {
-            application_id: "lexaloud".into(),
+            application_id: "lepramim".into(),
             override_redirect: false,
         },
         ..Default::default()
@@ -488,7 +479,7 @@ fn ensure_control_visible(app: &mut App) -> Task<Message> {
             transparent: false,
             level: window::Level::Normal,
             platform_specific: window::settings::PlatformSpecific {
-                application_id: "lexaloud".into(),
+                application_id: "lepramim".into(),
                 override_redirect: false,
             },
             ..Default::default()
@@ -577,14 +568,6 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             })
         }
         Message::PlaybackPoll => poll_daemon_state(),
-        Message::Tray(ev) => {
-            let task = handle_tray(app, ev);
-            if app.quit_requested {
-                return iced::exit();
-            }
-            task
-        }
-        Message::Hotkey(ev) => handle_hotkey(ev),
         Message::DaemonSpawned(Ok(())) => Task::perform(async { client::get_config() }, |r| {
             Message::ConfigLoaded(Ok(r))
         }),
@@ -750,7 +733,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
         Message::TestSpeak => {
             app.set_preparing_speech(true);
             Task::perform(
-                async { client::post_speak("Hello from Lexaloud. This is a test.", "replace") },
+                async { client::post_speak("Hello from Lepramim. This is a test.", "replace") },
                 |r| Message::TestSpeakDone(Ok(r)),
             )
         }
@@ -779,13 +762,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             )
         }
         Message::OpenControl => ensure_control_visible(app),
-        Message::OpenOverlay => open_window(app, WindowKind::Overlay, 500.0, 80.0),
-        Message::CloseOverlay => {
-            app.overlay_visible = false;
-            Task::none()
-        }
         Message::OpenOnboarding => open_window(app, WindowKind::Onboarding, 420.0, 220.0),
-        Message::CloseOnboarding => Task::none(),
         Message::OnboardingSkip => {
             app.onboarding_skipped = true;
             app.onboarding_visible = false;
@@ -855,10 +832,6 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             });
             Task::none()
         }
-        Message::DownloadProgress(p) => {
-            app.download_progress = p;
-            Task::none()
-        }
         Message::DownloadFinished(Ok(())) => {
             app.download_active = false;
             app.download_progress.percent = 100;
@@ -920,10 +893,9 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             }
             app.set_preparing_speech(true);
             let text = cap.text;
-            Task::perform(
-                async move { client::post_speak(&text, "replace") },
-                |r| Message::SelectionPosted(Ok(r)),
-            )
+            Task::perform(async move { client::post_speak(&text, "replace") }, |r| {
+                Message::SelectionPosted(Ok(r))
+            })
         }
         Message::SelectionPosted(Ok(r)) => {
             if !r.is_success() || r.is_daemon_down() {
@@ -946,11 +918,6 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                 }
             }
             Task::none()
-        }
-        Message::Quit => iced::exit(),
-        Message::ShowWarning(text) => {
-            app.warning_text = Some(text);
-            open_window(app, WindowKind::Warning, 420.0, 140.0)
         }
         Message::CloseWarning => {
             app.warning_text = None;
@@ -1104,11 +1071,11 @@ fn subscription(app: &App) -> Subscription<Message> {
 
 fn title(app: &App, id: window::Id) -> String {
     match app.windows.get(&id) {
-        Some(WindowKind::Control) => "Lexaloud — Control".into(),
-        Some(WindowKind::Overlay) => "Lexaloud Overlay".into(),
-        Some(WindowKind::Onboarding) => "Lexaloud — preparing speech".into(),
-        Some(WindowKind::Warning) => "Lexaloud".into(),
-        None => "Lexaloud".into(),
+        Some(WindowKind::Control) => "Lepramim — Control".into(),
+        Some(WindowKind::Overlay) => "Lepramim Overlay".into(),
+        Some(WindowKind::Onboarding) => "Lepramim — preparing speech".into(),
+        Some(WindowKind::Warning) => "Lepramim".into(),
+        None => "Lepramim".into(),
     }
 }
 
@@ -1187,47 +1154,47 @@ fn view_control(app: &App) -> Element<'_, Message> {
 
     let tab_body: Element<Message> = match app.control_tab {
         1 => column![
-                checkbox(
-                    "Deduplicate MathJax selection",
-                    app.control_form.dedupe_mathjax
-                )
-                .on_toggle(Message::DedupeToggled),
-                checkbox("Strip Markdown", app.control_form.strip_markdown)
-                    .on_toggle(Message::StripMarkdownToggled),
-                checkbox(
-                    "Strip numeric bracket citations",
-                    app.control_form.strip_numeric_citations
-                )
-                .on_toggle(Message::StripCitationsToggled),
-                checkbox("Expand Latin abbreviations", app.control_form.expand_latin)
-                    .on_toggle(Message::ExpandLatinToggled),
-                checkbox("Normalize numbers", app.control_form.normalize_numbers)
-                    .on_toggle(Message::NormalizeNumbersToggled),
-            ]
-            .spacing(8)
-            .into(),
+            checkbox(
+                "Deduplicate MathJax selection",
+                app.control_form.dedupe_mathjax
+            )
+            .on_toggle(Message::DedupeToggled),
+            checkbox("Strip Markdown", app.control_form.strip_markdown)
+                .on_toggle(Message::StripMarkdownToggled),
+            checkbox(
+                "Strip numeric bracket citations",
+                app.control_form.strip_numeric_citations
+            )
+            .on_toggle(Message::StripCitationsToggled),
+            checkbox("Expand Latin abbreviations", app.control_form.expand_latin)
+                .on_toggle(Message::ExpandLatinToggled),
+            checkbox("Normalize numbers", app.control_form.normalize_numbers)
+                .on_toggle(Message::NormalizeNumbersToggled),
+        ]
+        .spacing(8)
+        .into(),
         2 => column![
-                checkbox(
-                    "Show floating overlay when speaking",
-                    app.control_form.overlay
-                )
-                .on_toggle(Message::OverlayToggled),
-                text("The overlay floats above other windows with pause, skip and stop controls.")
-                    .size(12)
-                    .style(iced::widget::text::secondary),
-            ]
-            .spacing(8)
-            .into(),
+            checkbox(
+                "Show floating overlay when speaking",
+                app.control_form.overlay
+            )
+            .on_toggle(Message::OverlayToggled),
+            text("The overlay floats above other windows with pause, skip and stop controls.")
+                .size(12)
+                .style(iced::widget::text::secondary),
+        ]
+        .spacing(8)
+        .into(),
         3 => column![
-                text(app.models_status.clone()).size(14),
-                row![
-                    button("Refresh").on_press(Message::RefreshModels),
-                    button("Download missing models").on_press(Message::StartDownload),
-                ]
-                .spacing(8),
+            text(app.models_status.clone()).size(14),
+            row![
+                button("Refresh").on_press(Message::RefreshModels),
+                button("Download missing models").on_press(Message::StartDownload),
             ]
-            .spacing(8)
-            .into(),
+            .spacing(8),
+        ]
+        .spacing(8)
+        .into(),
         _ => {
             let voice_count_note = if app.control_form.filter_voices_by_lang {
                 format!(
@@ -1243,58 +1210,55 @@ fn view_control(app: &App) -> Element<'_, Message> {
                 )
             };
             column![
-                    pick_list(voice_labels, Some(current_voice), |label| {
-                        let id = app
-                            .control_form
-                            .visible_voices()
-                            .iter()
-                            .find(|v| v.label == label)
-                            .map(|v| v.id.to_string())
-                            .or_else(|| {
-                                KOKORO_VOICES
-                                    .iter()
-                                    .find(|v| v.label == label)
-                                    .map(|v| v.id.to_string())
-                            })
-                            .unwrap_or(label);
-                        Message::VoiceSelected(id)
-                    }),
-                    row![
-                        pick_list(lang_labels, Some(current_lang), |label| {
-                            let id = LANGUAGES
+                pick_list(voice_labels, Some(current_voice), |label| {
+                    let id = app
+                        .control_form
+                        .visible_voices()
+                        .iter()
+                        .find(|v| v.label == label)
+                        .map(|v| v.id.to_string())
+                        .or_else(|| {
+                            KOKORO_VOICES
                                 .iter()
-                                .find(|l| l.label == label)
-                                .map(|l| l.id.to_string())
-                                .unwrap_or(label);
-                            Message::LangSelected(id)
+                                .find(|v| v.label == label)
+                                .map(|v| v.id.to_string())
                         })
-                        .width(Length::Fill),
-                        checkbox(
-                            "Filter by language",
-                            app.control_form.filter_voices_by_lang
-                        )
+                        .unwrap_or(label);
+                    Message::VoiceSelected(id)
+                }),
+                row![
+                    pick_list(lang_labels, Some(current_lang), |label| {
+                        let id = LANGUAGES
+                            .iter()
+                            .find(|l| l.label == label)
+                            .map(|l| l.id.to_string())
+                            .unwrap_or(label);
+                        Message::LangSelected(id)
+                    })
+                    .width(Length::Fill),
+                    checkbox("Filter by language", app.control_form.filter_voices_by_lang)
                         .on_toggle(Message::FilterVoicesToggled),
-                    ]
-                    .spacing(12)
-                    .align_y(Alignment::Center),
-                    hint(voice_count_note),
-                    text(format!("Speed: {speed:.2}\u{00d7}")),
-                    slider(
-                        50..=200,
-                        app.control_form.speed_slider,
-                        Message::SpeedChanged
-                    ),
-                    hint(speed_hint_for_value(speed)),
                 ]
-                .spacing(8)
-                .into()
+                .spacing(12)
+                .align_y(Alignment::Center),
+                hint(voice_count_note),
+                text(format!("Speed: {speed:.2}\u{00d7}")),
+                slider(
+                    50..=200,
+                    app.control_form.speed_slider,
+                    Message::SpeedChanged
+                ),
+                hint(speed_hint_for_value(speed)),
+            ]
+            .spacing(8)
+            .into()
         }
     };
 
     container(
         column![
             column![
-                text("Lexaloud").size(20),
+                text("Lepramim").size(20),
                 text("Local text-to-speech \u{2014} control panel")
                     .size(12)
                     .style(iced::widget::text::secondary),
@@ -1374,7 +1338,7 @@ fn view_overlay(app: &App) -> Element<'_, Message> {
 fn view_onboarding(app: &App) -> Element<'_, Message> {
     container(
         column![
-            text("Welcome to Lexaloud").size(20),
+            text("Welcome to Lepramim").size(20),
             text(app.download_progress.status.clone()),
             progress_bar(0.0..=100.0, app.download_progress.percent as f32),
             text(app.download_progress.filename.clone()).size(12),
@@ -1401,7 +1365,7 @@ fn view_warning(app: &App) -> Element<'_, Message> {
         .unwrap_or_else(|| "System tray not available on this desktop.".into());
     container(
         column![
-            text("Lexaloud").size(18),
+            text("Lepramim").size(18),
             text(msg),
             button("OK").on_press(Message::CloseWarning),
         ]

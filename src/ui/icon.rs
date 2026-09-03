@@ -1,8 +1,8 @@
-//! Render the Lexaloud SVG icon at tray sizes with optional opacity tint.
+//! Render the Lepramim SVG icon at tray sizes with optional opacity tint.
 //!
 //! Returns straight RGBA pixels, plus ARGB32 pixmaps for StatusNotifierItem.
 
-const ICON_SVG: &[u8] = include_bytes!("../lexaloud/icons/lexaloud.svg");
+const ICON_SVG: &[u8] = include_bytes!("../lepramim/icons/lepramim.svg");
 pub const TRAY_ICON_SIZE: u32 = 64;
 
 const BLUE_LIGHT: &str = "#6ea8fe";
@@ -10,20 +10,10 @@ const BLUE_DARK: &str = "#3d6fb6";
 const GREEN_LIGHT: &str = "#6edf8a";
 const GREEN_DARK: &str = "#3db66a";
 
-/// Straight RGBA bytes, `TRAY_ICON_SIZE * TRAY_ICON_SIZE * 4` long.
-pub fn render_tray_icon(running: bool) -> Option<Vec<u8>> {
-    render_tray_icon_with_mix(running, 0.0)
-}
-
 /// `mix` in `0.0..=1.0`: blue at 0, green at 1.
 pub fn render_tray_icon_with_mix(running: bool, mix: f32) -> Option<Vec<u8>> {
     let opacity = if running { 1.0 } else { 0.35 };
     render_icon_rgba(TRAY_ICON_SIZE, opacity, mix)
-}
-
-/// StatusNotifierItem pixmap: ARGB32, network byte order.
-pub fn render_tray_icon_argb32(running: bool) -> Option<ksni::Icon> {
-    render_tray_icon_argb32_with_mix(running, 0.0)
 }
 
 pub fn render_tray_icon_argb32_with_mix(running: bool, mix: f32) -> Option<ksni::Icon> {
@@ -55,9 +45,8 @@ fn lerp_hex_color(from: &str, to: &str, mix: f32) -> String {
     let a = parse(from);
     let b = parse(to);
     let t = mix.clamp(0.0, 1.0);
-    let lerp = |ca: u32, cb: u32| -> u32 {
-        ((ca as f32) * (1.0 - t) + (cb as f32) * t).round() as u32
-    };
+    let lerp =
+        |ca: u32, cb: u32| -> u32 { ((ca as f32) * (1.0 - t) + (cb as f32) * t).round() as u32 };
     let r = lerp((a >> 16) & 0xff, (b >> 16) & 0xff);
     let g = lerp((a >> 8) & 0xff, (b >> 8) & 0xff);
     let bl = lerp(a & 0xff, b & 0xff);
@@ -101,49 +90,49 @@ fn render_icon_rgba(size: u32, opacity: f32, mix: f32) -> Option<Vec<u8>> {
     Some(rgba)
 }
 
-fn avg_green_channel(rgba: &[u8]) -> f32 {
-    let mut sum = 0u64;
-    let mut count = 0u64;
-    for px in rgba.chunks_exact(4) {
-        if px[3] > 0 {
-            sum += px[1] as u64;
-            count += 1;
-        }
-    }
-    if count == 0 {
-        0.0
-    } else {
-        sum as f32 / count as f32
-    }
-}
-
-fn avg_alpha(rgba: &[u8]) -> f32 {
-    let mut sum = 0u64;
-    let mut count = 0u64;
-    for px in rgba.chunks_exact(4) {
-        if px[3] > 0 {
-            sum += px[3] as u64;
-            count += 1;
-        }
-    }
-    if count == 0 {
-        0.0
-    } else {
-        sum as f32 / count as f32
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn avg_green_channel(rgba: &[u8]) -> f32 {
+        let mut sum = 0u64;
+        let mut count = 0u64;
+        for px in rgba.chunks_exact(4) {
+            if px[3] > 0 {
+                sum += px[1] as u64;
+                count += 1;
+            }
+        }
+        if count == 0 {
+            0.0
+        } else {
+            sum as f32 / count as f32
+        }
+    }
+
+    fn avg_alpha(rgba: &[u8]) -> f32 {
+        let mut sum = 0u64;
+        let mut count = 0u64;
+        for px in rgba.chunks_exact(4) {
+            if px[3] > 0 {
+                sum += px[3] as u64;
+                count += 1;
+            }
+        }
+        if count == 0 {
+            0.0
+        } else {
+            sum as f32 / count as f32
+        }
+    }
+
     #[test]
     fn tray_icon_is_straight_rgba_64() {
-        let bytes = render_tray_icon(true).expect("svg render");
+        let bytes = render_tray_icon_with_mix(true, 0.0).expect("svg render");
         assert_eq!(bytes.len(), (TRAY_ICON_SIZE * TRAY_ICON_SIZE * 4) as usize);
-        let dim = render_tray_icon(false).expect("svg render dim");
+        let dim = render_tray_icon_with_mix(false, 0.0).expect("svg render dim");
         assert_eq!(dim.len(), bytes.len());
-        let icon = render_tray_icon_argb32(true).expect("argb");
+        let icon = render_tray_icon_argb32_with_mix(true, 0.0).expect("argb");
         assert_eq!(icon.data.len(), bytes.len());
         assert_eq!(icon.data[0], bytes[3]);
     }

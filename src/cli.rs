@@ -1,10 +1,8 @@
-#![allow(dead_code)]
-
 use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "lexaloud",
+    name = "lepramim",
     version,
     about = "Universal Linux text-to-speech tool for reading-along."
 )]
@@ -21,7 +19,7 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Run the Lexaloud desktop app: tray icon, daemon, and first-run setup
+    /// Run the Lepramim desktop app: tray icon, daemon, and first-run setup
     App,
     /// Alias for `app`
     Tray,
@@ -66,11 +64,6 @@ pub enum Commands {
     },
 }
 
-fn not_yet(cmd: &str) -> i32 {
-    eprintln!("not yet implemented: {cmd}");
-    1
-}
-
 /// Entry point for non-app subcommands (called from `main.rs` after clap parse).
 pub async fn run_async(cli: Cli) -> i32 {
     match cli.command {
@@ -106,7 +99,7 @@ async fn post_to_daemon(
         Ok(s) => s,
         Err(e) => {
             eprintln!(
-                "Could not reach Lexaloud ({}). Open the AppImage first.",
+                "Could not reach Lepramim ({}). Open the AppImage first.",
                 sock.display()
             );
             eprintln!("({e})");
@@ -115,7 +108,7 @@ async fn post_to_daemon(
     };
     let body_str = serde_json::to_string(&json_body).unwrap();
     let req = format!(
-        "POST {} HTTP/1.1\r\nHost: lexaloud\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "POST {} HTTP/1.1\r\nHost: lepramim\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         path,
         body_str.len(),
         body_str
@@ -159,7 +152,7 @@ async fn post_to_daemon(
         return Err(4);
     }
     if code >= 400 {
-        eprintln!("Lexaloud daemon returned {code}: {body}");
+        eprintln!("Lepramim daemon returned {code}: {body}");
         return Err(1);
     }
     let v: serde_json::Value = serde_json::from_str(body.trim()).unwrap_or(serde_json::Value::Null);
@@ -172,14 +165,14 @@ async fn get_from_daemon(path: &str) -> Result<serde_json::Value, i32> {
         Ok(s) => s,
         Err(_) => {
             eprintln!(
-                "Could not reach Lexaloud ({}). Open the AppImage first.",
+                "Could not reach Lepramim ({}). Open the AppImage first.",
                 sock.display()
             );
             return Err(3);
         }
     };
     let req = format!(
-        "GET {} HTTP/1.1\r\nHost: lexaloud\r\nConnection: close\r\n\r\n",
+        "GET {} HTTP/1.1\r\nHost: lepramim\r\nConnection: close\r\n\r\n",
         path
     );
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -231,7 +224,7 @@ async fn is_daemon_healthy_quiet() -> bool {
         Ok(s) => s,
         Err(_) => return false,
     };
-    let req = b"GET /healthz HTTP/1.1\r\nHost: lexaloud\r\nConnection: close\r\n\r\n";
+    let req = b"GET /healthz HTTP/1.1\r\nHost: lepramim\r\nConnection: close\r\n\r\n";
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     if stream.write_all(req).await.is_err() {
         return false;
@@ -265,65 +258,12 @@ fn ensure_user_files() -> Result<(), String> {
     Ok(())
 }
 
-async fn spawn_daemon() -> Result<Option<std::process::Child>, String> {
-    spawn_daemon_inner(true).await
-}
-
-async fn spawn_daemon_inner(independent: bool) -> Result<Option<std::process::Child>, String> {
-    if is_daemon_healthy_quiet().await {
-        return Ok(None);
-    }
-    ensure_user_files()?;
-    if is_daemon_healthy_quiet().await {
-        return Ok(None);
-    }
-    let bin = if independent {
-        crate::platform::service::resolve_binary_path()
-    } else {
-        std::env::current_exe().unwrap_or_else(|_| crate::platform::service::resolve_binary_path())
-    };
-    let rt = crate::config::runtime_dir().join("lexaloud");
-    let _ = std::fs::create_dir_all(&rt);
-    let log_path = rt.join("daemon.log");
-    let mut cmd = std::process::Command::new(&bin);
-    cmd.arg("daemon").stdin(std::process::Stdio::null());
-    match std::fs::File::create(&log_path) {
-        Ok(log) => match log.try_clone() {
-            Ok(log2) => {
-                cmd.stdout(std::process::Stdio::from(log));
-                cmd.stderr(std::process::Stdio::from(log2));
-            }
-            Err(_) => {
-                cmd.stdout(std::process::Stdio::null());
-                cmd.stderr(std::process::Stdio::null());
-            }
-        },
-        Err(_) => {
-            cmd.stdout(std::process::Stdio::null());
-            cmd.stderr(std::process::Stdio::null());
-        }
-    }
-    let child = cmd
-        .spawn()
-        .map_err(|e| format!("failed to start daemon via {}: {e}", bin.display()))?;
-    for _ in 0..150 {
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-        if is_daemon_healthy_quiet().await {
-            return Ok(Some(child));
-        }
-    }
-    Err(format!(
-        "daemon did not become ready. See {}",
-        log_path.display()
-    ))
-}
-
 async fn request_daemon_shutdown(mut child: Option<std::process::Child>) {
     let sock = crate::config::socket_path();
     if let Ok(mut stream) = tokio::net::UnixStream::connect(&sock).await {
         let body = "{}";
         let req = format!(
-            "POST /shutdown HTTP/1.1\r\nHost: lexaloud\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            "POST /shutdown HTTP/1.1\r\nHost: lepramim\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             body.len(),
             body
         );
@@ -354,7 +294,7 @@ async fn cmd_speak_selection(max_bytes_opt: Option<usize>) -> i32 {
             eprintln!("No selection found. Select text and press Meta+R again.");
             crate::platform::notifications::try_notify(
                 "Select text first",
-                Some("Lexaloud: no selection found."),
+                Some("Lepramim: no selection found."),
                 1.0,
             );
             return 2;
@@ -362,7 +302,7 @@ async fn cmd_speak_selection(max_bytes_opt: Option<usize>) -> i32 {
         Err(crate::platform::selection::SelectionError::DisplayUnavailable(msg)) => {
             eprintln!("{msg}");
             crate::platform::notifications::try_notify(
-                "Lexaloud: cannot reach display server",
+                "Lepramim: cannot reach display server",
                 Some("Is DISPLAY set? Are you running from a session that can talk to X/Wayland?"),
                 1.0,
             );
@@ -371,7 +311,7 @@ async fn cmd_speak_selection(max_bytes_opt: Option<usize>) -> i32 {
         Err(crate::platform::selection::SelectionError::ToolMissing(msg)) => {
             eprintln!("{msg}");
             crate::platform::notifications::try_notify(
-                "Lexaloud: capture tool missing",
+                "Lepramim: capture tool missing",
                 Some(&msg),
                 1.0,
             );
@@ -380,7 +320,7 @@ async fn cmd_speak_selection(max_bytes_opt: Option<usize>) -> i32 {
         Err(crate::platform::selection::SelectionError::Timeout(t)) => {
             eprintln!("capture timed out after {t}s");
             crate::platform::notifications::try_notify(
-                "Lexaloud: capture timed out",
+                "Lepramim: capture timed out",
                 Some(&format!("capture timed out after {t}s")),
                 1.0,
             );
@@ -396,7 +336,7 @@ async fn cmd_speak_selection(max_bytes_opt: Option<usize>) -> i32 {
         crate::platform::notifications::try_notify(
             "Selection truncated",
             Some(&format!(
-                "Lexaloud captured the first {} bytes of a larger selection.",
+                "Lepramim captured the first {} bytes of a larger selection.",
                 max_bytes
             )),
             1.0,
@@ -420,7 +360,7 @@ async fn cmd_speak_clipboard(max_bytes_opt: Option<usize>) -> i32 {
             if r.truncated {
                 crate::platform::notifications::try_notify(
                     "Selection truncated",
-                    Some(&format!("Lexaloud captured the first {} bytes", max_bytes)),
+                    Some(&format!("Lepramim captured the first {} bytes", max_bytes)),
                     1.0,
                 );
             }
@@ -430,7 +370,7 @@ async fn cmd_speak_clipboard(max_bytes_opt: Option<usize>) -> i32 {
             eprintln!("{}", msg);
             crate::platform::notifications::try_notify(
                 "Copy text first",
-                Some("Lexaloud: clipboard is empty. Press Ctrl+C first."),
+                Some("Lepramim: clipboard is empty. Press Ctrl+C first."),
                 1.0,
             );
             return 2;
@@ -438,7 +378,7 @@ async fn cmd_speak_clipboard(max_bytes_opt: Option<usize>) -> i32 {
         Err(crate::platform::selection::SelectionError::ToolMissing(msg)) => {
             eprintln!("{}", msg);
             crate::platform::notifications::try_notify(
-                "Lexaloud: capture tool missing",
+                "Lepramim: capture tool missing",
                 Some(&msg),
                 1.0,
             );
@@ -505,7 +445,7 @@ async fn cmd_status() -> i32 {
     let _hyper_req = hyper::Request::builder()
         .method(hyper::Method::GET)
         .uri("/state")
-        .header(hyper::header::HOST, "lexaloud")
+        .header(hyper::header::HOST, "lepramim")
         .header(hyper::header::CONNECTION, "close")
         .body(())
         .expect("hyper request builds");
@@ -513,12 +453,12 @@ async fn cmd_status() -> i32 {
     let mut stream = match tokio::net::UnixStream::connect(&sock).await {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Could not reach Lexaloud ({}): {e}", sock.display());
+            eprintln!("Could not reach Lepramim ({}): {e}", sock.display());
             return 3;
         }
     };
 
-    let raw_req = b"GET /state HTTP/1.1\r\nHost: lexaloud\r\nConnection: close\r\n\r\n";
+    let raw_req = b"GET /state HTTP/1.1\r\nHost: lepramim\r\nConnection: close\r\n\r\n";
     if let Err(e) = tokio::io::AsyncWriteExt::write_all(&mut stream, raw_req).await {
         eprintln!("failed to send request to daemon: {e}");
         return 1;
@@ -561,7 +501,7 @@ async fn cmd_status() -> i32 {
         .and_then(|c| c.parse().ok())
         .unwrap_or(0);
     if code >= 400 && code != 0 {
-        eprintln!("Lexaloud daemon returned {code}: {body}");
+        eprintln!("Lepramim daemon returned {code}: {body}");
         return 1;
     }
 
@@ -638,12 +578,12 @@ async fn cmd_setup(force: bool) -> i32 {
         Ok(path) => println!("Will start with the desktop session ({})", path.display()),
         Err(e) => eprintln!("Could not write autostart entry: {e}"),
     }
-    println!("Lexaloud is ready. Double-click the AppImage to use it.");
+    println!("Lepramim is ready. Double-click the AppImage to use it.");
     0
 }
 
 async fn cmd_daemon() -> i32 {
-    println!("Starting Lexaloud daemon...");
+    println!("Starting Lepramim daemon...");
     match crate::daemon::run().await {
         Ok(_) => 0,
         Err(e) => {
@@ -672,10 +612,10 @@ async fn cmd_uninstall() -> i32 {
     }
 
     // Best-effort cleanup of leftover units from older installs.
-    let unit_path = crate::platform::service::systemd_user_dir().join("lexaloud.service");
+    let unit_path = crate::platform::service::systemd_user_dir().join("lepramim.service");
     if unit_path.is_file() {
         let _ = std::process::Command::new("systemctl")
-            .args(["--user", "disable", "--now", "lexaloud.service"])
+            .args(["--user", "disable", "--now", "lepramim.service"])
             .output();
         let _ = std::fs::remove_file(&unit_path);
         let _ = std::process::Command::new("systemctl")
@@ -698,8 +638,8 @@ async fn cmd_bug_report(full: bool) -> i32 {
     // Collect similar to native bug_report
     let version = env!("CARGO_PKG_VERSION");
     let mut out = String::new();
-    out.push_str("# Lexaloud bug report\n\n");
-    out.push_str(&format!("- **Lexaloud**: {}\n", version));
+    out.push_str("# Lepramim bug report\n\n");
+    out.push_str(&format!("- **Lepramim**: {}\n", version));
     out.push_str(&format!("- **Rust**: {}\n", rustc_version()));
     // distro etc.
     let distro = detect_distro_stub();
@@ -780,28 +720,28 @@ mod tests {
 
     #[test]
     fn parse_status() {
-        let cli = Cli::try_parse_from(["lexaloud", "status"]).unwrap();
+        let cli = Cli::try_parse_from(["lepramim", "status"]).unwrap();
         assert!(matches!(cli.command, Some(Commands::Status)));
     }
 
     #[test]
     fn parse_app_and_tray() {
-        let cli = Cli::try_parse_from(["lexaloud", "app"]).unwrap();
+        let cli = Cli::try_parse_from(["lepramim", "app"]).unwrap();
         assert!(matches!(cli.command, Some(Commands::App)));
-        let cli = Cli::try_parse_from(["lexaloud", "tray"]).unwrap();
+        let cli = Cli::try_parse_from(["lepramim", "tray"]).unwrap();
         assert!(matches!(cli.command, Some(Commands::Tray)));
     }
 
     #[test]
     fn parse_download_models_flags() {
-        let cli = Cli::try_parse_from(["lexaloud", "download-models", "--llm"]).unwrap();
+        let cli = Cli::try_parse_from(["lepramim", "download-models", "--llm"]).unwrap();
         if let Some(Commands::DownloadModels { llm, all }) = cli.command {
             assert!(llm);
             assert!(!all);
         } else {
             panic!("wrong command");
         }
-        let cli = Cli::try_parse_from(["lexaloud", "download-models", "--all"]).unwrap();
+        let cli = Cli::try_parse_from(["lepramim", "download-models", "--all"]).unwrap();
         if let Some(Commands::DownloadModels { llm, all }) = cli.command {
             assert!(!llm);
             assert!(all);
@@ -812,18 +752,18 @@ mod tests {
 
     #[test]
     fn parse_setup_force() {
-        let cli = Cli::try_parse_from(["lexaloud", "setup", "--force"]).unwrap();
+        let cli = Cli::try_parse_from(["lepramim", "setup", "--force"]).unwrap();
         assert!(matches!(cli.command, Some(Commands::Setup { force: true })));
     }
 
     #[test]
     fn parse_bug_report_full() {
-        let cli = Cli::try_parse_from(["lexaloud", "bug-report", "--full"]).unwrap();
+        let cli = Cli::try_parse_from(["lepramim", "bug-report", "--full"]).unwrap();
         assert!(matches!(
             cli.command,
             Some(Commands::BugReport { full: true })
         ));
-        let cli = Cli::try_parse_from(["lexaloud", "bug-report"]).unwrap();
+        let cli = Cli::try_parse_from(["lepramim", "bug-report"]).unwrap();
         assert!(matches!(
             cli.command,
             Some(Commands::BugReport { full: false })
@@ -833,7 +773,7 @@ mod tests {
     #[test]
     fn parse_speak_selection_max_bytes() {
         let cli =
-            Cli::try_parse_from(["lexaloud", "speak-selection", "--max-bytes", "12345"]).unwrap();
+            Cli::try_parse_from(["lepramim", "speak-selection", "--max-bytes", "12345"]).unwrap();
         if let Some(Commands::SpeakSelection { max_bytes }) = cli.command {
             assert_eq!(max_bytes, Some(12345));
         } else {
