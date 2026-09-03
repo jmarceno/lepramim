@@ -14,7 +14,6 @@ pub struct DaemonComponents {
     pub config: Config,
     pub player: Arc<Player<KokoroProvider, CpalSink>>,
     pub preproc_config: PreprocessorConfig,
-    pub normalizer: Option<Arc<crate::preprocessor::llm::LlmNormalizer>>,
 }
 
 pub fn build_components(cfg: Option<Config>) -> Result<DaemonComponents, String> {
@@ -73,34 +72,10 @@ pub fn build_components(cfg: Option<Config>) -> Result<DaemonComponents, String>
         pdf_cleanup: cfg.preprocessor.pdf_cleanup,
     };
 
-    let normalizer = if cfg.normalizer.enabled {
-        let llm_cfg = crate::preprocessor::llm::LlmNormalizerConfig {
-            enabled: cfg.normalizer.enabled,
-            model_path: cfg.normalizer.model_path.clone(),
-            model_repo: cfg.normalizer.model_repo.clone(),
-            model_file: cfg.normalizer.model_file.clone(),
-            n_gpu_layers: cfg.normalizer.n_gpu_layers,
-            n_ctx: cfg.normalizer.n_ctx,
-            temperature: cfg.normalizer.temperature,
-            max_output_ratio: cfg.normalizer.max_output_ratio,
-            glossary: cfg.normalizer.glossary.clone(),
-        };
-        match crate::preprocessor::llm::LlmNormalizer::new(llm_cfg) {
-            Ok(n) => Some(Arc::new(n)),
-            Err(e) => {
-                tracing::warn!("LLM normalizer init failed: {}", e);
-                None
-            }
-        }
-    } else {
-        None
-    };
-
     Ok(DaemonComponents {
         config: cfg,
         player,
         preproc_config,
-        normalizer,
     })
 }
 
@@ -119,7 +94,6 @@ pub async fn run() -> Result<(), String> {
         player: components.player.clone(),
         config: Arc::new(Mutex::new(components.config)),
         preproc_config: components.preproc_config,
-        normalizer: components.normalizer,
         shutdown: tokio::sync::Notify::new(),
     });
 

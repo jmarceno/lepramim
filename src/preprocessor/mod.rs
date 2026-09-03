@@ -1,6 +1,5 @@
 pub mod abbreviations;
 pub mod citations;
-pub mod llm;
 pub mod markdown;
 pub mod math;
 pub mod numbers;
@@ -12,7 +11,6 @@ use crate::config::PreprocessorCfg;
 
 pub use abbreviations::{expand_academic_abbreviations, expand_latin_abbreviations};
 pub use citations::{strip_numeric_bracket_citations, strip_parenthetical_citations};
-pub use llm::LlmNormalizer;
 pub use markdown::markdown_to_tts_prose;
 pub use math::{normalize_math_symbols, normalize_urls_emails};
 pub use pdf::clean_pdf_paste;
@@ -245,66 +243,6 @@ pub fn preprocess(text: &str, config: Option<&PreprocessorConfig>) -> Vec<String
         .collect()
 }
 
-pub async fn preprocess_with_llm(
-    text: String,
-    config: Option<PreprocessorConfig>,
-    normalizer: Option<&LlmNormalizer>,
-) -> Vec<String> {
-    let cfg = config.unwrap_or_default();
-    let mut t = text;
-    if cfg.dedupe_mathjax_selection {
-        t = dedupe_mathjax_selection(&t);
-    }
-    if cfg.strip_markdown {
-        t = markdown_to_tts_prose(&t);
-    }
-    if cfg.sre_latex_enabled {
-        t = latex_to_speech(
-            &t,
-            cfg.sre_latex_timeout_s,
-            &cfg.sre_latex_domain,
-            if cfg.sre_latex_style.is_empty() {
-                None
-            } else {
-                Some(&cfg.sre_latex_style)
-            },
-        );
-    }
-    if cfg.normalize_math_symbols {
-        t = normalize_math_symbols(&t);
-    }
-    if cfg.pdf_cleanup {
-        t = clean_pdf_paste(&t);
-    }
-    if cfg.strip_numeric_bracket_citations {
-        t = strip_numeric_bracket_citations(&t);
-    }
-    if cfg.strip_parenthetical_citations {
-        t = strip_parenthetical_citations(&t);
-    }
-    if cfg.expand_latin_abbreviations {
-        t = expand_latin_abbreviations(&t);
-    }
-    if cfg.expand_academic_abbreviations {
-        t = expand_academic_abbreviations(&t);
-    }
-    if cfg.normalize_urls {
-        t = normalize_urls_emails(&t);
-    }
-    if cfg.normalize_numbers {
-        t = crate::preprocessor::numbers::normalize_numbers(&t);
-    }
-    if let Some(n) = normalizer {
-        t = n.normalize(t).await;
-    }
-    let sentences = split_sentences(&t);
-    sentences
-        .into_iter()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,9 +282,9 @@ mod tests {
         let s2 = preprocess(&joined, None);
         assert!(!s2.is_empty());
     }
-    #[tokio::test]
-    async fn preprocess_with_llm_no_normalizer() {
-        let s = preprocess_with_llm("Hello world. Test.".to_string(), None, None).await;
+    #[test]
+    fn pipeline_smoke() {
+        let s = preprocess("Hello world. Test.", None);
         assert!(!s.is_empty());
     }
 

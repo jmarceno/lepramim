@@ -46,11 +46,9 @@ cpal = { version = "=0.15.3" }
 ureq = { version = "=2.12.1" }
 zbus = { version = "=4.4.0", default-features = false, features = ["tokio", "blocking"] }
 ashpd = { version = "=0.8.1", default-features = false, features = ["async-std"] }
-llama-cpp-2 = { version = "=0.1.97", optional = true }
 
 [features]
 default = []
-llm = ["dep:llama-cpp-2"]
 cuda = ["ort/cuda"]
 
 [dev-dependencies]

@@ -2,7 +2,7 @@
 # Lepramim native build — single Rust binary (Iced tray UI in-process).
 #
 # Usage:
-#   ./scripts/build-native.sh [--debug|--release] [--stage <absolute-path>] [--features llm]
+#   ./scripts/build-native.sh [--debug|--release] [--stage <absolute-path>] [--features cuda]
 #
 set -euo pipefail
 
@@ -18,7 +18,7 @@ Usage: $0 [--debug|--release] [--stage <absolute-path>] [--features <feats>]
   --debug            Debug build (default)
   --release          Release build
   --stage <path>     Absolute path to stage directory (default: \$PWD/build/stage)
-  --features <feats> Extra cargo features (e.g. llm).
+  --features <feats> Extra cargo features (e.g. cuda).
   -h, --help         Show this help
 EOF
 }

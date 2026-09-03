@@ -221,27 +221,6 @@
       "module": "test_preprocessor_integration_pipeline",
       "input": "   \n\n  \n",
       "expected_sentences": []
-    },
-    {
-      "id": "llm_normalization_after_rules_before_segmentation",
-      "module": "test_llm_normalize",
-      "description": "Optional LLM stage runs after rules, before segmentation; sees full paragraphs for acronym context",
-      "config": {
-        "sre_latex_enabled": false,
-        "normalize_numbers": true
-      },
-      "llm_enabled": false,
-      "input": "The GCBF ensures safety for MAPPO agents.",
-      "expected_sentences_when_llm_disabled": [
-        "The GCBF ensures safety for MAPPO agents."
-      ],
-      "expected_sentences_when_llm_enabled_with_glossary": [
-        "The Graph Control Barrier Function ensures safety for Multi-Agent Proximal Policy Optimization agents."
-      ],
-      "glossary": {
-        "GCBF": "Graph Control Barrier Function",
-        "MAPPO": "Multi-Agent Proximal Policy Optimization"
-      }
     }
   ]
 }

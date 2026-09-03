@@ -1,6 +1,6 @@
 {
   "$schema": "lepramim://fixtures/cli/v1",
-  "generated_from": "tests/test_cli_daemon_down.py, tests/test_cli_llm_download.py, tests/test_bug_report.py, tests/test_setup.py, tests/test_uninstall.py, src/lepramim/cli.py, src/cli.rs",
+  "generated_from": "tests/test_cli_daemon_down.py, tests/test_bug_report.py, tests/test_setup.py, tests/test_uninstall.py, src/lepramim/cli.py, src/cli.rs",
   "notes": "Only stable user-facing text asserted; dynamic paths/timestamps not asserted. Covers all CLI commands, exit codes, daemon-down errors, --help/--version.",
   "global_flags": [
     {
@@ -147,16 +147,6 @@
       "args": ["download-models"],
       "precondition": "models missing",
       "expected": { "exit": 1, "stdout_contains": ["missing", "kokoro"] }
-    },
-    {
-      "id": "download_models_with_llm_flag",
-      "args": ["download-models", "--llm"],
-      "expected": { "exit": 0, "stdout_contains": ["qwen"] }
-    },
-    {
-      "id": "download_models_all_flag",
-      "args": ["download-models", "--all"],
-      "expected": { "parsed_all": true }
     },
     {
       "id": "setup_creates_config",

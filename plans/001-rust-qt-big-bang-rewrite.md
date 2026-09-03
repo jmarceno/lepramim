@@ -363,11 +363,10 @@ path.
    from observed behavior. Do not call Python or ship `pysbd`.
 4. Preserve SRE LaTeX as an optional bounded subprocess integration if SRE is
    enabled; validate timeout, output limits, and error behavior.
-5. Preserve optional local-LLM normalization through a native llama.cpp binding
-   or C API with strict model/download validation. Keep it after rules and
-   before segmentation. This feature may be completed late in the branch, but
-   the rewrite cannot merge without it if it is supported in the release being
-   replaced.
+5. Local-LLM normalization was dropped: the llama.cpp binding never shipped
+   real inference (glossary-only stub, unused optional dependency) and has
+   been removed along with its config section, model download, and fixtures.
+   Rule-based preprocessing plus optional SRE LaTeX is the full pipeline.
 
 **Gate:** Every preprocessing fixture matches exactly. Property tests cover no
 panics, output bounds, Unicode validity, and idempotence where the current stage

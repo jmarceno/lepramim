@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 use crate::audio::CpalSink;
 use crate::config::Config;
 use crate::player::{Player, PlayerState};
-use crate::preprocessor::{PreprocessorConfig, preprocess_with_llm};
+use crate::preprocessor::{PreprocessorConfig, preprocess};
 use crate::tts::kokoro::KokoroProvider;
 
 pub const MAX_SENTENCE_CHARS: usize = 4096;
@@ -23,7 +23,6 @@ pub struct AppState {
     pub player: Arc<Player<KokoroProvider, CpalSink>>,
     pub config: Arc<Mutex<Config>>,
     pub preproc_config: PreprocessorConfig,
-    pub normalizer: Option<Arc<crate::preprocessor::llm::LlmNormalizer>>,
     pub shutdown: tokio::sync::Notify,
 }
 
@@ -152,13 +151,7 @@ async fn speak(
     }
 
     // Preprocess
-    let normalizer_ref = state.normalizer.as_deref();
-    let sentences = preprocess_with_llm(
-        req.text.clone(),
-        Some(state.preproc_config.clone()),
-        normalizer_ref,
-    )
-    .await;
+    let sentences = preprocess(&req.text, Some(&state.preproc_config));
     if sentences.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
@@ -336,7 +329,6 @@ mod tests {
             player,
             config: Arc::new(Mutex::new(cfg)),
             preproc_config: PreprocessorConfig::default(),
-            normalizer: None,
             shutdown: tokio::sync::Notify::new(),
         })
     }

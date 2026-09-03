@@ -76,12 +76,6 @@
     "progress_callback": "optional progress_cb(filename, bytes_downloaded)",
     "idempotent": "ensure_artifacts re-verifies existing files; missing or hash-mismatch triggers download"
   },
-  "llm_model": {
-    "default_repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
-    "default_file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
-    "description": "Optional LLM for normalization; ~1.2 GB VRAM; downloaded via download-models --llm",
-    "cache_path": "~/.cache/lepramim/models/qwen2.5-1.5b-instruct-q4_k_m.gguf"
-  },
   "verification_cases": [
     {
       "id": "sha256_of_existing_file",

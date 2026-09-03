@@ -31,25 +31,12 @@ pub const ARTIFACTS: &[Artifact] = &[
     },
 ];
 
-#[derive(Debug, Clone)]
-pub struct LlmArtifact {
-    pub filename: &'static str,
-    pub url: &'static str,
-    pub sha256: Option<&'static str>,
-}
-
-pub const LLM_ARTIFACT: LlmArtifact = LlmArtifact {
-    filename: "qwen2.5-1.5b-instruct-q4_k_m.gguf",
-    url: "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/main/qwen2.5-1.5b-instruct-q4_k_m.gguf",
-    sha256: None,
-};
-
 #[derive(thiserror::Error, Debug)]
 pub enum ArtifactError {
-    #[error("missing artifact: {0}. Run `lepramim download-models` to fetch it.")]
+    #[error("missing artifact: {0}. Open the Lepramim app to download it.")]
     Missing(PathBuf),
     #[error(
-        "SHA256 mismatch for {path}\n  expected: {expected}\n  got:      {got}\n  delete the file and re-run `lepramim download-models`."
+        "SHA256 mismatch for {path}\n  expected: {expected}\n  got:      {got}\n  delete the file and open the Lepramim app to download it again."
     )]
     ShaMismatch {
         path: PathBuf,
@@ -112,29 +99,6 @@ fn resolve_cache_dir(cache_dir: Option<&Path>) -> PathBuf {
             .unwrap_or_else(|_| PathBuf::from("."))
             .join(cache)
     }
-}
-
-/// Ensure model_file stays inside cache_dir (path containment).
-pub fn model_file_in_cache(cache_dir: &Path, model_file: &str) -> Result<PathBuf, String> {
-    if model_file.is_empty() {
-        return Err("model_file is empty".to_string());
-    }
-    if model_file.contains("..") || model_file.starts_with('/') {
-        return Err(format!(
-            "model_file must be a relative name inside the cache: {model_file}"
-        ));
-    }
-    let path = cache_dir.join(model_file);
-    let canonical_cache = cache_dir
-        .canonicalize()
-        .unwrap_or_else(|_| cache_dir.to_path_buf());
-    let parent = path.parent().unwrap_or(cache_dir);
-    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    let canonical_path = path.canonicalize().unwrap_or(path.clone());
-    if !canonical_path.starts_with(&canonical_cache) {
-        return Err(format!("model_file escapes cache dir: {}", model_file));
-    }
-    Ok(path)
 }
 
 /// Compute SHA256 hex of file.
@@ -309,33 +273,6 @@ pub fn ensure_artifacts(
     Ok(out)
 }
 
-/// Download optional LLM model when requested.
-pub fn ensure_llm_model(
-    cache_dir: Option<&Path>,
-    model_file: &str,
-    download_if_missing: bool,
-) -> Result<PathBuf, ArtifactError> {
-    let cache = resolve_cache_dir(cache_dir);
-    std::fs::create_dir_all(&cache)?;
-    let path =
-        model_file_in_cache(&cache, model_file).map_err(|e| ArtifactError::DownloadFailed {
-            url: LLM_ARTIFACT.url.to_string(),
-            detail: e,
-        })?;
-    if path.is_file() {
-        return Ok(path);
-    }
-    if !download_if_missing {
-        return Err(ArtifactError::Missing(path));
-    }
-    if model_file != LLM_ARTIFACT.filename {
-        return Err(ArtifactError::Missing(path));
-    }
-    tracing::info!("Downloading LLM model from {}", LLM_ARTIFACT.url);
-    download_file(LLM_ARTIFACT.url, &path)?;
-    Ok(path)
-}
-
 /// Verify ONNX Runtime environment via ort session builder.
 /// Test hooks: LEPRAMIM_ORT_SIMULATE_ERROR, LEPRAMIM_ORT_DISTS.
 pub fn assert_onnxruntime_environment() -> Result<String, OnnxruntimeEnvironmentError> {
@@ -469,15 +406,6 @@ mod tests {
     #[test]
     fn max_model_download_bytes_is_4gib() {
         assert_eq!(MAX_MODEL_DOWNLOAD_BYTES, 4 * (1u64 << 30));
-    }
-
-    #[test]
-    fn model_file_containment_rejects_traversal() {
-        let tmp = std::env::temp_dir().join(format!("lepramim_contain_{}", std::process::id()));
-        std::fs::create_dir_all(&tmp).unwrap();
-        assert!(model_file_in_cache(&tmp, "../evil.gguf").is_err());
-        assert!(model_file_in_cache(&tmp, "/etc/passwd").is_err());
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

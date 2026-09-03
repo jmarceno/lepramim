@@ -174,8 +174,7 @@ Lepramim works out of the box, but every setting is also stored as plain text
 at `~/.config/lepramim/config.toml` (created on first launch with defaults).
 The control window edits voice, speed, overlay, and the main preprocessor
 switches for you; the file additionally holds capture limits, audio queue
-depth, and the optional local-LLM normalizer and LaTeX speech sections, which
-are off by default.
+depth, and the optional LaTeX speech section, which is off by default.
 
 If you edit the file by hand, your changes apply the next time the speech
 engine starts (toggle it in the tray menu, or relaunch the app). Unknown keys

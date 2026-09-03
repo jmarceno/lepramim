@@ -68,31 +68,6 @@ pdf_cleanup = true
 # feedback during playback.
 overlay = false
 
-# --- LLM-based text normalization (optional) ---
-# Requires a source install with LLM support (install.sh --with-llm);
-# fetch the optional GGUF model from the control window's Models tab.
-# Uses a local ~1.5B parameter model to normalize edge cases the
-# rule-based pipeline can't handle (complex math, domain acronyms,
-# OCR artifacts, tables). Adds ~1.2 GB VRAM usage. Off by default.
-#
-# [normalizer]
-# enabled = false
-# model_repo = "Qwen/Qwen2.5-1.5B-Instruct-GGUF"
-# model_file = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
-# n_gpu_layers = -1   # -1 = all layers on GPU; set 0 for CPU-only
-# n_ctx = 4096
-# temperature = 0.0
-# max_output_ratio = 1.5
-#
-# Custom acronym glossary — applied deterministically BEFORE the LLM.
-# Each key is matched as a whole word; the value is the spoken replacement.
-# This sub-table must appear after the [normalizer] scalar keys and
-# before the next [section].
-#
-# [normalizer.glossary]
-# MAPPO = "Multi-Agent Proximal Policy Optimization"
-# GCBF = "Graph Control Barrier Function"
-
 # --- Speech Rule Engine LaTeX-to-speech (optional) ---
 # Requires Node.js >=18 and speech-rule-engine@4.1.3, installed via
 #   scripts/install.sh --with-math-speech

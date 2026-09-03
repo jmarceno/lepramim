@@ -1,6 +1,6 @@
 {
   "$schema": "lepramim://fixtures/config/v1",
-  "generated_from": "tests/test_config.py, tests/test_config_normalizer.py, src/lepramim/config.py, src/config.rs, docs/configuration.md",
+  "generated_from": "tests/test_config.py, src/lepramim/config.py, src/config.rs, docs/configuration.md",
   "notes": "Covers defaults, valid examples, rejected values, path rules, unknown keys, malformed TOML, per-section overrides.",
   "defaults": {
     "capture": {
@@ -35,17 +35,6 @@
       "timeout_s": 10.0,
       "domain": "clearspeak",
       "style": ""
-    },
-    "normalizer": {
-      "enabled": false,
-      "model_path": "",
-      "model_repo": "Qwen/Qwen2.5-1.5B-Instruct-GGUF",
-      "model_file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
-      "n_gpu_layers": -1,
-      "n_ctx": 4096,
-      "temperature": 0.0,
-      "max_output_ratio": 1.5,
-      "glossary": {}
     }
   },
   "valid_examples": [
@@ -84,17 +73,6 @@
       "toml": "[sre_latex]\nenabled = true\ndomain = \"mathspeak\"\nstyle = \"brief\"",
       "expected": {
         "sre_latex": { "enabled": true, "domain": "mathspeak", "style": "brief", "timeout_s": 10.0 }
-      }
-    },
-    {
-      "id": "normalizer_with_glossary",
-      "toml": "[normalizer]\nenabled = true\nmodel_repo = \"Qwen/Qwen2.5-1.5B-Instruct-GGUF\"\nmodel_file = \"qwen2.5-1.5b-instruct-q4_k_m.gguf\"\n\n[normalizer.glossary]\nMAPPO = \"Multi-Agent Proximal Policy Optimization\"",
-      "expected": {
-        "normalizer": {
-          "enabled": true,
-          "model_file": "qwen2.5-1.5b-instruct-q4_k_m.gguf",
-          "glossary": { "MAPPO": "Multi-Agent Proximal Policy Optimization" }
-        }
       }
     },
     {

@@ -218,60 +218,6 @@ impl Default for SreLatexConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NormalizerConfig {
-    #[serde(default)]
-    pub enabled: bool,
-    #[serde(default)]
-    pub model_path: String,
-    #[serde(default = "default_model_repo")]
-    pub model_repo: String,
-    #[serde(default = "default_model_file")]
-    pub model_file: String,
-    #[serde(default = "default_n_gpu_layers")]
-    pub n_gpu_layers: i32,
-    #[serde(default = "default_n_ctx")]
-    pub n_ctx: u32,
-    #[serde(default)]
-    pub temperature: f64,
-    #[serde(default = "default_max_output_ratio")]
-    pub max_output_ratio: f64,
-    #[serde(default)]
-    pub glossary: std::collections::HashMap<String, String>,
-}
-
-fn default_model_repo() -> String {
-    "Qwen/Qwen2.5-1.5B-Instruct-GGUF".to_string()
-}
-fn default_model_file() -> String {
-    "qwen2.5-1.5b-instruct-q4_k_m.gguf".to_string()
-}
-fn default_n_gpu_layers() -> i32 {
-    -1
-}
-fn default_n_ctx() -> u32 {
-    4096
-}
-fn default_max_output_ratio() -> f64 {
-    1.5
-}
-
-impl Default for NormalizerConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            model_path: String::new(),
-            model_repo: default_model_repo(),
-            model_file: default_model_file(),
-            n_gpu_layers: default_n_gpu_layers(),
-            n_ctx: default_n_ctx(),
-            temperature: 0.0,
-            max_output_ratio: default_max_output_ratio(),
-            glossary: std::collections::HashMap::new(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
@@ -284,8 +230,6 @@ pub struct Config {
     pub preprocessor: PreprocessorCfg,
     #[serde(default)]
     pub advanced: AdvancedConfig,
-    #[serde(default)]
-    pub normalizer: NormalizerConfig,
     #[serde(default)]
     pub sre_latex: SreLatexConfig,
 }
@@ -376,17 +320,6 @@ mod tests {
         assert!(cfg.preprocessor.normalize_math_symbols);
         assert!(cfg.preprocessor.pdf_cleanup);
         assert!(!cfg.advanced.overlay);
-        assert!(!cfg.normalizer.enabled);
-        assert_eq!(cfg.normalizer.model_repo, "Qwen/Qwen2.5-1.5B-Instruct-GGUF");
-        assert_eq!(
-            cfg.normalizer.model_file,
-            "qwen2.5-1.5b-instruct-q4_k_m.gguf"
-        );
-        assert_eq!(cfg.normalizer.n_gpu_layers, -1);
-        assert_eq!(cfg.normalizer.n_ctx, 4096);
-        assert!((cfg.normalizer.temperature - 0.0).abs() < 1e-9);
-        assert!((cfg.normalizer.max_output_ratio - 1.5).abs() < 1e-9);
-        assert!(cfg.normalizer.glossary.is_empty());
         assert!(!cfg.sre_latex.enabled);
         assert!((cfg.sre_latex.timeout_s - 10.0).abs() < 1e-9);
         assert_eq!(cfg.sre_latex.domain, "clearspeak");

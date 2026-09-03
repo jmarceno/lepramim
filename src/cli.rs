@@ -44,12 +44,7 @@ pub enum Commands {
     Status,
     /// Fetch model artifacts
     #[command(name = "download-models")]
-    DownloadModels {
-        #[arg(long)]
-        llm: bool,
-        #[arg(long)]
-        all: bool,
-    },
+    DownloadModels,
     Setup {
         #[arg(long)]
         force: bool,
@@ -80,7 +75,7 @@ pub async fn run_async(cli: Cli) -> i32 {
         Some(Commands::Skip) => cmd_skip().await,
         Some(Commands::Back) => cmd_back().await,
         Some(Commands::Status) => cmd_status().await,
-        Some(Commands::DownloadModels { llm, all }) => cmd_download_models(llm, all).await,
+        Some(Commands::DownloadModels) => cmd_download_models().await,
         Some(Commands::Setup { force }) => cmd_setup(force).await,
         Some(Commands::Daemon) => cmd_daemon().await,
         Some(Commands::Uninstall) => cmd_uninstall().await,
@@ -525,7 +520,7 @@ async fn cmd_status() -> i32 {
     0
 }
 
-async fn cmd_download_models(llm: bool, all: bool) -> i32 {
+async fn cmd_download_models() -> i32 {
     let cache = crate::models::default_cache_dir();
     println!("Downloading models to {}", cache.display());
     match crate::models::ensure_artifacts(None, true) {
@@ -537,16 +532,6 @@ async fn cmd_download_models(llm: bool, all: bool) -> i32 {
         Err(e) => {
             eprintln!("{e}");
             return 1;
-        }
-    }
-    if llm || all {
-        let cfg = crate::config::load_config::<std::path::PathBuf>(None);
-        match crate::models::ensure_llm_model(None, &cfg.normalizer.model_file, true) {
-            Ok(p) => println!("LLM model at {}", p.display()),
-            Err(e) => {
-                eprintln!("LLM download failed: {e}");
-                return 1;
-            }
         }
     }
     0
@@ -733,21 +718,9 @@ mod tests {
     }
 
     #[test]
-    fn parse_download_models_flags() {
-        let cli = Cli::try_parse_from(["lepramim", "download-models", "--llm"]).unwrap();
-        if let Some(Commands::DownloadModels { llm, all }) = cli.command {
-            assert!(llm);
-            assert!(!all);
-        } else {
-            panic!("wrong command");
-        }
-        let cli = Cli::try_parse_from(["lepramim", "download-models", "--all"]).unwrap();
-        if let Some(Commands::DownloadModels { llm, all }) = cli.command {
-            assert!(!llm);
-            assert!(all);
-        } else {
-            panic!("wrong command");
-        }
+    fn parse_download_models() {
+        let cli = Cli::try_parse_from(["lepramim", "download-models"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::DownloadModels)));
     }
 
     #[test]
