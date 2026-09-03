@@ -429,6 +429,14 @@ fn shutdown_daemon_sync(daemon_child: Arc<Mutex<Option<std::process::Child>>>) {
     });
 }
 
+fn app_window_icon() -> Option<iced::window::icon::Icon> {
+    // Render the bundled SVG at tray size (64px) for the OS window frame.
+    // Returns None if the SVG fails to parse, letting iced fall back to
+    // the default frame icon rather than blocking window creation.
+    let rgba = icon::render_tray_icon_with_mix(true, 0.0)?;
+    iced::window::icon::from_rgba(rgba, icon::TRAY_ICON_SIZE, icon::TRAY_ICON_SIZE).ok()
+}
+
 fn open_window(app: &mut App, kind: WindowKind, width: f32, height: f32) -> Task<Message> {
     if kind == WindowKind::Control {
         return ensure_control_visible(app);
@@ -448,6 +456,7 @@ fn open_window(app: &mut App, kind: WindowKind, width: f32, height: f32) -> Task
         decorations,
         transparent,
         level,
+        icon: app_window_icon(),
         platform_specific: window::settings::PlatformSpecific {
             application_id: "lepramim".into(),
             override_redirect: false,
@@ -478,6 +487,7 @@ fn ensure_control_visible(app: &mut App) -> Task<Message> {
             decorations: true,
             transparent: false,
             level: window::Level::Normal,
+            icon: app_window_icon(),
             platform_specific: window::settings::PlatformSpecific {
                 application_id: "lepramim".into(),
                 override_redirect: false,

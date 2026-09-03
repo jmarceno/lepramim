@@ -35,22 +35,43 @@ rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib" \
          "$APPDIR/usr/share/applications" \
          "$APPDIR/usr/share/icons/hicolor/scalable/apps" \
+         "$APPDIR/usr/share/icons/hicolor/512x512/apps" \
          "$APPDIR/usr/share/doc/lepramim" \
          "$APPDIR/usr/share/lepramim"
 
 install -m 0755 "$STAGE/bin/lepramim" "$APPDIR/usr/bin/lepramim"
 
-for f in share/applications/lepramim.desktop share/icons/hicolor/scalable/apps/lepramim.svg; do
+for f in share/applications/lepramim.desktop share/icons/hicolor/scalable/apps/lepramim.svg share/icons/hicolor/512x512/apps/lepramim.png; do
   [[ -f "$STAGE/$f" ]] && cp -a "$STAGE/$f" "$APPDIR/usr/$f"
 done
 [[ -f "$APPDIR/usr/share/applications/lepramim.desktop" ]] || \
   install -m 0644 "$PROJECT_ROOT/packaging/appimage/lepramim.desktop" "$APPDIR/usr/share/applications/lepramim.desktop" 2>/dev/null || true
 [[ -f "$APPDIR/usr/share/icons/hicolor/scalable/apps/lepramim.svg" ]] || \
   install -m 0644 "$PROJECT_ROOT/src/lepramim/icons/lepramim.svg" "$APPDIR/usr/share/icons/hicolor/scalable/apps/lepramim.svg" 2>/dev/null || true
+if [[ ! -f "$APPDIR/usr/share/icons/hicolor/512x512/apps/lepramim.png" ]]; then
+  for cand in "$PROJECT_ROOT/packaging/appimage/lepramim.png" "$STAGE/share/icons/hicolor/512x512/apps/lepramim.png"; do
+    if [[ -f "$cand" ]]; then
+      install -m 0644 "$cand" "$APPDIR/usr/share/icons/hicolor/512x512/apps/lepramim.png" 2>/dev/null || true
+      break
+    fi
+  done
+fi
 
 ln -sf usr/share/applications/lepramim.desktop "$APPDIR/lepramim.desktop"
 [[ -f "$APPDIR/usr/share/icons/hicolor/scalable/apps/lepramim.svg" ]] && \
   ln -sf usr/share/icons/hicolor/scalable/apps/lepramim.svg "$APPDIR/lepramim.svg" 2>/dev/null || true
+# PNG fallback at AppDir root for toolkits without SVG support.
+if [[ -f "$APPDIR/usr/share/icons/hicolor/512x512/apps/lepramim.png" ]]; then
+  ln -sf usr/share/icons/hicolor/512x512/apps/lepramim.png "$APPDIR/lepramim.png" 2>/dev/null || true
+elif [[ -f "$PROJECT_ROOT/packaging/appimage/lepramim.png" ]]; then
+  install -m 0644 "$PROJECT_ROOT/packaging/appimage/lepramim.png" "$APPDIR/lepramim.png" 2>/dev/null || true
+fi
+# .DirIcon makes file managers show the logo for the AppImage file itself.
+if [[ -f "$APPDIR/usr/share/icons/hicolor/512x512/apps/lepramim.png" ]]; then
+  cp -a "$APPDIR/usr/share/icons/hicolor/512x512/apps/lepramim.png" "$APPDIR/.DirIcon" 2>/dev/null || true
+elif [[ -f "$APPDIR/usr/share/icons/hicolor/scalable/apps/lepramim.svg" ]]; then
+  cp -a "$APPDIR/usr/share/icons/hicolor/scalable/apps/lepramim.svg" "$APPDIR/.DirIcon" 2>/dev/null || true
+fi
 
 [[ -f "$PROJECT_ROOT/LICENSE" ]] && cp -a "$PROJECT_ROOT/LICENSE" "$APPDIR/usr/share/doc/lepramim/LICENSE" 2>/dev/null || true
 [[ -f "$PROJECT_ROOT/THIRD_PARTY_LICENSES.md" ]] && cp -a "$PROJECT_ROOT/THIRD_PARTY_LICENSES.md" "$APPDIR/usr/share/doc/lepramim/" 2>/dev/null || true

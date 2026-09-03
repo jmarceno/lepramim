@@ -73,6 +73,7 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE/bin" \
          "$STAGE/share/applications" \
          "$STAGE/share/icons/hicolor/scalable/apps" \
+         "$STAGE/share/icons/hicolor/512x512/apps" \
          "$STAGE/share/doc/lepramim" \
          "$STAGE/share/lepramim"
 
@@ -114,6 +115,8 @@ fi
 
 ICON_SRC="$PROJECT_ROOT/src/lepramim/icons/lepramim.svg"
 [[ -f "$ICON_SRC" ]] && install -m 0644 "$ICON_SRC" "$STAGE/share/icons/hicolor/scalable/apps/lepramim.svg"
+ICON_PNG_SRC="$PROJECT_ROOT/packaging/appimage/lepramim.png"
+[[ -f "$ICON_PNG_SRC" ]] && install -m 0644 "$ICON_PNG_SRC" "$STAGE/share/icons/hicolor/512x512/apps/lepramim.png"
 
 for f in LICENSE THIRD_PARTY_LICENSES.md; do
   [[ -f "$PROJECT_ROOT/$f" ]] && install -m 0644 "$PROJECT_ROOT/$f" "$STAGE/share/doc/lepramim/$f"

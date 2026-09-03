@@ -5,8 +5,8 @@
 const ICON_SVG: &[u8] = include_bytes!("../lepramim/icons/lepramim.svg");
 pub const TRAY_ICON_SIZE: u32 = 64;
 
-const BLUE_LIGHT: &str = "#6ea8fe";
-const BLUE_DARK: &str = "#3d6fb6";
+const BLUE_LIGHT: &str = "#28aaa9";
+const BLUE_DARK: &str = "#024e67";
 const GREEN_LIGHT: &str = "#6edf8a";
 const GREEN_DARK: &str = "#3db66a";
 
