@@ -1326,17 +1326,20 @@ fn view_overlay(app: &App) -> Element<'_, Message> {
     } else {
         String::new()
     };
+    // Text labels, not media glyphs (U+23F5 etc.): no UI text font on a
+    // stock system covers those codepoints, so they render as tofu. Plain
+    // words always shape and stay readable at overlay size.
     let pause_label = if app.playback.state == "paused" {
-        "\u{23f5}"
+        "Resume"
     } else {
-        "\u{23f8}"
+        "Pause"
     };
     container(
         row![
             text(label).width(Length::Fill),
             button(pause_label).on_press(Message::OverlayPause),
-            button("\u{23ed}").on_press(Message::OverlaySkip),
-            button("\u{23f9}").on_press(Message::OverlayStop),
+            button("Skip").on_press(Message::OverlaySkip),
+            button("Stop").on_press(Message::OverlayStop),
         ]
         .spacing(8)
         .align_y(Alignment::Center)
