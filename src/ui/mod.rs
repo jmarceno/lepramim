@@ -63,6 +63,14 @@ struct DownloadProgress {
     status: String,
 }
 
+/// True only for the terminal message the download thread sends once after
+/// `ensure_artifacts_with_progress` returns (empty filename). Per-file
+/// progress also reports 100% per file, so percent alone must never mark a
+/// multi-file download complete.
+fn is_download_terminal(p: &DownloadProgress) -> bool {
+    p.filename.is_empty()
+}
+
 #[derive(Debug, Clone)]
 enum Message {
     Tick,
@@ -546,7 +554,11 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
             while let Some(rx) = app.download_rx.as_ref() {
                 match rx.try_recv() {
                     Ok(p) => {
-                        if p.percent >= 100 || p.status.starts_with("Download failed") {
+                        // Only the terminal message (empty filename, sent once
+                        // by the download thread) completes the download.
+                        // Per-file progress also reaches 100% per file, so
+                        // percent alone must not finish while files remain.
+                        if is_download_terminal(&p) {
                             app.download_progress = p.clone();
                             app.download_active = false;
                             app.download_rx = None;
@@ -1383,4 +1395,44 @@ fn view_warning(app: &App) -> Element<'_, Message> {
         .padding(16),
     )
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn progress(filename: &str, percent: u8, status: &str) -> DownloadProgress {
+        DownloadProgress {
+            filename: filename.to_string(),
+            percent,
+            status: status.to_string(),
+        }
+    }
+
+    #[test]
+    fn per_file_100_is_not_terminal() {
+        // Regression: the first of two files reporting 100% must not finish
+        // the whole download; the daemon would spawn with files missing.
+        let first_file_done = progress(
+            "kokoro-v1.0.onnx",
+            100,
+            "Downloading kokoro-v1.0.onnx\u{2026}",
+        );
+        assert!(!is_download_terminal(&first_file_done));
+        assert!(!is_download_terminal(&progress(
+            "voices-v1.0.bin",
+            99,
+            "Downloading voices-v1.0.bin\u{2026}"
+        )));
+    }
+
+    #[test]
+    fn terminal_messages_finish() {
+        assert!(is_download_terminal(&progress("", 100, "Models ready.")));
+        assert!(is_download_terminal(&progress(
+            "",
+            100,
+            "Download failed: boom"
+        )));
+    }
 }

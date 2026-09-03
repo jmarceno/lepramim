@@ -212,25 +212,55 @@ pub fn artifacts_missing() -> bool {
 }
 
 /// Ensure artifacts with per-file progress callbacks.
+///
+/// `progress` receives `(filename, overall_percent)` where the percent is
+/// weighted by each artifact's `expected_size` across the whole set, so a
+/// multi-file download reads 0..=99 monotonically. It NEVER reports 100:
+/// 100 is reserved for the caller's terminal signal after this function
+/// returns (per-file downloads each hit 100% individually, which must not
+/// be mistaken for whole-set completion).
 pub fn ensure_artifacts_with_progress(
     cache_dir: Option<&Path>,
     download_if_missing: bool,
-    mut progress: impl FnMut(&str, u8),
+    progress: impl FnMut(&str, u8),
 ) -> Result<HashMap<String, PathBuf>, ArtifactError> {
     let cache = resolve_cache_dir(cache_dir);
-    std::fs::create_dir_all(&cache)?;
+    ensure_artifacts_with_progress_in(&cache, ARTIFACTS, download_if_missing, progress)
+}
 
+fn overall_percent(done_before: u64, file_size: u64, file_pct: u8, total: u64) -> u8 {
+    if total == 0 {
+        return 0;
+    }
+    let overall = (done_before + file_pct as u64 * file_size / 100) * 100 / total;
+    overall.min(99) as u8
+}
+
+fn ensure_artifacts_with_progress_in(
+    cache: &Path,
+    arts: &[Artifact],
+    download_if_missing: bool,
+    mut progress: impl FnMut(&str, u8),
+) -> Result<HashMap<String, PathBuf>, ArtifactError> {
+    std::fs::create_dir_all(cache)?;
+
+    let total: u64 = arts.iter().map(|a| a.expected_size).sum();
+    let mut done: u64 = 0;
     let mut out = HashMap::new();
-    for art in ARTIFACTS {
+    for art in arts {
         let path = cache.join(art.filename);
         if !path.exists() {
             if !download_if_missing {
                 return Err(ArtifactError::Missing(path));
             }
             tracing::info!("Downloading {} from {}", art.filename, art.url);
-            download_file_with_progress(art.url, &path, |f, p| progress(f, p))?;
+            let size = art.expected_size;
+            download_file_with_progress(art.url, &path, |f, p| {
+                progress(f, overall_percent(done, size, p, total))
+            })?;
         }
         verify_artifact(&path, art)?;
+        done += art.expected_size;
         out.insert(art.filename.to_string(), path);
     }
     Ok(out)
@@ -406,6 +436,108 @@ mod tests {
     #[test]
     fn max_model_download_bytes_is_4gib() {
         assert_eq!(MAX_MODEL_DOWNLOAD_BYTES, 4 * (1u64 << 30));
+    }
+
+    #[test]
+    fn overall_percent_weights_and_caps() {
+        // Mirrors the real two-file set: 325_532_387 + 28_214_398.
+        let total = 325_532_387u64 + 28_214_398u64;
+        assert_eq!(overall_percent(0, 325_532_387, 0, total), 0);
+        assert_eq!(overall_percent(0, 325_532_387, 50, total), 46);
+        // First file fully downloaded: still not "complete".
+        assert_eq!(overall_percent(0, 325_532_387, 100, total), 92);
+        // Last file fully downloaded: capped at 99, never 100.
+        assert_eq!(overall_percent(325_532_387, 28_214_398, 100, total), 99);
+        assert_eq!(overall_percent(0, 10, 100, 0), 0);
+    }
+
+    /// Cold-start regression: with two missing files the old code forwarded
+    /// each file's 100% straight through, so the UI declared the whole
+    /// download done after file 1 of 2 and spawned the daemon while
+    /// voices-v1.0.bin was still missing. The library must never emit 100.
+    #[test]
+    fn two_file_download_never_reports_100_early() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        fn hex_of(bytes: &[u8]) -> String {
+            use sha2::{Digest, Sha256};
+            hex::encode(Sha256::digest(bytes))
+        }
+
+        let blob_a = vec![0xA5u8; 2048];
+        let blob_b = vec![0x5Au8; 512];
+        let sha_a: &'static str = Box::leak(hex_of(&blob_a).into_boxed_str());
+        let sha_b: &'static str = Box::leak(hex_of(&blob_b).into_boxed_str());
+        let (srv_a, srv_b) = (blob_a.clone(), blob_b.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            for _ in 0..2 {
+                let (mut s, _) = listener.accept().unwrap();
+                let mut req = Vec::new();
+                let mut byte = [0u8; 1];
+                loop {
+                    s.read_exact(&mut byte).unwrap();
+                    req.push(byte[0]);
+                    if req.ends_with(b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let req_str = String::from_utf8_lossy(&req).into_owned();
+                let path = req_str.split_whitespace().nth(1).unwrap_or("/").to_string();
+                let body: &[u8] = if path == "/a.bin" { &srv_a } else { &srv_b };
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                s.write_all(head.as_bytes()).unwrap();
+                s.write_all(body).unwrap();
+            }
+        });
+
+        let sha_len_a = blob_a.len() as u64;
+        let sha_len_b = blob_b.len() as u64;
+        let url_a: &'static str = Box::leak(format!("http://{addr}/a.bin").into_boxed_str());
+        let url_b: &'static str = Box::leak(format!("http://{addr}/b.bin").into_boxed_str());
+        let arts = [
+            Artifact {
+                filename: "a.bin",
+                url: url_a,
+                sha256: sha_a,
+                expected_size: sha_len_a,
+            },
+            Artifact {
+                filename: "b.bin",
+                url: url_b,
+                sha256: sha_b,
+                expected_size: sha_len_b,
+            },
+        ];
+        let tmp =
+            std::env::temp_dir().join(format!("lepramim_models_progress_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let mut seen: Vec<(String, u8)> = Vec::new();
+        let out = ensure_artifacts_with_progress_in(&tmp, &arts, true, |f, p| {
+            seen.push((f.to_string(), p))
+        })
+        .unwrap();
+        server.join().unwrap();
+        assert_eq!(out.len(), 2);
+        assert_eq!(std::fs::read(tmp.join("a.bin")).unwrap(), blob_a);
+        assert_eq!(std::fs::read(tmp.join("b.bin")).unwrap(), blob_b);
+        assert!(!seen.is_empty());
+        assert!(
+            seen.iter().all(|(_, p)| *p < 100),
+            "whole-set 100% reported early: {seen:?}"
+        );
+        assert_eq!(seen.last().map(|(_, p)| *p), Some(99));
+        let mut last = 0u8;
+        for (_, p) in &seen {
+            assert!(*p >= last, "progress went backwards: {seen:?}");
+            last = *p;
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
