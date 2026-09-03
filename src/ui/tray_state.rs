@@ -1,4 +1,4 @@
-//! Tray state machine (ported from Qt `tray.cpp`).
+//! Tray state machine.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayIconPhase {

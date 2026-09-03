@@ -126,10 +126,6 @@ echo "--- Verifying staged binary ---"
 if command -v ldd >/dev/null 2>&1; then
   LDD_OUT="$(env -u LD_LIBRARY_PATH ldd "$STAGE/bin/lepramim" 2>&1 || true)"
   echo "$LDD_OUT" | sed 's/^/  /'
-  if echo "$LDD_OUT" | grep -qiE 'libQt|Qt6'; then
-    echo "error: lepramim must not link Qt" >&2
-    exit 1
-  fi
   if echo "$LDD_OUT" | grep -q "not found"; then
     echo "error: missing shared libraries:" >&2
     echo "$LDD_OUT" | grep "not found" >&2

@@ -1,4 +1,4 @@
-# Lepramim — native Rust + Qt ignores
+# Lepramim — native Rust ignores
 
 # OS metadata
 .DS_Store
@@ -40,7 +40,7 @@ target/
 # MSVC Windows builds
 *.pdb
 
-### Qt / CMake / Native build ###
+### Native build ###
 build/
 # CMake artifacts (presets: dev, ci, release)
 CMakeCache.txt
@@ -67,18 +67,7 @@ appdir/
 staged-files.txt
 ldd-*.txt
 
-# IDE / Qt Creator
-*.pro.user
-*.pro.user.*
-*.qbs.user
-*.qbs.user.*
-*.moc
-moc_*.cpp
-moc_*.h
-qrc_*.cpp
-ui_*.h
-*.qmlc
-*.jsc
+# IDE
 Makefile
 *.a
 *.so

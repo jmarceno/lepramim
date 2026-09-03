@@ -69,7 +69,6 @@ bundle_ldd_libs() {
     [[ -f "$lib" ]] || continue
     case "$(basename "$lib")" in
       libc.so*|libpthread*|libdl.so*|libm.so*|libgcc*|libstdc++*) continue ;;
-      libQt*|libQt6*) continue ;;
     esac
     cp -aL "$lib" "$APPDIR/usr/lib/" 2>/dev/null || cp -a "$lib" "$APPDIR/usr/lib/" 2>/dev/null || true
   done
@@ -133,13 +132,6 @@ OUTPUT="$OUTPUT_DIR/Lepramim-${VERSION}-x86_64.AppImage"
 rm -f "$OUTPUT"
 APPIMAGE_EXTRACT_AND_RUN=1 "$APPIMAGE_TOOL" "$APPDIR" "$OUTPUT"
 chmod 0755 "$OUTPUT"
-
-if command -v ldd >/dev/null 2>&1; then
-  LDD_OUT="$(env -u LD_LIBRARY_PATH ldd "$APPDIR/usr/bin/lepramim" 2>&1 || true)"
-  if echo "$LDD_OUT" | grep -qiE 'libQt|Qt6'; then
-    die "AppDir binary must not link Qt"
-  fi
-fi
 
 echo "AppImage: $OUTPUT"
 du -h "$OUTPUT" 2>/dev/null || true

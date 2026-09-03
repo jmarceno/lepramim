@@ -1,4 +1,4 @@
-//! Sync UDS HTTP client for the Iced UI (mirrors the former Qt ApiClient).
+//! Sync UDS HTTP client for the Iced UI.
 
 use serde_json::Value;
 use std::io::{Read, Write};

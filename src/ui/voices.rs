@@ -1,4 +1,4 @@
-//! Kokoro voice and language lists (from Qt control_window.cpp).
+//! Kokoro voice and language lists.
 
 pub struct VoiceEntry {
     pub id: &'static str,

@@ -56,4 +56,4 @@ The control window **GETs full config, merges edits, POSTs full config** so part
 ## Packaging
 
 - Native stage: `scripts/build-native.sh` (cargo only, one binary).
-- AppImage: `scripts/build-appimage.sh` bundles ldd-discovered GUI/audio deps; **no Qt**.
+- AppImage: `scripts/build-appimage.sh` bundles ldd-discovered GUI/audio deps.

@@ -1,6 +1,6 @@
 //! Global hotkeys: KGlobalAccel on KDE + session D-Bus service for GNOME.
 //!
-//! Qt `QKeySequence("Meta+R")[0].toCombined()` is `Qt::MetaModifier | Key_R`
+//! Meta+R is registered as the combined key value `MetaModifier | Key_R`
 //! (`0x10000000 | 0x52` = 268435538). Registering any other int leaves Meta+R
 //! unbound, so the shortcut does nothing.
 
@@ -13,12 +13,12 @@ use zbus::zvariant::OwnedObjectPath;
 
 const COMPONENT: &str = "lepramim";
 const FRIENDLY: &str = "Lepramim";
-/// Qt `MetaModifier` — not `0x01000000`.
-const QT_META: i32 = 0x1000_0000;
-const QT_KEY_R: i32 = 0x52;
-const QT_KEY_P: i32 = 0x50;
-const SPEAK_KEY: i32 = QT_META | QT_KEY_R;
-const TOGGLE_KEY: i32 = QT_META | QT_KEY_P;
+/// Meta modifier flag for combined key values — not `0x01000000`.
+const KEY_META: i32 = 0x1000_0000;
+const KEY_R: i32 = 0x52;
+const KEY_P: i32 = 0x50;
+const SPEAK_KEY: i32 = KEY_META | KEY_R;
+const TOGGLE_KEY: i32 = KEY_META | KEY_P;
 /// KGlobalAccel `SetPresent`. Without this the key is saved but never grabbed.
 const SET_PRESENT: u32 = 2;
 
@@ -170,7 +170,7 @@ async fn register_and_listen(
         accel.do_register(action_id.clone()).await?;
         let _ = accel.get_component(COMPONENT).await;
         // busctl is the proven `asaiu` marshal for `ai` (same as the working
-        // Qt/Python path). zbus is the fallback if busctl is missing.
+        // legacy path). zbus is the fallback if busctl is missing.
         let assigned = match busctl_set_shortcut(id, label, key) {
             Ok(keys) => keys,
             Err(e) => {
@@ -326,10 +326,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn qt_meta_r_matches_working_python_binding() {
+    fn legacy_meta_r_binding_value() {
         assert_eq!(SPEAK_KEY, 268_435_538);
         assert_eq!(TOGGLE_KEY, 268_435_536);
-        assert_ne!(SPEAK_KEY, 0x0100_0000 | QT_KEY_R);
+        assert_ne!(SPEAK_KEY, 0x0100_0000 | KEY_R);
     }
 
     #[test]

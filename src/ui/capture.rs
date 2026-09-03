@@ -1,4 +1,4 @@
-//! Selection capture for tray, hotkeys, and CLI (Qt algorithm port).
+//! Selection capture for tray, hotkeys, and CLI.
 
 use std::process::Command;
 use std::time::Duration;
@@ -29,7 +29,7 @@ pub fn resolve_capture(
     if !sel.is_empty() {
         return SelectionCapture {
             text: sel.to_string(),
-            source: "primary/qt".into(),
+            source: "primary".into(),
             truncated: false,
         };
     }
@@ -280,7 +280,7 @@ pub fn try_force_copy() -> bool {
     injected
 }
 
-/// Capture highlighted text using the Qt UI algorithm.
+/// Capture highlighted text, preferring the primary selection.
 pub fn capture_highlighted_text() -> SelectionCapture {
     if !is_wayland() {
         if let Some(primary) = read_primary_x11() {
@@ -370,7 +370,7 @@ mod tests {
     fn prefers_selection_over_clipboard() {
         let cap = resolve_capture(" highlighted ", "old", "new");
         assert_eq!(cap.text, "highlighted");
-        assert_eq!(cap.source, "primary/qt");
+        assert_eq!(cap.source, "primary");
     }
 
     #[test]
