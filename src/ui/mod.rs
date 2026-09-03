@@ -19,6 +19,7 @@ use iced::{Alignment, Background, Border, Color, Element, Length, Subscription, 
 
 use crate::config::Config;
 use crate::models;
+use crate::single_instance::SingleInstanceEvent;
 use crate::ui::capture::{toggle_playback, SelectionCapture};
 use crate::ui::client::ApiResult;
 use crate::ui::hotkeys::{HotkeyEvent, HotkeyManager};
@@ -119,6 +120,7 @@ struct App {
     tray: TrayHandle,
     hotkeys: HotkeyManager,
     daemon_child: Arc<Mutex<Option<std::process::Child>>>,
+    single_rx: Option<crossbeam_channel::Receiver<SingleInstanceEvent>>,
     playback: PlaybackState,
     tray_state: TraySharedState,
     control_tab: usize,
@@ -145,6 +147,7 @@ impl App {
         force_overlay: bool,
         daemon_child: Arc<Mutex<Option<std::process::Child>>>,
         tray: TrayHandle,
+        single_rx: Option<crossbeam_channel::Receiver<SingleInstanceEvent>>,
     ) -> Self {
         let hotkeys = HotkeyManager::start();
         let missing = models::artifacts_missing();
@@ -156,6 +159,7 @@ impl App {
             tray,
             hotkeys,
             daemon_child,
+            single_rx,
             playback: PlaybackState::default(),
             tray_state: TraySharedState::default(),
             control_tab: 0,
@@ -254,6 +258,26 @@ pub fn run(show_control: bool, force_overlay: bool) -> i32 {
         env!("CARGO_PKG_VERSION")
     );
 
+    // Single-instance guard first: a second launch must not open a duplicate
+    // UI. `acquire` notifies the primary (which shows its control window)
+    // before we touch display/tray/daemon state.
+    let _single_guard = match crate::single_instance::acquire() {
+        Ok(crate::single_instance::AcquireOutcome::Secondary) => {
+            eprintln!("Lexaloud is already running — showing the existing control window.");
+            return 0;
+        }
+        Ok(crate::single_instance::AcquireOutcome::Primary(g)) => Some(g),
+        Err(e) => {
+            // Never block startup on the singleton socket; log and continue
+            // without single-instance protection.
+            tracing::warn!("single-instance check failed (continuing): {e}");
+            None
+        }
+    };
+    let single_rx = _single_guard
+        .as_ref()
+        .map(|g| g.receiver().clone());
+
     if let Err(e) = ensure_config_only() {
         eprintln!("{e}");
         return 1;
@@ -286,7 +310,7 @@ pub fn run(show_control: bool, force_overlay: bool) -> i32 {
         .subscription(subscription)
         .theme(|_, _| Theme::Dark)
         .run_with(move || {
-            let mut app = App::new(show_control, force_overlay, daemon_boot, tray);
+            let mut app = App::new(show_control, force_overlay, daemon_boot, tray, single_rx);
             let dc = app.daemon_child.clone();
             let mut tasks = vec![Task::done(Message::Tick)];
             if app.onboarding_visible {
@@ -295,7 +319,7 @@ pub fn run(show_control: bool, force_overlay: bool) -> i32 {
                 tasks.push(spawn_daemon_task(dc));
             }
             if app.show_control_on_start {
-                tasks.push(open_window(&mut app, WindowKind::Control, 540.0, 520.0));
+                tasks.push(ensure_control_visible(&mut app));
             }
             if app.force_overlay {
                 tasks.push(open_window(&mut app, WindowKind::Overlay, 500.0, 80.0));
@@ -415,6 +439,9 @@ fn shutdown_daemon_sync(daemon_child: Arc<Mutex<Option<std::process::Child>>>) {
 }
 
 fn open_window(app: &mut App, kind: WindowKind, width: f32, height: f32) -> Task<Message> {
+    if kind == WindowKind::Control {
+        return ensure_control_visible(app);
+    }
     if app.windows.values().any(|k| *k == kind) {
         return Task::none();
     }
@@ -441,6 +468,45 @@ fn open_window(app: &mut App, kind: WindowKind, width: f32, height: f32) -> Task
         app.overlay_visible = true;
     }
     open_task.discard()
+}
+
+/// Show the control window, focusing it if it already exists.
+///
+/// Used for tray activation and for single-instance second launches: the
+/// existing window must be raised, not just left behind other windows.
+fn ensure_control_visible(app: &mut App) -> Task<Message> {
+    let ids: Vec<window::Id> = app
+        .windows
+        .iter()
+        .filter(|(_, k)| **k == WindowKind::Control)
+        .map(|(id, _)| *id)
+        .collect();
+    if ids.is_empty() {
+        let (id, open_task) = window::open(window::Settings {
+            size: iced::Size::new(540.0, 520.0),
+            decorations: true,
+            transparent: false,
+            level: window::Level::Normal,
+            platform_specific: window::settings::PlatformSpecific {
+                application_id: "lexaloud".into(),
+                override_redirect: false,
+            },
+            ..Default::default()
+        });
+        app.windows.insert(id, WindowKind::Control);
+        return open_task.discard();
+    }
+    let mut tasks = Vec::new();
+    for id in ids {
+        // `gain_focus` is a no-op while minimized, so unminimize first.
+        tasks.push(window::minimize::<Message>(id, false));
+        tasks.push(window::gain_focus::<Message>(id));
+        tasks.push(window::request_user_attention::<Message>(
+            id,
+            Some(window::UserAttention::Informational),
+        ));
+    }
+    Task::batch(tasks)
 }
 
 fn spawn_daemon_task(daemon_child: Arc<Mutex<Option<std::process::Child>>>) -> Task<Message> {
@@ -712,7 +778,7 @@ fn update(app: &mut App, message: Message) -> Task<Message> {
                     .collect::<Vec<_>>(),
             )
         }
-        Message::OpenControl => open_window(app, WindowKind::Control, 540.0, 520.0),
+        Message::OpenControl => ensure_control_visible(app),
         Message::OpenOverlay => open_window(app, WindowKind::Overlay, 500.0, 80.0),
         Message::CloseOverlay => {
             app.overlay_visible = false;
@@ -903,6 +969,15 @@ fn drain_input(app: &mut App) -> Task<Message> {
     }
     while let Ok(ev) = app.hotkeys.receiver().try_recv() {
         pending = Task::batch([pending, handle_hotkey(ev)]);
+    }
+    if let Some(rx) = app.single_rx.clone() {
+        while let Ok(ev) = rx.try_recv() {
+            match ev {
+                SingleInstanceEvent::ShowControl => {
+                    pending = Task::batch([pending, ensure_control_visible(app)]);
+                }
+            }
+        }
     }
     pending
 }

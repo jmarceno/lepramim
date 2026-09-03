@@ -11,6 +11,7 @@ pub mod platform;
 pub mod player;
 pub mod preprocessor;
 pub mod privacy;
+pub mod single_instance;
 pub mod tts;
 pub mod ui;
 

@@ -19,12 +19,26 @@ pub fn socket_path_valid(sock: &Path, runtime_dir: &Path) -> Result<(), String> 
     Ok(())
 }
 
+/// True when a process is listening on `sock` (connect succeeds).
+pub fn is_socket_live(sock: &Path) -> bool {
+    std::os::unix::net::UnixStream::connect(sock).is_ok()
+}
+
 /// Ensure parent dir exists with mode 0700, remove stale socket if owned by current user.
+///
+/// Refuses to remove a live socket: if another daemon is already listening,
+/// returns an error instead of stealing its socket.
 pub fn stale_socket_cleanup(sock: &Path) -> Result<(), String> {
     let parent = sock.parent().ok_or("socket has no parent")?;
     std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
     if sock.exists() || sock.is_symlink() {
+        if is_socket_live(sock) {
+            return Err(format!(
+                "daemon already running (socket {} is live); not starting a second instance",
+                sock.display()
+            ));
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
@@ -226,5 +240,34 @@ mod tests {
         assert!(desk.contains("Exec=\"/opt/Lexaloud-0.2.0-x86_64.AppImage\""));
         assert!(desk.contains("Terminal=false"));
         assert!(!desk.contains("systemd"));
+    }
+
+    #[test]
+    fn stale_cleanup_refuses_live_socket() {
+        let base = std::env::temp_dir().join(format!(
+            "lexaloud_svc_test_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let sock = base.join("lexaloud.sock");
+        std::fs::create_dir_all(base.parent().unwrap_or(&base)).ok();
+        std::fs::create_dir_all(sock.parent().unwrap()).unwrap();
+        // Live listener: cleanup must refuse to steal it.
+        let listener = std::os::unix::net::UnixListener::bind(&sock).unwrap();
+        assert!(is_socket_live(&sock));
+        let res = stale_socket_cleanup(&sock);
+        assert!(res.is_err(), "expected refusal, got {res:?}");
+        assert!(sock.exists(), "live socket must be preserved");
+        drop(listener);
+        // After the listener is gone the file is stale: cleanup removes it.
+        // (The fd is closed but the path still exists until removed.)
+        assert!(sock.exists());
+        let res = stale_socket_cleanup(&sock);
+        assert!(res.is_ok(), "got {res:?}");
+        assert!(!sock.exists());
+        let _ = std::fs::remove_dir_all(&base);
     }
 }
