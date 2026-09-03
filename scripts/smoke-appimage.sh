@@ -40,10 +40,6 @@ fi
 
 [[ -x "$APPDIR/usr/bin/lepramim" ]] || { echo "error: missing usr/bin/lepramim" >&2; exit 1; }
 [[ -x "$APPDIR/AppRun" ]] || { echo "error: missing AppRun" >&2; exit 1; }
-[[ ! -e "$APPDIR/usr/bin/lepramim-ui" ]] || {
-  echo "error: AppDir must not ship the deleted lepramim-ui binary" >&2
-  exit 1
-}
 
 LEPRAMIM_BIN="$APPDIR/usr/bin/lepramim"
 "$LEPRAMIM_BIN" --version

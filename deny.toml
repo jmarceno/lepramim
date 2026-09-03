@@ -1,4 +1,4 @@
-# cargo deny config — Phase 9 native build
+# cargo deny config — native build
 # Vulnerability auditing informational only if triaged with owner/expiry;
 # license/source failures are blocking before release.
 

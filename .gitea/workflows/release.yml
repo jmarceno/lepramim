@@ -97,7 +97,9 @@ jobs:
           notes_file="$(mktemp)"
           curl_config="$(mktemp)"
           trap 'rm -f "$notes_file" "$curl_config"' EXIT
-          awk -v ver="$version" '$0 ~ "^## \\[" ver "\\]" { found=1; next } found && /^## \\[/ { exit } found { print }' CHANGELOG.md > "$notes_file"
+          if [[ -f CHANGELOG.md ]]; then
+            awk -v ver="$version" '$0 ~ "^## \\[" ver "\\]" { found=1; next } found && /^## \\[/ { exit } found { print }' CHANGELOG.md > "$notes_file"
+          fi
           [[ -s "$notes_file" ]] || echo "Lepramim $version" > "$notes_file"
           printf 'header = "Authorization: token %s"\n' "$GITEA_TOKEN" > "$curl_config"
           chmod 0600 "$curl_config"

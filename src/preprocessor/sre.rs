@@ -26,7 +26,7 @@ fn is_executable(_p: &Path) -> bool {
 }
 
 pub fn sre_executable_path() -> Option<String> {
-    // Check venv bin first: sibling of current exe
+    // Check the install dir first: sibling of current exe
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
             let cand = parent.join("sre");
@@ -63,7 +63,7 @@ fn log_missing_once() {
     let mut flag = missing_logged().lock().unwrap();
     if !*flag {
         tracing::info!(
-            "SRE (speech-rule-engine) not found on PATH or in the venv bin. LaTeX spans will be passed through unchanged."
+            "SRE (speech-rule-engine) not found on PATH or next to the installed binary. LaTeX spans will be passed through unchanged."
         );
         *flag = true;
     }

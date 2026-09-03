@@ -596,19 +596,6 @@ async fn cmd_uninstall() -> i32 {
         }
     }
 
-    // Best-effort cleanup of leftover units from older installs.
-    let unit_path = crate::platform::service::systemd_user_dir().join("lepramim.service");
-    if unit_path.is_file() {
-        let _ = std::process::Command::new("systemctl")
-            .args(["--user", "disable", "--now", "lepramim.service"])
-            .output();
-        let _ = std::fs::remove_file(&unit_path);
-        let _ = std::process::Command::new("systemctl")
-            .args(["--user", "daemon-reload"])
-            .status();
-        println!("Removed leftover {}", unit_path.display());
-    }
-
     let sock = crate::config::socket_path();
     if sock.exists() {
         let _ = std::fs::remove_file(&sock);

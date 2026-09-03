@@ -169,18 +169,6 @@ pub fn remove_autostart() -> Result<Option<std::path::PathBuf>, String> {
     Ok(None)
 }
 
-/// User systemd unit directory (only used to clean leftover units from old installs).
-pub fn systemd_user_dir() -> std::path::PathBuf {
-    if let Ok(base) = std::env::var("XDG_CONFIG_HOME") {
-        if !base.is_empty() {
-            return std::path::PathBuf::from(base).join("systemd").join("user");
-        }
-    }
-    directories::BaseDirs::new()
-        .map(|d| d.home_dir().join(".config").join("systemd").join("user"))
-        .unwrap_or_else(|| std::path::PathBuf::from(".config/systemd/user"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
