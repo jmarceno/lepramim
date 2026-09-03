@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fast incremental AppImage build using the cached builder image.
-# Reuses the Debian layer (apt packages) and the Cargo/Qt caches when
-# possible, so only cargo/cmake + AppDir work runs on source changes.
+# Reuses the Debian layer (apt packages) and the Cargo caches when
+# possible, so only the cargo build + AppDir work runs on source changes.
 # First run builds the builder image once (~3 min), subsequent runs skip it.
 set -euo pipefail
 
@@ -41,16 +41,11 @@ fi
 # Cargo registry + git cache volumes survive across builds (save re-downloading crates)
 podman volume create lepramim-cargo-registry >/dev/null 2>&1 || true
 podman volume create lepramim-cargo-git >/dev/null 2>&1 || true
-# Pip cache kept for Phase 9 branch compatibility (removed in Phase 10)
-podman volume create lepramim-pip-cache >/dev/null 2>&1 || true
 
 echo "Running native build inside $BUILDER_TAG (incremental, cargo cache mounted)..."
 podman run --rm \
   -v "$PROJECT_ROOT:/workspace:Z" -w /workspace \
   -v lepramim-cargo-registry:/root/.cargo/registry \
   -v lepramim-cargo-git:/root/.cargo/git \
-  -v lepramim-pip-cache:/root/.cache/pip \
-  -e LEPRAMIM_INCREMENTAL=1 \
   -e CARGO_HOME=/root/.cargo \
-  -e PIP_CACHE_DIR=/root/.cache/pip \
   "$BUILDER_TAG" ./scripts/build-appimage.sh "$@"

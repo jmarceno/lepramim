@@ -103,6 +103,3 @@ SIZE="$(du -h "$OUT_GIF" | cut -f1)"
 echo
 echo "=== Done ==="
 echo "GIF saved to: $OUT_GIF ($SIZE)"
-echo
-echo "To use in README.md, uncomment the demo GIF line:"
-echo '  ![demo](docs/demo.gif)'

@@ -1,14 +1,9 @@
 #!/usr/bin/env bash
 # Lepramim installer — native Rust + Iced (single binary).
 #
-# Installs lepramim plus desktop, icon, and systemd template.
-# icon, and systemd template. Supports:
+# Installs lepramim plus its desktop entry and icon. Supports:
 #   - AppImage install (default for releases; no build tools required)
 #   - Source build install (--from-source; requires Rust + GUI libs)
-#
-# This replaces the legacy venv installer. It must not create a
-# venv, must not require an interpreter, and must preserve distro-specific
-# runtime-dependency handling.
 #
 # Usage:
 #   ./scripts/install.sh                              # auto-detect backend, prefer AppImage if present
@@ -54,7 +49,7 @@ while (( "$#" )); do
     --with-math-speech)
       WITH_MATH_SPEECH=1; shift ;;
     -h|--help)
-      sed -n '2,30p' "$0"
+      sed -n '2,18p' "$0"
       echo
       echo "Examples:"
       echo "  $0 --backend cpu --prefix ~/.local"
@@ -508,12 +503,9 @@ if [[ ":$PATH:" != *":$PREFIX/bin:"* ]]; then
   echo
 fi
 echo "Next:"
-echo "  $PREFIX/bin/lepramim setup        # download models, create systemd unit"
+echo "  $PREFIX/bin/lepramim setup        # write default config + autostart entry"
 echo "  $PREFIX/bin/lepramim app          # tray UI (requires display server)"
 echo
-if [[ "$PREFIX" == "$HOME/.local" ]]; then
-  echo "Systemd unit will be at ~/.config/systemd/user/lepramim.service"
-  echo "Activate with:"
-  echo "  systemctl --user daemon-reload"
-  echo "  systemctl --user enable --now lepramim.service"
-fi
+echo "Setup writes an autostart entry at ~/.config/autostart/lepramim.desktop"
+echo "so the app starts with your desktop session. Speech models (~340 MB)"
+echo "download automatically on first launch."
