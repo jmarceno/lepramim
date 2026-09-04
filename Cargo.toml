@@ -6,6 +6,7 @@ description = "Lepramim - local private Linux text-to-speech"
 authors = ["Lepramim"]
 license = "MIT"
 rust-version = "1.85"
+build = "build.rs"
 
 [lib]
 name = "lepramim"
@@ -17,7 +18,6 @@ path = "src/main.rs"
 
 [dependencies]
 tokio = { version = "=1.43.0", features = ["full"] }
-iced = { version = "=0.13.1", default-features = false, features = ["tiny-skia", "tokio", "advanced", "svg"] }
 ksni = { version = "=0.2.2" }
 resvg = { version = "=0.48.1", default-features = false, features = ["text", "system-fonts"] }
 usvg = { version = "=0.48.1" }
@@ -41,6 +41,14 @@ ort = { version = "=2.0.0-rc.10", features = ["download-binaries"] }
 cpal = { version = "=0.15.3" }
 ureq = { version = "=2.12.1" }
 zbus = { version = "=4.4.0", default-features = false, features = ["tokio", "blocking"] }
+futures = { version = "=0.3.31" }
+cxx = { version = "=1.0.176" }
+cxx-qt = { version = "=0.10.0" }
+cxx-qt-lib = { version = "=0.10.0", features = ["qt_gui", "qt_qml", "qt_quickcontrols"] }
+
+[build-dependencies]
+cxx-qt-build = { version = "=0.10.0", features = ["link_qt_object_files"] }
+cxx-gen = { version = "=0.7.176" }
 
 [features]
 default = []

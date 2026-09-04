@@ -1,4 +1,4 @@
-//! Sync UDS HTTP client for the Iced UI.
+//! Sync UDS HTTP client for the desktop UI.
 
 use serde_json::Value;
 use std::io::{Read, Write};
@@ -171,6 +171,10 @@ pub fn post_skip() -> ApiResult {
     request("POST", "/skip", &[], DEFAULT_TIMEOUT_MS)
 }
 
+pub fn post_back() -> ApiResult {
+    request("POST", "/back", &[], DEFAULT_TIMEOUT_MS)
+}
+
 pub fn post_shutdown() -> ApiResult {
     request("POST", "/shutdown", &[], DEFAULT_TIMEOUT_MS)
 }
@@ -246,6 +250,14 @@ mod tests {
         let s = String::from_utf8_lossy(&req);
         assert!(s.contains("POST /speak"));
         assert!(s.contains("Content-Length:"));
+    }
+
+    #[test]
+    fn build_post_back_request() {
+        let req = build_request("POST", "/back", &[]);
+        let s = String::from_utf8_lossy(&req);
+        assert!(s.contains("POST /back"));
+        assert!(s.contains("Content-Length: 0"));
     }
 
     #[test]

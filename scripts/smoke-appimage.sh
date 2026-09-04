@@ -3,6 +3,10 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=scripts/lib/sanitize-host-appimage-env.sh
+source "$PROJECT_ROOT/scripts/lib/sanitize-host-appimage-env.sh"
+sanitize_host_appimage_env
+
 APPIMAGE_PATH="${1:-}"
 [[ -n "$APPIMAGE_PATH" ]] || { echo "Usage: $0 <AppImage|AppDir>" >&2; exit 2; }
 

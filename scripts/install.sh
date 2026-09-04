@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lepramim installer — native Rust + Iced (single binary).
+# Lepramim installer — native Rust + Qt Quick (single binary).
 #
 # Installs lepramim plus its desktop entry and icon. Supports:
 #   - AppImage install (default for releases; no build tools required)
@@ -151,11 +151,21 @@ if [[ $FROM_SOURCE -eq 1 ]]; then
   if ! command -v cargo >/dev/null 2>&1; then
     missing_build+=("cargo (rustup)")
   fi
-  # GUI deps probe
+  # GUI deps probe (Qt 6 + D-Bus)
   HAS_GUI=0
-  if pkg-config --exists dbus-1 2>/dev/null; then HAS_GUI=1; fi
+  if pkg-config --exists Qt6Core Qt6Qml Qt6Quick 2>/dev/null; then HAS_GUI=1; fi
+  if [[ $HAS_GUI -eq 0 ]] && command -v qmake6 >/dev/null 2>&1; then HAS_GUI=1; fi
   if [[ $HAS_GUI -eq 0 ]]; then
+    missing_build+=("qt6-base-dev qt6-declarative-dev")
+  fi
+  if ! pkg-config --exists dbus-1 2>/dev/null; then
     missing_build+=("libdbus-1-dev")
+  fi
+  if ! command -v clang >/dev/null 2>&1; then
+    missing_build+=("clang")
+  fi
+  if ! command -v cmake >/dev/null 2>&1; then
+    missing_build+=("cmake")
   fi
 fi
 
@@ -185,7 +195,10 @@ if (( ${#all_missing[@]} > 0 )); then
       echo "  sudo apt install ${missing_runtime[*]:-wl-clipboard xclip libportaudio2 libnotify-bin}" >&2
       if (( ${#missing_build[@]} > 0 )); then
         echo "Install build deps with:" >&2
-        echo "  sudo apt install libdbus-1-dev libasound2-dev pkg-config clang" >&2
+        echo "  sudo apt install libdbus-1-dev libasound2-dev pkg-config clang cmake \\" >&2
+        echo "    qt6-base-dev qt6-declarative-dev qt6-svg-dev \\" >&2
+        echo "    qml6-module-qtquick qml6-module-qtquick-controls \\" >&2
+        echo "    qml6-module-qtquick-layouts qml6-module-qtquick-window" >&2
         echo "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.85.0" >&2
       fi
       ;;
@@ -203,7 +216,7 @@ if (( ${#all_missing[@]} > 0 )); then
       echo "Install them with:" >&2
       echo "  sudo dnf install ${fedora_runtime[*]}" >&2
       if (( ${#missing_build[@]} > 0 )); then
-        echo "  sudo dnf install dbus-devel clang" >&2
+        echo "  sudo dnf install dbus-devel clang cmake qt6-qtbase-devel qt6-qtdeclarative-devel" >&2
       fi
       ;;
     arch)
@@ -220,7 +233,7 @@ if (( ${#all_missing[@]} > 0 )); then
       echo "Install them with:" >&2
       echo "  sudo pacman -S ${arch_runtime[*]}" >&2
       if (( ${#missing_build[@]} > 0 )); then
-        echo "  sudo pacman -S dbus clang" >&2
+        echo "  sudo pacman -S dbus clang cmake qt6-base qt6-declarative qt6-svg" >&2
       fi
       ;;
     suse)

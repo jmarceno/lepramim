@@ -74,19 +74,32 @@ pub fn shell_quote(path: &str) -> String {
     format!("\"{}\"", path.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
+/// True when `path` looks like a Lepramim AppImage (not a host IDE AppImage).
+///
+/// Cursor and similar tools export `$APPIMAGE` into every integrated shell;
+/// we must not treat those as our own binary.
+pub fn is_lepramim_appimage_path(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|name| name.to_ascii_lowercase().contains("lepramim"))
+}
+
 /// Resolve the lepramim binary path for AppImage / source installs.
 /// AppImage children must be spawned from `$LEPRAMIM_APPIMAGE` so they keep
 /// their own mount; never point at `/tmp/.mount_*`.
+///
+/// Ignores foreign `$APPIMAGE` values (e.g. Cursor's AppImage) that leak into
+/// agent / IDE shells.
 pub fn resolve_binary_path() -> std::path::PathBuf {
     if let Ok(appimage) = std::env::var("LEPRAMIM_APPIMAGE") {
         let p = std::path::PathBuf::from(&appimage);
-        if p.is_file() {
+        if is_lepramim_appimage_path(&p) && p.is_file() {
             return p;
         }
     }
     if let Ok(appimage) = std::env::var("APPIMAGE") {
         let p = std::path::PathBuf::from(&appimage);
-        if p.is_file() {
+        if is_lepramim_appimage_path(&p) && p.is_file() {
             return p;
         }
     }
@@ -173,6 +186,22 @@ pub fn remove_autostart() -> Result<Option<std::path::PathBuf>, String> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn rejects_foreign_appimage_names() {
+        assert!(is_lepramim_appimage_path(Path::new(
+            "/opt/Lepramim-0.2.0-x86_64.AppImage"
+        )));
+        assert!(is_lepramim_appimage_path(Path::new(
+            "/tmp/lepramim-dev.AppImage"
+        )));
+        assert!(!is_lepramim_appimage_path(Path::new(
+            "/home/user/Software/AppImages/cursor.appimage"
+        )));
+        assert!(!is_lepramim_appimage_path(Path::new(
+            "/tmp/.mount_cursorXXXX/AppRun"
+        )));
+    }
 
     #[test]
     fn socket_valid_inside() {

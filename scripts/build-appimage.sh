@@ -3,6 +3,10 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=scripts/lib/sanitize-host-appimage-env.sh
+source "$PROJECT_ROOT/scripts/lib/sanitize-host-appimage-env.sh"
+sanitize_host_appimage_env
+
 BUILD_ROOT="${LEPRAMIM_APPIMAGE_BUILD_DIR:-$PROJECT_ROOT/build/appimage}"
 APPDIR="${LEPRAMIM_APPDIR:-$PROJECT_ROOT/build/appdir}"
 STAGE="${LEPRAMIM_STAGE:-$PROJECT_ROOT/build/stage}"
@@ -11,6 +15,9 @@ VERSION="${LEPRAMIM_VERSION:-}"
 APPIMAGE_TOOL="${APPIMAGETOOL:-}"
 APPIMAGE_TOOL_URL="${APPIMAGETOOL_URL:-https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage}"
 LINUXDEPLOY="${LINUXDEPLOY:-}"
+LINUXDEPLOY_PLUGIN_QT="${LINUXDEPLOY_PLUGIN_QT:-}"
+LINUXDEPLOY_URL="${LINUXDEPLOY_URL:-https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage}"
+LINUXDEPLOY_PLUGIN_QT_URL="${LINUXDEPLOY_PLUGIN_QT_URL:-https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage}"
 PATCHELF="${PATCHELF:-}"
 
 die() { echo "build-appimage: $*" >&2; exit 1; }
@@ -134,11 +141,98 @@ if [[ -n "$PATCHELF" && -x "$PATCHELF" ]]; then
 fi
 
 if [[ -z "$LINUXDEPLOY" ]]; then LINUXDEPLOY="$BUILD_ROOT/linuxdeploy-x86_64.AppImage"; fi
-if [[ -x "$LINUXDEPLOY" ]] || command -v linuxdeploy >/dev/null 2>&1; then
-  [[ -x "$LINUXDEPLOY" ]] || LINUXDEPLOY="$(command -v linuxdeploy)"
-  echo "--- linuxdeploy ---"
-  APPIMAGE_EXTRACT_AND_RUN=1 "$LINUXDEPLOY" --appdir "$APPDIR" --executable "$APPDIR/usr/bin/lepramim" 2>&1 | sed 's/^/  /' || true
+if [[ ! -x "$LINUXDEPLOY" ]]; then
+  mkdir -p "$(dirname "$LINUXDEPLOY")"
+  curl -fsSL "$LINUXDEPLOY_URL" -o "$LINUXDEPLOY"
+  chmod 0755 "$LINUXDEPLOY"
 fi
+command -v linuxdeploy >/dev/null 2>&1 && LINUXDEPLOY="$(command -v linuxdeploy)"
+
+if [[ -z "$LINUXDEPLOY_PLUGIN_QT" ]]; then
+  LINUXDEPLOY_PLUGIN_QT="$BUILD_ROOT/linuxdeploy-plugin-qt-x86_64.AppImage"
+fi
+if [[ ! -x "$LINUXDEPLOY_PLUGIN_QT" ]]; then
+  mkdir -p "$(dirname "$LINUXDEPLOY_PLUGIN_QT")"
+  curl -fsSL "$LINUXDEPLOY_PLUGIN_QT_URL" -o "$LINUXDEPLOY_PLUGIN_QT"
+  chmod 0755 "$LINUXDEPLOY_PLUGIN_QT"
+fi
+
+# linuxdeploy discovers plugins next to itself or on PATH.
+PLUGIN_DIR="$(dirname "$LINUXDEPLOY_PLUGIN_QT")"
+export PATH="$PLUGIN_DIR:$PATH"
+ln -sfn "$LINUXDEPLOY_PLUGIN_QT" "$PLUGIN_DIR/linuxdeploy-plugin-qt" 2>/dev/null || true
+
+echo "--- linuxdeploy + Qt plugin ---"
+REAL_QMAKE="${QMAKE:-$(command -v qmake6 || command -v qmake || true)}"
+[[ -n "$REAL_QMAKE" ]] || die "qmake6/qmake not found"
+QT_PLUGINS_DIR="$("$REAL_QMAKE" -query QT_INSTALL_PLUGINS 2>/dev/null || true)"
+# Arch/KDE drops kimageformats (kimg_*) next to Qt's image plugins; those
+# optional codecs often miss libs (libjxrglue) and abort the Qt deploy plugin.
+FILTERED_QT_PLUGINS="$BUILD_ROOT/qt-plugins-filtered"
+if [[ -n "$QT_PLUGINS_DIR" && -d "$QT_PLUGINS_DIR" ]]; then
+  rm -rf "$FILTERED_QT_PLUGINS"
+  mkdir -p "$FILTERED_QT_PLUGINS"
+  cp -a "$QT_PLUGINS_DIR"/. "$FILTERED_QT_PLUGINS"/
+  rm -f "$FILTERED_QT_PLUGINS"/imageformats/kimg_*
+  QMAKE_WRAPPER="$BUILD_ROOT/qmake-filtered"
+  cat > "$QMAKE_WRAPPER" <<EOF
+#!/bin/sh
+# linuxdeploy-plugin-qt parses \`qmake -query\` (no key) for QT_INSTALL_PLUGINS.
+if [ "\$1" = "-query" ]; then
+  if [ "\$2" = "QT_INSTALL_PLUGINS" ]; then
+    printf '%s\\n' "$FILTERED_QT_PLUGINS"
+    exit 0
+  fi
+  if [ -z "\$2" ]; then
+    "$REAL_QMAKE" -query | sed "s|^QT_INSTALL_PLUGINS:.*|QT_INSTALL_PLUGINS:$FILTERED_QT_PLUGINS|"
+    exit 0
+  fi
+fi
+exec "$REAL_QMAKE" "\$@"
+EOF
+  chmod 0755 "$QMAKE_WRAPPER"
+  export QMAKE="$QMAKE_WRAPPER"
+else
+  export QMAKE="$REAL_QMAKE"
+fi
+# Qt 6.11+ ships libqwayland.so; older trees used libqwayland-generic/egl.
+SCAN_PLUGINS="${FILTERED_QT_PLUGINS:-$QT_PLUGINS_DIR}"
+EXTRA_PLUGINS=""
+for p in libqxcb.so libqwayland.so libqwayland-generic.so libqwayland-egl.so; do
+  if [[ -n "$SCAN_PLUGINS" && -f "$SCAN_PLUGINS/platforms/$p" ]]; then
+    EXTRA_PLUGINS="${EXTRA_PLUGINS:+$EXTRA_PLUGINS;}$p"
+  fi
+done
+export EXTRA_PLATFORM_PLUGINS="$EXTRA_PLUGINS"
+export QML_SOURCES_PATHS="${QML_SOURCES_PATHS:-$PROJECT_ROOT/qml}"
+# cxx-qt registers app.lepramim inside the binary; give qmlimportscanner a stub.
+QML_STUBS="$BUILD_ROOT/qml-stubs"
+mkdir -p "$QML_STUBS/app/lepramim"
+cat > "$QML_STUBS/app/lepramim/qmldir" <<'EOF'
+module app.lepramim
+singleton Theme 1.0 Theme.qml
+AppController 1.0 AppController.qml
+EOF
+printf '%s\n' 'import QtQuick; QtObject {}' > "$QML_STUBS/app/lepramim/Theme.qml"
+printf '%s\n' 'import QtQuick; QtObject {}' > "$QML_STUBS/app/lepramim/AppController.qml"
+export QML_MODULES_PATHS="${QML_MODULES_PATHS:+$QML_MODULES_PATHS:}$QML_STUBS"
+export EXTRA_QT_MODULES="${EXTRA_QT_MODULES:-svg}"
+# linuxdeploy's bundled strip cannot handle Arch RELR (.relr.dyn) objects.
+export NO_STRIP="${NO_STRIP:-true}"
+echo "  QMAKE=$QMAKE"
+echo "  EXTRA_PLATFORM_PLUGINS=$EXTRA_PLATFORM_PLUGINS"
+echo "  QML_SOURCES_PATHS=$QML_SOURCES_PATHS"
+echo "  QML_MODULES_PATHS=$QML_MODULES_PATHS"
+echo "  NO_STRIP=$NO_STRIP"
+set +e
+APPIMAGE_EXTRACT_AND_RUN=1 "$LINUXDEPLOY" \
+  --appdir "$APPDIR" \
+  --executable "$APPDIR/usr/bin/lepramim" \
+  --plugin qt \
+  2>&1 | sed 's/^/  /'
+ld_rc="${PIPESTATUS[0]}"
+set -e
+[[ "$ld_rc" -eq 0 ]] || die "linuxdeploy --plugin qt failed (exit $ld_rc)"
 
 if [[ -z "$APPIMAGE_TOOL" ]]; then APPIMAGE_TOOL="$BUILD_ROOT/appimagetool-x86_64.AppImage"; fi
 if [[ ! -x "$APPIMAGE_TOOL" ]]; then

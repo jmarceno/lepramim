@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Lepramim native build — single Rust binary (Iced tray UI in-process).
+# Lepramim native build — single Rust binary (Qt Quick UI in-process).
 #
 # Usage:
 #   ./scripts/build-native.sh [--debug|--release] [--stage <absolute-path>] [--features cuda]
@@ -7,6 +7,10 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# shellcheck source=scripts/lib/sanitize-host-appimage-env.sh
+source "$PROJECT_ROOT/scripts/lib/sanitize-host-appimage-env.sh"
+sanitize_host_appimage_env
+
 BUILD_TYPE="debug"
 STAGE=""
 FEATURES=""

@@ -5,7 +5,7 @@
 //! unbound, so the shortcut does nothing.
 
 use crossbeam_channel::{Receiver, Sender, unbounded};
-use iced::futures::StreamExt;
+use futures::StreamExt;
 use std::thread;
 use std::time::{Duration, Instant};
 use zbus::interface;

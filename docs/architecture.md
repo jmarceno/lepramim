@@ -1,13 +1,15 @@
 # Lepramim architecture
 
-Lepramim is a **single Rust binary** with an in-process **Iced** desktop shell and a **child daemon** for speech synthesis.
+Lepramim is a **single Rust binary** with an in-process **Qt 6 QML** desktop
+shell (via cxx-qt) and a **child daemon** for speech synthesis.
 
 ## Processes
 
 ```mermaid
 flowchart TD
     subgraph AppProc["lepramim app process"]
-        Iced["iced::daemon"]
+        QtLoop["QGuiApplication + QQmlEngine"]
+        Bridge["AppController cxx-qt QObject"]
         Tray["ksni StatusNotifier tray"]
         HK["D-Bus org.lepramim.App + KGlobalAccel"]
         Cap["selection capture"]
@@ -19,14 +21,15 @@ flowchart TD
         Player["Player + Kokoro + CPAL"]
     end
 
-    Iced --> Tray
-    Iced --> HK
-    Iced --> Win
+    QtLoop --> Bridge
+    QtLoop --> Win
+    Bridge --> Tray
+    Bridge --> HK
     HK --> Cap
     Tray --> Cap
     Cap -->|"POST /speak"| API
-    Iced -->|"GET /state poll"| API
-    Iced -->|"GET/POST /config"| API
+    Bridge -->|"GET /state poll"| API
+    Bridge -->|"GET/POST /config"| API
     AppProc -->|"spawn lepramim daemon"| DaemonProc
 ```
 
@@ -34,7 +37,7 @@ flowchart TD
 
 | Layer | Technology | Role |
 |-------|------------|------|
-| GUI | Iced 0.13 (tiny-skia) | Tray-first daemon; windows on demand |
+| GUI | Qt 6 QML + Quick Controls 2 (cxx-qt) | Tray-first app; windows on demand |
 | Tray | ksni (StatusNotifier) | Tray menu without GTK |
 | Hotkeys | zbus + KGlobalAccel | Meta+R speak, Meta+P toggle |
 | Capture | wl-paste / xclip / synthetic Ctrl+C | Selection capture in `src/ui/capture.rs` |
@@ -55,5 +58,5 @@ The control window **GETs full config, merges edits, POSTs full config** so part
 
 ## Packaging
 
-- Native stage: `scripts/build-native.sh` (cargo only, one binary).
-- AppImage: `scripts/build-appimage.sh` bundles ldd-discovered GUI/audio deps.
+- Native stage: `scripts/build-native.sh` (cargo + Qt 6, one binary).
+- AppImage: `scripts/build-appimage.sh` bundles Qt QML plugins via linuxdeploy-plugin-qt plus ldd-discovered audio deps.

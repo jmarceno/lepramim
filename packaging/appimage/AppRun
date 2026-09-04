@@ -3,12 +3,47 @@ set -euo pipefail
 
 HERE="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
+# Host IDEs (Cursor AppImage) leak APPIMAGE into the environment. Only claim
+# APPIMAGE when it actually names a Lepramim image; otherwise clear it so we
+# do not point LEPRAMIM_APPIMAGE at the IDE.
 if [[ -n "${APPIMAGE:-}" ]]; then
-  export LEPRAMIM_APPIMAGE="$APPIMAGE"
+  case "$(basename -- "$APPIMAGE")" in
+    *[Ll]epramim*)
+      export LEPRAMIM_APPIMAGE="$APPIMAGE"
+      ;;
+    *)
+      unset APPIMAGE LEPRAMIM_APPIMAGE ARGV0 OWD 2>/dev/null || true
+      ;;
+  esac
 fi
 
-export LD_LIBRARY_PATH="$HERE/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# Prefer our bundled libs; strip host AppImage mount entries (Cursor etc.).
+_clean_ld_path=""
+if [[ -n "${LD_LIBRARY_PATH:-}" ]]; then
+  _rest="$LD_LIBRARY_PATH"
+  while [[ -n "$_rest" ]]; do
+    _part="${_rest%%:*}"
+    if [[ "$_rest" == *:* ]]; then
+      _rest="${_rest#*:}"
+    else
+      _rest=""
+    fi
+    [[ -z "$_part" ]] && continue
+    case "$_part" in
+      /tmp/.mount_*) continue ;;
+    esac
+    _clean_ld_path="${_clean_ld_path:+$_clean_ld_path:}$_part"
+  done
+fi
+export LD_LIBRARY_PATH="$HERE/usr/lib${_clean_ld_path:+:$_clean_ld_path}"
+unset _clean_ld_path _rest _part
 export PATH="$PATH:$HERE/usr/bin"
+
+# Qt 6 QML / plugin discovery inside the AppImage
+export QT_PLUGIN_PATH="$HERE/usr/plugins${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
+export QT_QPA_PLATFORM_PLUGIN_PATH="$HERE/usr/plugins/platforms${QT_QPA_PLATFORM_PLUGIN_PATH:+:$QT_QPA_PLATFORM_PLUGIN_PATH}"
+export QML2_IMPORT_PATH="$HERE/usr/qml${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}"
+export QML_IMPORT_PATH="$HERE/usr/qml${QML_IMPORT_PATH:+:$QML_IMPORT_PATH}"
 
 if [[ -d "$HERE/usr/share/espeak-ng-data" ]]; then
   export ESPEAK_DATA_PATH="$HERE/usr/share/espeak-ng-data"

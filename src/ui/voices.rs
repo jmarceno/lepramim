@@ -338,6 +338,11 @@ pub fn language_label(lang_id: &str) -> &str {
         .unwrap_or(lang_id)
 }
 
+/// Short display name for a voice label (text before the em dash).
+pub fn voice_short_label(label: &str) -> &str {
+    label.split('\u{2014}').next().unwrap_or(label).trim()
+}
+
 #[derive(Debug, Clone)]
 pub struct ControlForm {
     pub voice: String,
@@ -349,6 +354,12 @@ pub struct ControlForm {
     pub strip_numeric_citations: bool,
     pub expand_latin: bool,
     pub normalize_numbers: bool,
+    pub strip_parenthetical_citations: bool,
+    pub expand_academic: bool,
+    pub normalize_urls: bool,
+    pub normalize_math_symbols: bool,
+    pub pdf_cleanup: bool,
+    pub sre_latex_enabled: bool,
     pub status: String,
     pub unknown_voice_note: bool,
     /// UI-only: when true, the voice pick list only shows voices for `lang`.
@@ -373,6 +384,12 @@ impl ControlForm {
             strip_numeric_citations: cfg.preprocessor.strip_numeric_bracket_citations,
             expand_latin: cfg.preprocessor.expand_latin_abbreviations,
             normalize_numbers: cfg.preprocessor.normalize_numbers,
+            strip_parenthetical_citations: cfg.preprocessor.strip_parenthetical_citations,
+            expand_academic: cfg.preprocessor.expand_academic_abbreviations,
+            normalize_urls: cfg.preprocessor.normalize_urls,
+            normalize_math_symbols: cfg.preprocessor.normalize_math_symbols,
+            pdf_cleanup: cfg.preprocessor.pdf_cleanup,
+            sre_latex_enabled: cfg.sre_latex.enabled,
             status: String::new(),
             unknown_voice_note: false,
             filter_voices_by_lang: false,
@@ -398,6 +415,12 @@ impl ControlForm {
         cfg.preprocessor.strip_numeric_bracket_citations = self.strip_numeric_citations;
         cfg.preprocessor.expand_latin_abbreviations = self.expand_latin;
         cfg.preprocessor.normalize_numbers = self.normalize_numbers;
+        cfg.preprocessor.strip_parenthetical_citations = self.strip_parenthetical_citations;
+        cfg.preprocessor.expand_academic_abbreviations = self.expand_academic;
+        cfg.preprocessor.normalize_urls = self.normalize_urls;
+        cfg.preprocessor.normalize_math_symbols = self.normalize_math_symbols;
+        cfg.preprocessor.pdf_cleanup = self.pdf_cleanup;
+        cfg.sre_latex.enabled = self.sre_latex_enabled;
         cfg
     }
 

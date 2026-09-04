@@ -77,7 +77,7 @@ tells you the rest was skipped.
 
 - Press **Meta+P** to pause or resume.
 - Use the tray menu (**Pause / resume**, **Stop current playback**) or the
-  floating overlay buttons (⏸ ⏭ ⏹) for the same controls.
+  floating overlay buttons (previous, pause, next, stop) for the same controls.
 
 ### The tray icon
 
@@ -108,24 +108,29 @@ Left-clicking the tray icon opens the control window.
 
 ## Control window
 
-Open it from the tray menu or by clicking the tray icon. It has four tabs.
+Open it from the tray menu or by clicking the tray icon. The window uses a
+sidebar for navigation and a dark card layout for settings.
 
-### Voice tab
+### Voice
 
 - **Voice**: 54 bundled Kokoro voices across 9 languages (American and British
   English, Spanish, French, Hindi, Italian, Japanese, Brazilian Portuguese,
   Mandarin Chinese). Default is Heart, an American female voice.
-- **Language**: the voice's language. Tick **Filter by language** to narrow the
-  voice list to the selected language.
+- **Language**: the voice's language. Tick **Filter voices by language** to
+  narrow the voice list to the selected language.
 - **Speed slider** (0.50×–2.00×): 0.85×–1.30× is the safe range for dense
   reading; faster is fine for familiar material but hurts comprehension on new
   academic text.
-- **Speak test sentence** reads a short sample with your current settings so
-  you can audition voices.
+- **Test voice** reads a short sample with your current settings so you can
+  audition voices.
+- **Read selection** captures the current highlight (same as Meta+R).
+- **Floating overlay** toggle lives here: an always-on-top bar with the current
+  sentence plus previous, pause, next, and stop. Off by default to keep
+  Lepramim discreet.
 - **Apply settings** saves; the new voice and speed apply from the next
   playback start.
 
-### Preprocessor tab
+### Preprocessor
 
 How captured text is cleaned before speaking:
 
@@ -136,13 +141,18 @@ How captured text is cleaned before speaking:
 - Expand Latin abbreviations (`i.e.`, `etc.`)
 - Normalize numbers (`50%` → “fifty percent”, `$100` → “one hundred dollars”)
 
-### Advanced tab
+### Advanced
 
-- **Show floating overlay when speaking**: a small always-on-top bar with the
-  current sentence plus pause, skip, and stop buttons. Off by default to keep
-  Lepramim discreet.
+Extra cleanup options that are also stored in `config.toml`:
 
-### Models tab
+- Strip parenthetical citations
+- Expand academic abbreviations
+- Normalize URLs
+- Normalize math symbols
+- PDF cleanup
+- Speech Rule Engine for LaTeX (optional)
+
+### Models
 
 Shows each speech model file with its size and whether it is present or
 missing, plus **Refresh** and **Download missing models** buttons. This is
@@ -208,7 +218,11 @@ re-downloads them.
 Install system dependencies (Debian/Ubuntu example):
 
 ```bash
-sudo apt install libasound2-dev libssl-dev libdbus-1-dev \
+sudo apt install build-essential clang cmake pkg-config \
+  libasound2-dev libssl-dev libdbus-1-dev libgl-dev \
+  qt6-base-dev qt6-declarative-dev qt6-svg-dev \
+  qml6-module-qtquick qml6-module-qtquick-controls \
+  qml6-module-qtquick-layouts qml6-module-qtquick-window \
   wl-clipboard xclip libfontconfig1-dev
 ```
 
