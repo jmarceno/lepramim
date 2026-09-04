@@ -62,6 +62,7 @@ pub fn run(show_control: bool, force_overlay: bool) -> i32 {
     if std::env::var_os("QT_FORCE_STDERR_LOGGING").is_none() {
         unsafe { std::env::set_var("QT_FORCE_STDERR_LOGGING", "1") };
     }
+    apply_render_backend_fallback();
 
     let daemon_child = Arc::new(Mutex::new(None));
     let daemon_for_exit = daemon_child.clone();
@@ -107,6 +108,25 @@ pub fn run(show_control: bool, force_overlay: bool) -> i32 {
 
     shutdown_daemon_sync(daemon_for_exit);
     code
+}
+
+/// Default Qt Quick to software rendering unless a backend was chosen.
+///
+/// The AppImage cannot rely on the host's `wayland-egl` client buffer
+/// integration: where it is missing, the first visible window aborts the
+/// process (`Failed to initialize graphics backend for OpenGL`). That meant
+/// starting the app worked (no windows shown yet) while any tray click that
+/// opens the control window killed it. The software backend needs no GL and
+/// is plenty for this UI; explicit `QT_QUICK_BACKEND` / `QSG_RHI_BACKEND`
+/// choices are always respected.
+fn apply_render_backend_fallback() {
+    if std::env::var_os("QT_QUICK_BACKEND").is_none()
+        && std::env::var_os("QSG_RHI_BACKEND").is_none()
+    {
+        // SAFETY: runs on the main thread before any Qt object exists.
+        unsafe { std::env::set_var("QT_QUICK_BACKEND", "software") };
+        tracing::info!("defaulting QT_QUICK_BACKEND=software (no backend selected)");
+    }
 }
 
 /// Fail loudly if QML never consumes the bootstrap payload.
@@ -163,4 +183,81 @@ fn shutdown_daemon_sync(daemon_child: Arc<Mutex<Option<std::process::Child>>>) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    // Serialize env-var-touching tests to avoid cross-test pollution.
+    static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    struct EnvGuard {
+        quick: Option<std::ffi::OsString>,
+        rhi: Option<std::ffi::OsString>,
+    }
+
+    impl EnvGuard {
+        fn take() -> Self {
+            Self {
+                quick: std::env::var_os("QT_QUICK_BACKEND"),
+                rhi: std::env::var_os("QSG_RHI_BACKEND"),
+            }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            unsafe {
+                match self.quick.take() {
+                    Some(v) => std::env::set_var("QT_QUICK_BACKEND", v),
+                    None => std::env::remove_var("QT_QUICK_BACKEND"),
+                }
+                match self.rhi.take() {
+                    Some(v) => std::env::set_var("QSG_RHI_BACKEND", v),
+                    None => std::env::remove_var("QSG_RHI_BACKEND"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn render_fallback_sets_software_when_nothing_selected() {
+        let _g = env_lock();
+        let _env = EnvGuard::take();
+        unsafe {
+            std::env::remove_var("QT_QUICK_BACKEND");
+            std::env::remove_var("QSG_RHI_BACKEND");
+        }
+        apply_render_backend_fallback();
+        assert_eq!(
+            std::env::var_os("QT_QUICK_BACKEND"),
+            Some(std::ffi::OsString::from("software"))
+        );
+    }
+
+    #[test]
+    fn render_fallback_respects_explicit_backend() {
+        let _g = env_lock();
+        let _env = EnvGuard::take();
+        unsafe {
+            std::env::set_var("QT_QUICK_BACKEND", "opengl");
+            std::env::remove_var("QSG_RHI_BACKEND");
+        }
+        apply_render_backend_fallback();
+        assert_eq!(
+            std::env::var_os("QT_QUICK_BACKEND"),
+            Some(std::ffi::OsString::from("opengl"))
+        );
+        unsafe {
+            std::env::remove_var("QT_QUICK_BACKEND");
+            std::env::set_var("QSG_RHI_BACKEND", "vulkan");
+        }
+        apply_render_backend_fallback();
+        assert!(std::env::var_os("QT_QUICK_BACKEND").is_none());
+    }
 }

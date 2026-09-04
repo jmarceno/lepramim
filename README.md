@@ -253,6 +253,10 @@ AppImage never bundles CUDA.
 - **No tray icon**: your desktop has no StatusNotifier host running. Start one
   (e.g. Plasma's system tray, `stalonetray`, or your bar's tray module) and
   relaunch.
+- **App exits when opening a window** (control window, overlay): the AppImage
+  defaults to Qt Quick software rendering (`QT_QUICK_BACKEND=software`) so it
+  does not depend on the host's `wayland-egl` integration. If you overrode the
+  backend, unset `QT_QUICK_BACKEND` / `QSG_RHI_BACKEND` and try again.
 - **Meta+R does nothing**: on KDE, check that no other action grabbed Meta+R.
   Elsewhere, bind your preferred keys to the `org.lepramim.App` bus service in
   keyboard settings. On Wayland without a key-injection tool, copy first.
