@@ -159,6 +159,11 @@ pub struct SessionInfo {
     pub desktop: String,
     pub wl_paste: Option<String>,
     pub xclip: Option<String>,
+    /// Wayland key-injectors for one-keypress capture (not bundled).
+    pub ydotool: Option<String>,
+    pub wtype: Option<String>,
+    pub xdotool: Option<String>,
+    pub dotool: Option<String>,
 }
 
 impl SessionInfo {
@@ -167,6 +172,17 @@ impl SessionInfo {
     }
     pub fn is_x11(&self) -> bool {
         self.session_type == "x11"
+    }
+    /// First available Wayland key-injector, if any.
+    pub fn wayland_injector(&self) -> Option<&str> {
+        [&self.ydotool, &self.wtype, &self.xdotool, &self.dotool]
+            .iter()
+            .filter_map(|o| o.as_deref())
+            .next()
+    }
+    /// True when one-keypress Wayland capture cannot work.
+    pub fn wayland_injector_missing(&self) -> bool {
+        self.is_wayland() && self.wayland_injector().is_none()
     }
 }
 
@@ -187,6 +203,10 @@ pub fn detect_session() -> SessionInfo {
         desktop,
         wl_paste: which("wl-paste"),
         xclip: which("xclip"),
+        ydotool: which("ydotool"),
+        wtype: which("wtype"),
+        xdotool: which("xdotool"),
+        dotool: which("dotool"),
     }
 }
 

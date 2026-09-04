@@ -11,7 +11,7 @@ use ksni::{Handle, Tray, TrayService};
 
 use super::tray_state::{
     MENU_AUTOSTART, MENU_CONTROL, MENU_CPU_FALLBACK, MENU_PAUSE, MENU_QUIT, MENU_SHORTCUT,
-    MENU_SPEAK, MENU_STOP, TrayIconPhase, tray_icon_mix,
+    MENU_SPEAK, MENU_STOP, MENU_WAYLAND_COPY_FIRST, TrayIconPhase, tray_icon_mix,
 };
 use crate::ui::icon;
 
@@ -40,6 +40,8 @@ pub struct TraySharedState {
     pub autostart_checked: bool,
     /// When the daemon is on CPU because CUDA is missing.
     pub cpu_fallback: bool,
+    /// Wayland with no key-injector: one-keypress capture unavailable.
+    pub wayland_copy_first: bool,
 }
 
 impl Default for TraySharedState {
@@ -55,6 +57,7 @@ impl Default for TraySharedState {
             stop_enabled: false,
             autostart_checked: crate::platform::service::autostart_path().is_file(),
             cpu_fallback: false,
+            wayland_copy_first: crate::ui::capture::wayland_injector_missing(),
         }
     }
 }
@@ -122,6 +125,16 @@ impl Tray for LepramimTray {
             items.push(
                 StandardItem {
                     label: MENU_CPU_FALLBACK.into(),
+                    enabled: false,
+                    ..Default::default()
+                }
+                .into(),
+            );
+        }
+        if self.state.wayland_copy_first {
+            items.push(
+                StandardItem {
+                    label: MENU_WAYLAND_COPY_FIRST.into(),
                     enabled: false,
                     ..Default::default()
                 }

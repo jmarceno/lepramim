@@ -68,6 +68,30 @@ pub fn is_wayland() -> bool {
     session == "wayland" || std::env::var("WAYLAND_DISPLAY").is_ok()
 }
 
+/// Key-injection helpers that make one-keypress capture work on Wayland.
+/// None of these are bundled in the AppImage; without at least one of them
+/// the user must copy (Ctrl+C) before pressing Meta+R.
+pub const WAYLAND_INJECTORS: [&str; 4] = ["ydotool", "wtype", "xdotool", "dotool"];
+
+/// First Wayland key-injector found on `PATH` (or next to the binary).
+pub fn find_wayland_injector() -> Option<String> {
+    WAYLAND_INJECTORS.iter().filter_map(|n| find_tool(n)).next()
+}
+
+/// True on a Wayland session where no key-injector is available, i.e.
+/// one-keypress capture cannot work and copy-first is required.
+pub fn wayland_injector_missing() -> bool {
+    is_wayland() && find_wayland_injector().is_none()
+}
+
+/// User-facing advice shown when no Wayland key-injector is installed.
+pub fn wayland_injector_advice() -> String {
+    "One-keypress capture needs one of: ydotool, wtype, xdotool, or dotool. \
+     None was found, so copy the text first (Ctrl+C) and then press Meta+R. \
+     Example: sudo apt install wtype"
+        .to_string()
+}
+
 fn find_tool(name: &str) -> Option<String> {
     let path = std::env::var("PATH").unwrap_or_default();
     for dir in path.split(':') {
@@ -305,10 +329,37 @@ pub fn capture_highlighted_text() -> SelectionCapture {
 }
 
 pub fn notify_empty_selection() {
+    if wayland_injector_missing() {
+        crate::platform::notifications::try_notify(
+            "Copy first, then press Meta+R",
+            Some(&wayland_injector_advice()),
+            5.0,
+        );
+        return;
+    }
     crate::platform::notifications::try_notify(
         "Select text first",
         Some("Lepramim could not capture a selection. Copy the text (Ctrl+C) and try again."),
         3.0,
+    );
+}
+
+/// Startup / on-demand alert: no Wayland key-injector installed.
+pub fn notify_missing_wayland_injector() {
+    crate::platform::notifications::try_notify(
+        "Copy first, then press Meta+R",
+        Some(&wayland_injector_advice()),
+        5.0,
+    );
+}
+
+/// Reminder when speech started from a clipboard fallback because no
+/// injector could press Ctrl+C automatically.
+pub fn notify_wayland_copy_fallback() {
+    crate::platform::notifications::try_notify(
+        "Reading clipboard (copy-first mode)",
+        Some(&wayland_injector_advice()),
+        5.0,
     );
 }
 
@@ -398,5 +449,15 @@ mod tests {
         let cap = resolve_capture("", " before\n", " after \t");
         assert_eq!(cap.text, "after");
         assert_eq!(cap.source, "clipboard/updated");
+    }
+
+    #[test]
+    fn injector_advice_names_tools_and_copy_first() {
+        let advice = wayland_injector_advice();
+        for tool in WAYLAND_INJECTORS {
+            assert!(advice.contains(tool), "advice missing {tool}");
+        }
+        assert!(advice.contains("Ctrl+C"));
+        assert!(advice.contains("Meta+R"));
     }
 }

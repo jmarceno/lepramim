@@ -661,6 +661,26 @@ async fn cmd_bug_report(full: bool) -> i32 {
             out.push_str(&format!("- `{}`: **MISSING**\n", art.filename));
         }
     }
+    // capture tools (Wayland one-keypress helpers are not bundled)
+    let session = crate::platform::selection::detect_session();
+    out.push_str("\n## Capture\n");
+    out.push_str(&format!(
+        "- **Session**: {} ({})\n",
+        session.session_type, session.desktop
+    ));
+    let flag = |o: &Option<String>| if o.is_some() { "present" } else { "missing" };
+    out.push_str(&format!(
+        "- **wl-paste/xclip**: {}/{}\n",
+        flag(&session.wl_paste),
+        flag(&session.xclip)
+    ));
+    match session.wayland_injector() {
+        Some(tool) => out.push_str(&format!("- **Wayland injector**: {tool}\n")),
+        None if session.is_wayland() => out.push_str(
+            "- **Wayland injector**: **MISSING** (install one of ydotool, wtype, xdotool, dotool; otherwise copy first with Ctrl+C, then Meta+R)\n",
+        ),
+        None => out.push_str("- **Wayland injector**: n/a (not a Wayland session)\n"),
+    }
     if redact {
         out = crate::privacy::redact_home(&out);
     }

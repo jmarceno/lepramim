@@ -423,6 +423,17 @@ impl qobject::AppController {
             self.as_mut()
                 .set_download_status(QString::from("Downloading the Kokoro speech model…"));
         }
+
+        // Wayland without a key-injector: one-keypress capture cannot work.
+        // Tell the user once at startup (warning dialog + notification) what
+        // to install or that copy-first is required.
+        if capture::wayland_injector_missing() {
+            self.as_mut()
+                .set_warning_text(QString::from(&*capture::wayland_injector_advice()));
+            self.as_mut().set_warning_visible(true);
+            capture::notify_missing_wayland_injector();
+            tracing::warn!("no Wayland key-injector found; copy-first mode");
+        }
     }
 
     fn sync_form_to_properties(mut self: Pin<&mut Self>) {
@@ -853,6 +864,7 @@ impl qobject::AppController {
                 stop_enabled: s.stop_enabled,
                 autostart_checked: crate::platform::service::autostart_path().is_file(),
                 cpu_fallback: s.cpu_fallback,
+                wayland_copy_first: capture::wayland_injector_missing(),
             };
             rt.tray.update(&rt.tray_state);
         }
@@ -920,6 +932,11 @@ impl qobject::AppController {
         }
         if cap.truncated {
             capture::notify_truncated_selection();
+        }
+        // Clipboard fallback with no injector: remind the user why highlight
+        // alone did not suffice and what to install.
+        if capture::wayland_injector_missing() && cap.source.starts_with("clipboard") {
+            capture::notify_wayland_copy_fallback();
         }
         if let Some(rt) = self.as_mut().rust_mut().runtime.as_mut() {
             rt.preparing_speech = true;

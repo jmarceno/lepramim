@@ -83,6 +83,8 @@ pub fn tray_state_for_daemon(state_str: &str, active: bool, cpu_fallback: bool) 
 }
 
 pub const MENU_SHORTCUT: &str = "Shortcut: Meta+R";
+pub const MENU_WAYLAND_COPY_FIRST: &str =
+    "Wayland: copy first (Ctrl+C), then Meta+R — no key injector found.";
 pub const MENU_CPU_FALLBACK: &str = "Running on CPU, CUDA not available.";
 pub const MENU_SPEAK: &str = "Speak highlighted selection";
 pub const MENU_PAUSE: &str = "Pause / resume";
