@@ -6,11 +6,11 @@ import app.lepramim
 
 Window {
     id: root
-    property var controller
+    required property var controller
 
     width: 420
     height: 160
-    visible: controller.warningVisible
+    visible: controller.warning_visible
     color: Theme.windowBg
     title: "Lepramim"
     flags: Qt.Dialog
@@ -37,7 +37,7 @@ Window {
             }
             Label {
                 Layout.fillWidth: true
-                text: root.controller.warningText
+                text: root.controller.warning_text
                 color: Theme.textSecondary
                 font.pixelSize: 13
                 wrapMode: Text.WordWrap

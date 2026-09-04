@@ -5,7 +5,7 @@ import app.lepramim
 
 Item {
     id: root
-    property var controller
+    required property var controller
 
     component PrefCheck: CheckBox {
         id: box
@@ -46,27 +46,27 @@ Item {
 
             PrefCheck {
                 text: "Deduplicate MathJax selection"
-                checked: root.controller.dedupeMathjax
+                checked: root.controller.dedupe_mathjax
                 onToggled: root.controller.applyDedupeMathjax(checked)
             }
             PrefCheck {
                 text: "Strip Markdown"
-                checked: root.controller.stripMarkdown
+                checked: root.controller.strip_markdown
                 onToggled: root.controller.applyStripMarkdown(checked)
             }
             PrefCheck {
                 text: "Strip numeric bracket citations"
-                checked: root.controller.stripNumericCitations
+                checked: root.controller.strip_numeric_citations
                 onToggled: root.controller.applyStripNumericCitations(checked)
             }
             PrefCheck {
                 text: "Expand Latin abbreviations"
-                checked: root.controller.expandLatin
+                checked: root.controller.expand_latin
                 onToggled: root.controller.applyExpandLatin(checked)
             }
             PrefCheck {
                 text: "Normalize numbers"
-                checked: root.controller.normalizeNumbers
+                checked: root.controller.normalize_numbers
                 onToggled: root.controller.applyNormalizeNumbers(checked)
             }
 

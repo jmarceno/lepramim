@@ -8,6 +8,7 @@ mod tray_state;
 pub mod voices;
 
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QQuickStyle, QString, QUrl};
 
@@ -54,6 +55,14 @@ pub fn run(show_control: bool, force_overlay: bool) -> i32 {
         }
     };
 
+    // This distro routes Qt messages to journald instead of stderr, which
+    // once hid a fatal QML error for an entire session. Force console output
+    // so QML failures are visible in the terminal too (journal still gets them).
+    // SAFETY: runs on the main thread before any Qt object exists.
+    if std::env::var_os("QT_FORCE_STDERR_LOGGING").is_none() {
+        unsafe { std::env::set_var("QT_FORCE_STDERR_LOGGING", "1") };
+    }
+
     let daemon_child = Arc::new(Mutex::new(None));
     let daemon_for_exit = daemon_child.clone();
     let hotkeys = HotkeyManager::start();
@@ -66,6 +75,8 @@ pub fn run(show_control: bool, force_overlay: bool) -> i32 {
         show_control,
         force_overlay,
     });
+    tracing::info!(show_control, force_overlay, "Qt bootstrap installed");
+    spawn_bootstrap_watchdog();
 
     QQuickStyle::set_style(&QString::from("Basic"));
 
@@ -79,8 +90,13 @@ pub fn run(show_control: bool, force_overlay: bool) -> i32 {
             .set_organization_name(&QString::from("Lepramim"));
     }
 
-    if let Some(engine) = engine.as_mut() {
-        engine.load(&QUrl::from("qrc:/qt/qml/app/lepramim/qml/Main.qml"));
+    if let Some(mut engine) = engine.as_mut() {
+        engine
+            .as_mut()
+            .load(&QUrl::from("qrc:/qt/qml/app/lepramim/qml/Main.qml"));
+    } else {
+        eprintln!("Lepramim failed to start: Qt QML engine is null.");
+        return 1;
     }
 
     let code = if let Some(app) = app.as_mut() {
@@ -91,6 +107,30 @@ pub fn run(show_control: bool, force_overlay: bool) -> i32 {
 
     shutdown_daemon_sync(daemon_for_exit);
     code
+}
+
+/// Fail loudly if QML never consumes the bootstrap payload.
+///
+/// A broken `Main.qml` makes `engine.load` fail while `app.exec()` keeps
+/// running headless forever: no daemon, no windows, no quit handling.
+/// The watchdog turns that silent state into a fatal error with pointers
+/// to the Qt logs instead of an apparently-hung app.
+fn spawn_bootstrap_watchdog() {
+    std::thread::Builder::new()
+        .name("lepramim-qml-watchdog".into())
+        .spawn(|| {
+            std::thread::sleep(Duration::from_secs(10));
+            if crate::ui::controller::is_bootstrap_pending() {
+                tracing::error!("Main.qml failed to load: bootstrap was never consumed");
+                eprintln!(
+                    "Lepramim failed to start: the Qt UI did not load.\n\
+                     Qt said why — check `journalctl --user -t lepramim --since '5 minutes ago'`\n\
+                     or run with `QT_LOGGING_RULES='qt.qml.*=true'`."
+                );
+                std::process::exit(2);
+            }
+        })
+        .ok();
 }
 
 fn ensure_config_only() -> Result<(), String> {

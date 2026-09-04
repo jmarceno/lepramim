@@ -6,11 +6,11 @@ import app.lepramim
 
 Window {
     id: root
-    property var controller
+    required property var controller
 
     width: 440
     height: 240
-    visible: controller.onboardingVisible
+    visible: controller.onboarding_visible
     color: Theme.windowBg
     title: "Welcome to Lepramim"
     flags: Qt.Dialog
@@ -37,8 +37,8 @@ Window {
             }
             Label {
                 Layout.fillWidth: true
-                text: root.controller.downloadStatus.length > 0
-                      ? root.controller.downloadStatus
+                text: root.controller.download_status.length > 0
+                      ? root.controller.download_status
                       : "Download the Kokoro speech model to start reading highlighted text aloud."
                 color: Theme.textSecondary
                 font.pixelSize: 13
@@ -48,7 +48,7 @@ Window {
                 Layout.fillWidth: true
                 from: 0
                 to: 100
-                value: root.controller.downloadPercent
+                value: root.controller.download_percent
                 background: Rectangle {
                     implicitHeight: 8
                     radius: 4
@@ -66,7 +66,7 @@ Window {
             }
             Label {
                 Layout.fillWidth: true
-                text: root.controller.downloadFilename
+                text: root.controller.download_filename
                 color: Theme.textMuted
                 font.pixelSize: 12
                 elide: Text.ElideMiddle

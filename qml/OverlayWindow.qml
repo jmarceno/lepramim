@@ -6,11 +6,11 @@ import app.lepramim
 
 Window {
     id: root
-    property var controller
+    required property var controller
 
     width: 520
     height: 88
-    visible: controller.overlayVisible
+    visible: controller.overlay_visible
     color: "transparent"
     title: "Lepramim overlay"
     flags: Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
@@ -41,15 +41,15 @@ Window {
                 Layout.fillWidth: true
                 spacing: 2
                 Label {
-                    text: root.controller.playbackStatusLabel
+                    text: root.controller.playback_status_label
                     color: Theme.textPrimary
                     font.pixelSize: 12
                     font.bold: true
                 }
                 Label {
                     Layout.fillWidth: true
-                    text: root.controller.currentSentence.length > 0
-                          ? root.controller.currentSentence
+                    text: root.controller.current_sentence.length > 0
+                          ? root.controller.current_sentence
                           : "Preparing…"
                     color: Theme.textSecondary
                     font.pixelSize: 13
@@ -62,7 +62,7 @@ Window {
                 Repeater {
                     model: [
                         { glyph: "⏮", action: "back" },
-                        { glyph: root.controller.playbackPaused ? "▶" : "⏸", action: "toggle" },
+                        { glyph: root.controller.playback_paused ? "▶" : "⏸", action: "toggle" },
                         { glyph: "⏭", action: "skip" },
                         { glyph: "⏹", action: "stop" }
                     ]

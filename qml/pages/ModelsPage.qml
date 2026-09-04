@@ -5,7 +5,7 @@ import app.lepramim
 
 Item {
     id: root
-    property var controller
+    required property var controller
 
     Card {
         anchors.fill: parent
@@ -17,7 +17,7 @@ Item {
 
             Label {
                 Layout.fillWidth: true
-                text: root.controller.modelsStatus
+                text: root.controller.models_status
                 color: Theme.textSecondary
                 font.pixelSize: 13
                 wrapMode: Text.WordWrap
@@ -34,26 +34,26 @@ Item {
                 TealButton {
                     text: "Download missing models"
                     compact: true
-                    enabled: !root.controller.downloadActive
+                    enabled: !root.controller.download_active
                     onClicked: root.controller.startDownload()
                 }
             }
 
             Label {
-                visible: root.controller.downloadActive || root.controller.downloadStatus.length > 0
+                visible: root.controller.download_active || root.controller.download_status.length > 0
                 Layout.fillWidth: true
-                text: root.controller.downloadStatus
+                text: root.controller.download_status
                 color: Theme.textMuted
                 font.pixelSize: 12
                 wrapMode: Text.WordWrap
             }
 
             ProgressBar {
-                visible: root.controller.downloadActive
+                visible: root.controller.download_active
                 Layout.fillWidth: true
                 from: 0
                 to: 100
-                value: root.controller.downloadPercent
+                value: root.controller.download_percent
 
                 background: Rectangle {
                     implicitHeight: 8

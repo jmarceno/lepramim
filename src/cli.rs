@@ -570,7 +570,12 @@ async fn cmd_setup(force: bool) -> i32 {
 async fn cmd_daemon() -> i32 {
     println!("Starting Lepramim daemon...");
     match crate::daemon::run().await {
-        Ok(_) => 0,
+        Ok(_) => {
+            // Lands in daemon.log: distinguishes a clean stop (quit menu,
+            // toggle off) from a crash, which leaves no such line.
+            println!("Lepramim daemon stopped.");
+            0
+        }
         Err(e) => {
             eprintln!("daemon failed: {e}");
             1

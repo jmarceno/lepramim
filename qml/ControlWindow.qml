@@ -6,13 +6,13 @@ import app.lepramim
 
 Window {
     id: root
-    property var controller
+    required property var controller
 
     width: 1120
     height: 720
     minimumWidth: 960
     minimumHeight: 640
-    visible: controller.controlVisible
+    visible: controller.control_visible
     color: Theme.windowBg
     title: "Lepramim"
     flags: Qt.Window | Qt.FramelessWindowHint
@@ -151,13 +151,13 @@ Window {
                                 spacing: 4
                                 Layout.fillWidth: true
                                 Label {
-                                    text: root.controller.pageTitle
+                                    text: root.controller.page_title
                                     color: Theme.textPrimary
                                     font.pixelSize: 28
                                     font.bold: true
                                 }
                                 Label {
-                                    text: root.controller.pageSubtitle
+                                    text: root.controller.page_subtitle
                                     color: Theme.textMuted
                                     font.pixelSize: 13
                                     wrapMode: Text.WordWrap
@@ -165,7 +165,7 @@ Window {
                                 }
                             }
                             TealButton {
-                                visible: root.controller.controlTab === 0
+                                visible: root.controller.control_tab === 0
                                 text: "▶  Read selection"
                                 onClicked: root.controller.readSelection()
                             }
@@ -174,7 +174,7 @@ Window {
                         StackLayout {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            currentIndex: root.controller.controlTab
+                            currentIndex: root.controller.control_tab
 
                             VoicePage { controller: root.controller }
                             PreprocessorPage { controller: root.controller }
@@ -191,8 +191,8 @@ Window {
                                 Layout.fillWidth: true
                             }
                             Label {
-                                visible: root.controller.statusMessage.length > 0
-                                text: root.controller.statusMessage
+                                visible: root.controller.status_message.length > 0
+                                text: root.controller.status_message
                                 color: Theme.textSecondary
                                 font.pixelSize: 12
                                 elide: Text.ElideRight

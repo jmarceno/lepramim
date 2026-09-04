@@ -8,6 +8,12 @@ Rectangle {
     radius: Theme.radius
     border.width: 0
 
+    // Rectangle never derives implicit size from children, so a card used
+    // without fillWidth/fillHeight inside a Row/Column layout would collapse
+    // to zero. Forward the body's content-driven size instead.
+    implicitWidth: body.implicitWidth + root.contentPadding * 2
+    implicitHeight: body.implicitHeight + root.contentPadding * 2
+
     default property alias content: body.data
     property alias title: titleLabel.text
     property int contentPadding: 18

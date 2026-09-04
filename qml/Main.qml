@@ -29,16 +29,20 @@ QtObject {
 
     // Slow / fast daemon state polling
     property Timer tickTimer: Timer {
-        interval: root.controller.fastPolling ? 200 : 1000
+        interval: root.controller.fast_polling ? 200 : 1000
         running: true
         repeat: true
         onTriggered: root.controller.tick()
     }
 
-    Connections {
+    // Connections must be property-bound: QtObject has no default
+    // property, so a bare `Connections {}` child fails the whole
+    // component with "Cannot assign to non-existent default property"
+    // (which kills bootstrap, daemon spawn, windows, and quit handling).
+    property Connections quitWatcher: Connections {
         target: root.controller
-        function onQuitRequestedChanged() {
-            if (root.controller.quitRequested)
+        function onQuit_requestedChanged() {
+            if (root.controller.quit_requested)
                 Qt.quit()
         }
     }

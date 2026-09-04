@@ -5,7 +5,7 @@ import app.lepramim
 
 Item {
     id: root
-    property var controller
+    required property var controller
 
     component PrefCheck: CheckBox {
         id: box
@@ -46,32 +46,32 @@ Item {
 
             PrefCheck {
                 text: "Strip parenthetical citations"
-                checked: root.controller.stripParentheticalCitations
+                checked: root.controller.strip_parenthetical_citations
                 onToggled: root.controller.applyStripParentheticalCitations(checked)
             }
             PrefCheck {
                 text: "Expand academic abbreviations"
-                checked: root.controller.expandAcademic
+                checked: root.controller.expand_academic
                 onToggled: root.controller.applyExpandAcademic(checked)
             }
             PrefCheck {
                 text: "Normalize URLs"
-                checked: root.controller.normalizeUrls
+                checked: root.controller.normalize_urls
                 onToggled: root.controller.applyNormalizeUrls(checked)
             }
             PrefCheck {
                 text: "Normalize math symbols"
-                checked: root.controller.normalizeMathSymbols
+                checked: root.controller.normalize_math_symbols
                 onToggled: root.controller.applyNormalizeMathSymbols(checked)
             }
             PrefCheck {
                 text: "PDF cleanup"
-                checked: root.controller.pdfCleanup
+                checked: root.controller.pdf_cleanup
                 onToggled: root.controller.applyPdfCleanup(checked)
             }
             PrefCheck {
                 text: "Enable Speech Rule Engine for LaTeX"
-                checked: root.controller.sreLatexEnabled
+                checked: root.controller.sre_latex_enabled
                 onToggled: root.controller.applySreLatexEnabled(checked)
             }
 

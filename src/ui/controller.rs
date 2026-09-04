@@ -52,6 +52,17 @@ fn take_bootstrap() -> Option<UiBootstrap> {
         .and_then(|cell| cell.lock().ok().and_then(|mut g| g.take()))
 }
 
+/// True while QML has not yet consumed the bootstrap payload.
+///
+/// After a successful startup this flips to false within a second or two.
+/// The startup watchdog treats "still pending" as a QML load failure.
+pub(crate) fn is_bootstrap_pending() -> bool {
+    match BOOTSTRAP.get() {
+        None => true,
+        Some(cell) => cell.lock().map(|g| g.is_some()).unwrap_or(false),
+    }
+}
+
 struct Runtime {
     tray: TrayHandle,
     hotkeys: HotkeyManager,
@@ -62,6 +73,7 @@ struct Runtime {
     form: ControlForm,
     preparing_speech: bool,
     download_rx: Option<crossbeam_channel::Receiver<DownloadProgress>>,
+    warn_rx: Option<crossbeam_channel::Receiver<String>>,
     tray_state: TraySharedState,
     daemon_spawned: bool,
 }
@@ -364,6 +376,7 @@ fn qstring_list_from_labels(labels: impl IntoIterator<Item = String>) -> QString
 impl qobject::AppController {
     fn bootstrap(mut self: Pin<&mut Self>) {
         let Some(boot) = take_bootstrap() else {
+            tracing::warn!("bootstrap called with no payload installed; UI stays uninitialized");
             return;
         };
         let base_config = crate::config::load_config(None::<&std::path::Path>);
@@ -383,6 +396,7 @@ impl qobject::AppController {
                 form: form.clone(),
                 preparing_speech: false,
                 download_rx: None,
+                warn_rx: None,
                 tray_state: TraySharedState::default(),
                 daemon_spawned: false,
             });
@@ -391,6 +405,12 @@ impl qobject::AppController {
 
         self.as_mut().set_control_visible(boot.show_control);
         self.as_mut().set_onboarding_visible(missing);
+        tracing::info!(
+            show_control = boot.show_control,
+            models_missing = missing,
+            overlay_enabled,
+            "Qt bootstrap complete"
+        );
         self.as_mut().set_overlay_enabled(overlay_enabled);
         self.as_mut().sync_form_to_properties();
         self.as_mut().refresh_page_chrome();
@@ -532,11 +552,16 @@ impl qobject::AppController {
         if let Some(rt) = self.as_mut().rust_mut().runtime.as_mut() {
             rt.daemon_spawned = true;
         }
+        let (warn_tx, warn_rx) = crossbeam_channel::unbounded();
+        if let Some(rt) = self.as_mut().rust_mut().runtime.as_mut() {
+            rt.warn_rx = Some(warn_rx);
+        }
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().expect("tokio");
             let result = rt.block_on(spawn_daemon_async(child_slot));
             if let Err(e) = result {
                 tracing::error!("daemon spawn failed: {e}");
+                let _ = warn_tx.send(e);
             }
         });
         // Load config shortly after spawn attempt
@@ -577,6 +602,16 @@ impl qobject::AppController {
         for ev in events {
             self.as_mut().handle_tray(ev);
             if *self.quit_requested() {
+                // Qt.quit() (via QML) does not reliably stop this app's event
+                // loop, so exit from Rust: stop the daemon gracefully, then
+                // terminate. D-Bus names auto-release; the stale app.sock
+                // self-heals on next launch.
+                let child = self.rust().runtime.as_ref().map(|r| r.daemon_child.clone());
+                if let Some(child) = child {
+                    quit_via_rust_shutdown(child);
+                } else {
+                    std::process::exit(0);
+                }
                 return;
             }
         }
@@ -622,6 +657,24 @@ impl qobject::AppController {
     }
 
     fn tick(mut self: Pin<&mut Self>) {
+        // Spawn / daemon warnings (e.g. daemon failed to become ready).
+        // Surfaced in the warning window like the old desktop shell did.
+        let mut warnings: Vec<String> = Vec::new();
+        {
+            let mut rust = self.as_mut().rust_mut();
+            let Some(rt) = rust.runtime.as_mut() else {
+                return;
+            };
+            if let Some(rx) = rt.warn_rx.as_ref() {
+                while let Ok(w) = rx.try_recv() {
+                    warnings.push(w);
+                }
+            }
+        }
+        for w in warnings {
+            self.as_mut().set_warning_text(QString::from(&*w));
+            self.as_mut().set_warning_visible(true);
+        }
         // Download progress
         let mut updates: Vec<DownloadProgress> = Vec::new();
         let mut terminal: Option<DownloadProgress> = None;
@@ -1141,6 +1194,41 @@ fn format_models_status(json: &serde_json::Value) -> String {
     } else {
         lines.join("\n")
     }
+}
+
+/// Graceful quit initiated from Rust (tray Quit menu).
+///
+/// QML `Qt.quit()` does not reliably stop this app's Qt event loop, so the
+/// quit path must not depend on it: stop the daemon, reap the child, then
+/// terminate the process. Runs on a worker thread; fires once.
+fn quit_via_rust_shutdown(daemon_child: Arc<Mutex<Option<std::process::Child>>>) {
+    static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    tracing::info!("quit requested; stopping daemon and exiting");
+    std::thread::Builder::new()
+        .name("lepramim-quit".into())
+        .spawn(move || {
+            let _ = client::post_shutdown();
+            let rt = tokio::runtime::Runtime::new().expect("tokio");
+            rt.block_on(async {
+                for _ in 0..25 {
+                    if crate::api::uds_get("/healthz").await.is_err() {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(200)).await;
+                }
+                if let Ok(mut guard) = daemon_child.lock() {
+                    if let Some(ref mut c) = *guard {
+                        let _ = c.kill();
+                        let _ = c.wait();
+                    }
+                }
+            });
+            std::process::exit(0);
+        })
+        .ok();
 }
 
 pub async fn spawn_daemon_async(

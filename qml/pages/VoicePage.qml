@@ -5,7 +5,7 @@ import app.lepramim
 
 Item {
     id: root
-    property var controller
+    required property var controller
 
     RowLayout {
         anchors.fill: parent
@@ -28,16 +28,16 @@ Item {
                     LabeledCombo {
                         Layout.fillWidth: true
                         label: "VOICE"
-                        model: root.controller.voiceLabels
-                        currentIndex: Math.max(0, root.controller.voiceIndex)
+                        model: root.controller.voice_labels
+                        currentIndex: Math.max(0, root.controller.voice_index)
                         onActivated: (index) => root.controller.selectVoiceAt(index)
                     }
 
                     LabeledCombo {
                         Layout.fillWidth: true
                         label: "LANGUAGE"
-                        model: root.controller.languageLabels
-                        currentIndex: Math.max(0, root.controller.languageIndex)
+                        model: root.controller.language_labels
+                        currentIndex: Math.max(0, root.controller.language_index)
                         onActivated: (index) => root.controller.selectLanguageAt(index)
                     }
                 }
@@ -45,7 +45,7 @@ Item {
                 CheckBox {
                     id: filterBox
                     text: "Filter voices by language"
-                    checked: root.controller.filterVoicesByLang
+                    checked: root.controller.filter_voices_by_lang
                     onToggled: root.controller.applyFilterVoicesByLang(checked)
 
                     indicator: Rectangle {
@@ -128,6 +128,9 @@ Item {
 
             Card {
                 Layout.fillWidth: true
+                // Rectangle never reports content-based implicit height, so a
+                // bare Card in a ColumnLayout would collapse to zero. Pin it.
+                Layout.preferredHeight: 190
                 title: "Playback"
                 contentSpacing: 12
 
@@ -139,18 +142,18 @@ Item {
                         spacing: 8
                         StatusDot {
                             Layout.alignment: Qt.AlignVCenter
-                            dotColor: root.controller.playbackActive ? Theme.statusGreen : Theme.statusGreen
+                            dotColor: root.controller.playback_active ? Theme.statusGreen : Theme.statusGreen
                         }
                         ColumnLayout {
                             spacing: 2
                             Label {
-                                text: root.controller.playbackStatusLabel
+                                text: root.controller.playback_status_label
                                 color: Theme.textPrimary
                                 font.pixelSize: 14
                                 font.bold: true
                             }
                             Label {
-                                text: root.controller.playbackStatusDetail
+                                text: root.controller.playback_status_detail
                                 color: Theme.textMuted
                                 font.pixelSize: 12
                                 wrapMode: Text.WordWrap
@@ -188,7 +191,7 @@ Item {
                                         dotColor: Theme.statusGreen
                                     }
                                     Label {
-                                        text: root.controller.accelerationLabel
+                                        text: root.controller.acceleration_label
                                         color: Theme.textPrimary
                                         font.pixelSize: 12
                                         font.bold: true
@@ -225,7 +228,7 @@ Item {
                             Layout.fillWidth: true
                         }
                         TealSwitch {
-                            checked: root.controller.overlayEnabled
+                            checked: root.controller.overlay_enabled
                             onToggled: root.controller.applyOverlayEnabled(checked)
                         }
                     }
