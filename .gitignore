@@ -70,3 +70,4 @@ Makefile
 deny.lock
 
 dist/
+.directory
