@@ -89,7 +89,7 @@ ln -sf AppRun "$APPDIR/lepramim" 2>/dev/null || true
 
 bundle_ldd_libs() {
   local bin="$1"
-  [[ -x "$bin" ]] || return 0
+  [[ -f "$bin" ]] || return 0
   command -v ldd >/dev/null 2>&1 || return 0
   local libs
   libs="$(env -u LD_LIBRARY_PATH ldd "$bin" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i ~ /^\//) print $i}' | sort -u || true)"
@@ -111,6 +111,16 @@ for pat in /usr/lib/x86_64-linux-gnu/libonnxruntime.so* /usr/lib/libonnxruntime.
     [[ -f "$f" ]] && cp -a "$f" "$APPDIR/usr/lib/" 2>/dev/null && echo "  $f"
   done
 done
+
+echo "--- PortAudio ---"
+for pat in /usr/lib/x86_64-linux-gnu/libportaudio.so* /usr/lib/libportaudio.so*; do
+  for f in $pat; do
+    [[ -f "$f" ]] && cp -a "$f" "$APPDIR/usr/lib/" 2>/dev/null && echo "  $f"
+  done
+done
+# libportaudio is dlopen'd at runtime (not in lepramim's DT_NEEDED), so its
+# own deps (libjack, libdb) are not in the binary's ldd closure above.
+bundle_ldd_libs "$APPDIR/usr/lib/libportaudio.so.2"
 
 echo "--- eSpeak data ---"
 for cand in /usr/share/espeak-ng-data /usr/share/espeak-data; do
