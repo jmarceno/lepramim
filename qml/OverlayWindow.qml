@@ -23,7 +23,8 @@ Window {
         anchors.fill: parent
         anchors.margins: 4
         radius: 16
-        color: "#1a1d22d9"
+        // Qt 8-digit hex is #AARRGGBB (alpha first).
+        color: "#d91a1d22"
         border.width: 1
         border.color: Theme.borderSubtle
 
