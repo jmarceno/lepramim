@@ -254,6 +254,16 @@ where
         let _ = sink.warmup(24_000, 1).await;
     }
 
+    /// Warm only the audio sink, leaving the TTS provider unloaded.
+    ///
+    /// Used by low-memory mode: the Kokoro ONNX session (~325MB) and voice
+    /// banks (~28MB) stay on disk until the first `synthesize`, which loads
+    /// them lazily via `ensure_initialized`.
+    pub async fn run_sink_warmup(self: &Arc<Self>) {
+        let mut sink = self.sink.lock().await;
+        let _ = sink.warmup(24_000, 1).await;
+    }
+
     // ---- internal helpers ----
 
     async fn producer(self: Arc<Self>, job_id: u64) {

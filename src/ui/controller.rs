@@ -113,6 +113,7 @@ mod qobject {
         #[qproperty(bool, normalize_math_symbols)]
         #[qproperty(bool, pdf_cleanup)]
         #[qproperty(bool, sre_latex_enabled)]
+        #[qproperty(bool, low_memory_mode)]
         #[qproperty(i32, control_tab)]
         #[qproperty(i32, voice_index)]
         #[qproperty(i32, language_index)]
@@ -212,6 +213,10 @@ mod qobject {
         fn set_sre_latex_enabled_inv(self: Pin<&mut Self>, enabled: bool);
 
         #[qinvokable]
+        #[cxx_name = "applyLowMemoryMode"]
+        fn set_low_memory_mode_inv(self: Pin<&mut Self>, enabled: bool);
+
+        #[qinvokable]
         #[cxx_name = "applySettings"]
         fn apply_settings(self: Pin<&mut Self>);
 
@@ -289,6 +294,7 @@ pub struct AppControllerRust {
     normalize_math_symbols: bool,
     pdf_cleanup: bool,
     sre_latex_enabled: bool,
+    low_memory_mode: bool,
     control_tab: i32,
     voice_index: i32,
     language_index: i32,
@@ -338,6 +344,7 @@ impl Default for AppControllerRust {
             normalize_math_symbols: true,
             pdf_cleanup: true,
             sre_latex_enabled: false,
+            low_memory_mode: false,
             control_tab: 0,
             voice_index: 0,
             language_index: 0,
@@ -461,6 +468,7 @@ impl qobject::AppController {
             .set_normalize_math_symbols(form.normalize_math_symbols);
         self.as_mut().set_pdf_cleanup(form.pdf_cleanup);
         self.as_mut().set_sre_latex_enabled(form.sre_latex_enabled);
+        self.as_mut().set_low_memory_mode(form.low_memory_mode);
         self.as_mut()
             .set_speed(speed_from_slider(form.speed_slider));
         self.as_mut()
@@ -487,6 +495,7 @@ impl qobject::AppController {
         form.normalize_math_symbols = *self.normalize_math_symbols();
         form.pdf_cleanup = *self.pdf_cleanup();
         form.sre_latex_enabled = *self.sre_latex_enabled();
+        form.low_memory_mode = *self.low_memory_mode();
         form.speed_slider = speed_to_slider(*self.speed());
         form
     }
@@ -1053,26 +1062,37 @@ impl qobject::AppController {
         self.as_mut().set_sre_latex_enabled(enabled);
         self.as_mut().persist_form();
     }
+    fn set_low_memory_mode_inv(mut self: Pin<&mut Self>, enabled: bool) {
+        self.as_mut().set_low_memory_mode(enabled);
+        self.as_mut().persist_form();
+    }
 
     fn apply_settings(mut self: Pin<&mut Self>) {
         self.as_mut().persist_form();
-        let (merged, voice, lang, speed) = {
+        let (merged, voice, lang, speed, low_mem_changed) = {
             let Some(rt) = self.rust().runtime.as_ref() else {
                 return;
             };
             let merged = rt.form.merge_into_config(&rt.base_config);
+            let changed =
+                merged.advanced.low_memory_mode != rt.base_config.advanced.low_memory_mode;
             (
                 merged,
                 rt.form.voice.clone(),
                 rt.form.lang.clone(),
                 speed_from_slider(rt.form.speed_slider),
+                changed,
             )
         };
         let r = client::post_config(&merged);
         if r.is_success() {
-            self.as_mut().set_status_message(QString::from(&*format!(
+            let mut msg = format!(
                 "Saved voice={voice}, lang={lang}, speed={speed:.2}×; it applies on the next playback start."
-            )));
+            );
+            if low_mem_changed {
+                msg.push_str(" Restart the app for low-memory mode to take effect.");
+            }
+            self.as_mut().set_status_message(QString::from(&*msg));
             if let Some(rt) = self.as_mut().rust_mut().runtime.as_mut() {
                 rt.base_config = merged;
             }

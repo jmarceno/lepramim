@@ -349,6 +349,7 @@ pub struct ControlForm {
     pub lang: String,
     pub speed_slider: i32,
     pub overlay: bool,
+    pub low_memory_mode: bool,
     pub dedupe_mathjax: bool,
     pub strip_markdown: bool,
     pub strip_numeric_citations: bool,
@@ -379,6 +380,7 @@ impl ControlForm {
             lang: cfg.provider.lang.clone(),
             speed_slider: speed_to_slider(cfg.provider.speed),
             overlay: cfg.advanced.overlay,
+            low_memory_mode: cfg.advanced.low_memory_mode,
             dedupe_mathjax: cfg.preprocessor.dedupe_mathjax_selection,
             strip_markdown: cfg.preprocessor.strip_markdown,
             strip_numeric_citations: cfg.preprocessor.strip_numeric_bracket_citations,
@@ -410,6 +412,7 @@ impl ControlForm {
         cfg.provider.lang = self.lang.clone();
         cfg.provider.speed = speed_from_slider(self.speed_slider);
         cfg.advanced.overlay = self.overlay;
+        cfg.advanced.low_memory_mode = self.low_memory_mode;
         cfg.preprocessor.dedupe_mathjax_selection = self.dedupe_mathjax;
         cfg.preprocessor.strip_markdown = self.strip_markdown;
         cfg.preprocessor.strip_numeric_bracket_citations = self.strip_numeric_citations;
@@ -504,16 +507,19 @@ mod tests {
         cfg.provider.lang = "ja".into();
         cfg.provider.speed = 1.75;
         cfg.advanced.overlay = true;
+        cfg.advanced.low_memory_mode = true;
         cfg.preprocessor.dedupe_mathjax_selection = false;
         let form = ControlForm::load_from_config(&cfg);
         assert_eq!(form.voice, "am_adam");
         assert_eq!(form.lang, "ja");
         assert!(form.overlay);
+        assert!(form.low_memory_mode);
         assert!(!form.dedupe_mathjax);
         let merged = form.merge_into_config(&crate::config::Config::default());
         assert_eq!(merged.provider.voice, "am_adam");
         assert_eq!(merged.provider.lang, "ja");
         assert!(merged.advanced.overlay);
+        assert!(merged.advanced.low_memory_mode);
     }
 
     #[test]

@@ -108,6 +108,12 @@ impl Default for DaemonConfig {
 pub struct AdvancedConfig {
     #[serde(default)]
     pub overlay: bool,
+    /// Opt-in low-memory mode: skip pre-loading the Kokoro ONNX session
+    /// (~325MB) and voice banks (~28MB) at daemon startup. The models load
+    /// lazily on the first playback instead, so the daemon idles ~300-400MB
+    /// lighter at the cost of a longer first-speak delay.
+    #[serde(default)]
+    pub low_memory_mode: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -320,6 +326,7 @@ mod tests {
         assert!(cfg.preprocessor.normalize_math_symbols);
         assert!(cfg.preprocessor.pdf_cleanup);
         assert!(!cfg.advanced.overlay);
+        assert!(!cfg.advanced.low_memory_mode);
         assert!(!cfg.sre_latex.enabled);
         assert!((cfg.sre_latex.timeout_s - 10.0).abs() < 1e-9);
         assert_eq!(cfg.sre_latex.domain, "clearspeak");

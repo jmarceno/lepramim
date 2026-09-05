@@ -67,6 +67,12 @@ pdf_cleanup = true
 # Off by default to keep Lepramim discreet. Enable if you want visual
 # feedback during playback.
 overlay = false
+# Low-memory mode: skip pre-loading the Kokoro ONNX model (~325MB) and
+# voice banks (~28MB) at daemon startup. They load lazily on the first
+# playback instead, so the daemon idles ~300-400MB lighter at the cost of
+# a longer first-speak delay. Opt-in, off by default. Takes effect after
+# a restart. Also toggleable in the control window (Advanced tab).
+low_memory_mode = false
 
 # --- Speech Rule Engine LaTeX-to-speech (optional) ---
 # Requires Node.js >=18 and speech-rule-engine@4.1.3, installed via

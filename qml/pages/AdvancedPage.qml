@@ -74,6 +74,19 @@ Item {
                 checked: root.controller.sre_latex_enabled
                 onToggled: root.controller.applySreLatexEnabled(checked)
             }
+            PrefCheck {
+                text: "Low-memory mode (load voices on first playback)"
+                checked: root.controller.low_memory_mode
+                onToggled: root.controller.applyLowMemoryMode(checked)
+            }
+
+            Label {
+                Layout.fillWidth: true
+                text: "Low-memory mode skips pre-loading the Kokoro model and voices (~300-400 MB) at startup. The first playback takes longer while they load. Takes effect after you restart the app."
+                color: Theme.textMuted
+                font.pixelSize: 12
+                wrapMode: Text.WordWrap
+            }
 
             Label {
                 Layout.topMargin: 8

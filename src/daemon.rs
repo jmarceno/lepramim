@@ -103,12 +103,28 @@ pub async fn run() -> Result<(), String> {
     });
 
     let player_clone = app_state.player.clone();
-    tokio::spawn(async move {
-        player_clone.set_warming(true).await;
-        player_clone.run_warmup().await;
-        player_clone.set_warming(false).await;
-        tracing::info!("warmup complete");
-    });
+    if cfg.advanced.low_memory_mode {
+        // Opt-in low-memory mode: do NOT preload the Kokoro ONNX session
+        // (~325MB) + voice banks (~28MB). They load lazily on the first
+        // playback via KokoroProvider::ensure_initialized, in exchange for
+        // a longer first-speak delay. Only warm the (cheap) audio sink, and
+        // stay out of the Warming state so speaks are not queued behind a
+        // preload that never happens.
+        tracing::info!(
+            "low_memory_mode enabled: skipping Kokoro/voices preload (~300-400MB); models load on first playback"
+        );
+        tokio::spawn(async move {
+            player_clone.run_sink_warmup().await;
+            tracing::info!("sink warmup complete (low_memory_mode: provider deferred)");
+        });
+    } else {
+        tokio::spawn(async move {
+            player_clone.set_warming(true).await;
+            player_clone.run_warmup().await;
+            player_clone.set_warming(false).await;
+            tracing::info!("warmup complete");
+        });
+    }
 
     let router = create_router(app_state.clone());
 
