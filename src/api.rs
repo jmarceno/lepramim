@@ -214,6 +214,11 @@ async fn post_config(
     State(state): State<Arc<AppState>>,
     Json(new_cfg): Json<Config>,
 ) -> impl IntoResponse {
+    state.player.update_synthesis_config(
+        new_cfg.provider.voice.clone(),
+        new_cfg.provider.lang.clone(),
+        new_cfg.provider.speed,
+    );
     *state.config.lock().await = new_cfg.clone();
     // Optionally persist to file? For now just in-memory.
     // Try to write to config file

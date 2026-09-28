@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::sync::{Arc, Mutex as StdMutex, RwLock};
 
 use ort::execution_providers::{CPUExecutionProvider, CUDAExecutionProvider, ExecutionProvider};
 use ort::session::Session;
@@ -17,11 +17,16 @@ use crate::tts::voices::{VoiceBank, load_all_voices, select_voice_bank, style_ro
 pub struct KokoroProvider {
     pub model_path: PathBuf,
     pub voices_path: PathBuf,
-    pub voice: String,
-    pub lang: String,
-    pub speed: f64,
     pub prefer_cuda: bool,
+    synthesis_config: RwLock<SynthesisConfig>,
     inner: Arc<Mutex<Inner>>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct SynthesisConfig {
+    voice: String,
+    lang: String,
+    speed: f64,
 }
 
 struct Inner {
@@ -44,10 +49,8 @@ impl KokoroProvider {
         Self {
             model_path: model_path.as_ref().to_path_buf(),
             voices_path: voices_path.as_ref().to_path_buf(),
-            voice,
-            lang,
-            speed,
             prefer_cuda,
+            synthesis_config: RwLock::new(SynthesisConfig { voice, lang, speed }),
             inner: Arc::new(Mutex::new(Inner {
                 session: None,
                 voices: HashMap::new(),
@@ -56,6 +59,21 @@ impl KokoroProvider {
                 tokens_input: "input_ids".to_string(),
             })),
         }
+    }
+
+    fn synthesis_config(&self) -> SynthesisConfig {
+        self.synthesis_config
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    fn set_synthesis_config(&self, voice: String, lang: String, speed: f64) {
+        let mut config = self
+            .synthesis_config
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *config = SynthesisConfig { voice, lang, speed };
     }
 
     fn build_session(model_path: &Path, try_cuda: bool) -> Result<(Session, Vec<String>), String> {
@@ -205,6 +223,10 @@ impl SpeechProvider for KokoroProvider {
         Vec::new()
     }
 
+    fn update_synthesis_config(&self, voice: String, lang: String, speed: f64) {
+        self.set_synthesis_config(voice, lang, speed);
+    }
+
     async fn synthesize(
         &self,
         sentence: String,
@@ -226,7 +248,8 @@ impl SpeechProvider for KokoroProvider {
             return None;
         }
 
-        let raw = match phonemize(&sentence, &self.lang) {
+        let config = self.synthesis_config();
+        let raw = match phonemize(&sentence, &config.lang) {
             Ok(p) => p,
             Err(e) => {
                 tracing::error!("phonemize failed: {}", e);
@@ -234,8 +257,8 @@ impl SpeechProvider for KokoroProvider {
             }
         };
         let phonemes = normalize_ipa(&raw);
-        let speed = self.speed.clamp(0.5, 2.0);
-        let voice = self.voice.clone();
+        let speed = config.speed.clamp(0.5, 2.0);
+        let voice = config.voice.clone();
         let inner = self.inner.clone();
 
         let pcm = tokio::task::spawn_blocking(move || {
@@ -276,9 +299,7 @@ impl SpeechProvider for KokoroProvider {
         }
         let mut chunk = AudioChunk::new(pcm, SAMPLE_RATE);
         chunk.metadata.insert("sentence".to_string(), sentence);
-        chunk
-            .metadata
-            .insert("voice".to_string(), self.voice.clone());
+        chunk.metadata.insert("voice".to_string(), config.voice);
         Some(chunk)
     }
 
@@ -316,6 +337,29 @@ impl SpeechProvider for KokoroProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn synthesis_config_updates_without_recreating_provider() {
+        let provider = KokoroProvider::new(
+            "model.onnx",
+            "voices.bin",
+            "af_heart".to_string(),
+            "en-us".to_string(),
+            1.0,
+            false,
+        );
+
+        provider.update_synthesis_config("pf_dora".to_string(), "pt-br".to_string(), 1.25);
+
+        assert_eq!(
+            provider.synthesis_config(),
+            SynthesisConfig {
+                voice: "pf_dora".to_string(),
+                lang: "pt-br".to_string(),
+                speed: 1.25,
+            }
+        );
+    }
 
     #[test]
     fn real_tts_smoke_opt_in() {

@@ -46,6 +46,7 @@ pub struct PlayerState {
 pub trait SpeechProvider: Send + Sync + 'static {
     fn name(&self) -> &str;
     fn session_providers(&self) -> Vec<String>;
+    fn update_synthesis_config(&self, voice: String, lang: String, speed: f64);
     fn synthesize(
         &self,
         sentence: String,
@@ -88,6 +89,7 @@ impl SpeechProvider for FakeProvider {
     fn session_providers(&self) -> Vec<String> {
         vec![]
     }
+    fn update_synthesis_config(&self, _voice: String, _lang: String, _speed: f64) {}
     async fn synthesize(
         &self,
         sentence: String,
@@ -262,6 +264,10 @@ where
     pub async fn run_sink_warmup(self: &Arc<Self>) {
         let mut sink = self.sink.lock().await;
         let _ = sink.warmup(24_000, 1).await;
+    }
+
+    pub fn update_synthesis_config(&self, voice: String, lang: String, speed: f64) {
+        self.provider.update_synthesis_config(voice, lang, speed);
     }
 
     // ---- internal helpers ----
