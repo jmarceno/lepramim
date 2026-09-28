@@ -32,7 +32,7 @@ pub fn build_components(cfg: Option<Config>) -> Result<DaemonComponents, String>
             .unwrap_or(false);
 
     let artifacts = crate::models::ensure_artifacts(None, false).map_err(|e| {
-        format!("{e}. Models download automatically when you open the Lepramim AppImage.")
+        format!("{e}. Models download automatically when you open the Lepramim app.")
     })?;
 
     let model_path = artifacts

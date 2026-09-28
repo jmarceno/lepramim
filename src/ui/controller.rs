@@ -733,6 +733,11 @@ impl qobject::AppController {
             self.as_mut().set_download_status(QString::from(&*p.status));
             if !p.status.starts_with("Download failed") {
                 if *self.onboarding_visible() && !self.rust().onboarding_skipped {
+                    // Completing first-run setup must land in the control
+                    // window. Otherwise closing the onboarding window leaves
+                    // a tray-only process, which looks exactly like the app
+                    // crashed after the model download.
+                    self.as_mut().set_control_visible(true);
                     self.as_mut().set_onboarding_visible(false);
                     self.as_mut().spawn_daemon();
                 } else if !models::artifacts_missing() {
@@ -1182,6 +1187,7 @@ impl qobject::AppController {
             return;
         }
         if !models::artifacts_missing() {
+            self.as_mut().set_control_visible(true);
             self.as_mut().set_onboarding_visible(false);
             self.as_mut().spawn_daemon();
         }

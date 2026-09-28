@@ -112,7 +112,7 @@ pub fn run(show_control: bool, force_overlay: bool) -> i32 {
 
 /// Default Qt Quick to software rendering unless a backend was chosen.
 ///
-/// The AppImage cannot rely on the host's `wayland-egl` client buffer
+/// The portable bundle cannot rely on the host's `wayland-egl` client buffer
 /// integration: where it is missing, the first visible window aborts the
 /// process (`Failed to initialize graphics backend for OpenGL`). That meant
 /// starting the app worked (no windows shown yet) while any tray click that

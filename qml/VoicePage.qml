@@ -1,10 +1,11 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import app.lepramim
+import app.lepramim 1.0
 
 Item {
     id: root
+    readonly property LepramimTheme theme: LepramimTheme {}
     required property var controller
 
     RowLayout {
@@ -54,8 +55,8 @@ Item {
                         x: filterBox.leftPadding
                         y: parent.height / 2 - height / 2
                         radius: 4
-                        color: filterBox.checked ? Theme.accent : Theme.inputBg
-                        border.color: filterBox.checked ? Theme.accent : Theme.borderSubtle
+                        color: filterBox.checked ? theme.accent : theme.inputBg
+                        border.color: filterBox.checked ? theme.accent : theme.borderSubtle
                         border.width: 1
                         Label {
                             anchors.centerIn: parent
@@ -68,7 +69,7 @@ Item {
                     }
                     contentItem: Label {
                         text: filterBox.text
-                        color: Theme.textSecondary
+                        color: theme.textSecondary
                         font.pixelSize: 13
                         leftPadding: filterBox.indicator.width + 10
                         verticalAlignment: Text.AlignVCenter
@@ -90,10 +91,10 @@ Item {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 110
-                    radius: Theme.radiusSm
-                    color: Theme.inputBg
+                    radius: theme.radiusSm
+                    color: theme.inputBg
                     border.width: 1
-                    border.color: Theme.borderSubtle
+                    border.color: theme.borderSubtle
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -104,7 +105,7 @@ Item {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             text: "The quick brown fox jumps over the lazy dog."
-                            color: Theme.textSecondary
+                            color: theme.textSecondary
                             wrapMode: Text.WordWrap
                             font.pixelSize: 13
                         }
@@ -142,19 +143,19 @@ Item {
                         spacing: 8
                         StatusDot {
                             Layout.alignment: Qt.AlignVCenter
-                            dotColor: root.controller.playback_active ? Theme.statusGreen : Theme.statusGreen
+                            dotColor: root.controller.playback_active ? theme.statusGreen : theme.statusGreen
                         }
                         ColumnLayout {
                             spacing: 2
                             Label {
                                 text: root.controller.playback_status_label
-                                color: Theme.textPrimary
+                                color: theme.textPrimary
                                 font.pixelSize: 14
                                 font.bold: true
                             }
                             Label {
                                 text: root.controller.playback_status_detail
-                                color: Theme.textMuted
+                                color: theme.textMuted
                                 font.pixelSize: 12
                                 wrapMode: Text.WordWrap
                                 Layout.fillWidth: true
@@ -166,7 +167,7 @@ Item {
                         spacing: 6
                         Label {
                             text: "ACCELERATION"
-                            color: Theme.textDim
+                            color: theme.textDim
                             font.pixelSize: 11
                             font.bold: true
                             font.letterSpacing: 0.8
@@ -175,9 +176,9 @@ Item {
                             spacing: 8
                             Rectangle {
                                 radius: 6
-                                color: Theme.inputBg
+                                color: theme.inputBg
                                 border.width: 1
-                                border.color: Theme.borderSubtle
+                                border.color: theme.borderSubtle
                                 implicitWidth: accelRow.implicitWidth + 14
                                 implicitHeight: 26
                                 RowLayout {
@@ -188,11 +189,11 @@ Item {
                                         width: 7
                                         height: 7
                                         radius: 3.5
-                                        dotColor: Theme.statusGreen
+                                        dotColor: theme.statusGreen
                                     }
                                     Label {
                                         text: root.controller.acceleration_label
-                                        color: Theme.textPrimary
+                                        color: theme.textPrimary
                                         font.pixelSize: 12
                                         font.bold: true
                                     }
@@ -200,7 +201,7 @@ Item {
                             }
                             Label {
                                 text: "Local inference"
-                                color: Theme.textMuted
+                                color: theme.textMuted
                                 font.pixelSize: 12
                             }
                         }
@@ -222,7 +223,7 @@ Item {
                         Layout.fillWidth: true
                         Label {
                             text: "Optional always-on-top playback controls."
-                            color: Theme.textMuted
+                            color: theme.textMuted
                             font.pixelSize: 12
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
@@ -236,10 +237,10 @@ Item {
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: 96
-                        radius: Theme.radiusSm
-                        color: Theme.inputBg
+                        radius: theme.radiusSm
+                        color: theme.inputBg
                         border.width: 1
-                        border.color: Theme.borderSubtle
+                        border.color: theme.borderSubtle
 
                         ColumnLayout {
                             anchors.fill: parent
@@ -251,7 +252,7 @@ Item {
                                 StatusDot { Layout.alignment: Qt.AlignVCenter }
                                 Label {
                                     text: "Speaking"
-                                    color: Theme.textPrimary
+                                    color: theme.textPrimary
                                     font.pixelSize: 12
                                     font.bold: true
                                 }
@@ -259,16 +260,16 @@ Item {
                             Label {
                                 Layout.fillWidth: true
                                 text: "Current sentence appears here while reading…"
-                                color: Theme.textMuted
+                                color: theme.textMuted
                                 font.pixelSize: 12
                                 elide: Text.ElideRight
                             }
                             RowLayout {
                                 spacing: 14
-                                Label { text: "⏮"; color: Theme.textSecondary; font.pixelSize: 14 }
-                                Label { text: "⏸"; color: Theme.textSecondary; font.pixelSize: 14 }
-                                Label { text: "⏭"; color: Theme.textSecondary; font.pixelSize: 14 }
-                                Label { text: "⏹"; color: Theme.textSecondary; font.pixelSize: 14 }
+                                Label { text: "⏮"; color: theme.textSecondary; font.pixelSize: 14 }
+                                Label { text: "⏸"; color: theme.textSecondary; font.pixelSize: 14 }
+                                Label { text: "⏭"; color: theme.textSecondary; font.pixelSize: 14 }
+                                Label { text: "⏹"; color: theme.textSecondary; font.pixelSize: 14 }
                                 Item { Layout.fillWidth: true }
                             }
                         }

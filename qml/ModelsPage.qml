@@ -1,10 +1,11 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import app.lepramim
+import app.lepramim 1.0
 
 Item {
     id: root
+    readonly property LepramimTheme theme: LepramimTheme {}
     required property var controller
 
     Card {
@@ -18,7 +19,7 @@ Item {
             Label {
                 Layout.fillWidth: true
                 text: root.controller.models_status
-                color: Theme.textSecondary
+                color: theme.textSecondary
                 font.pixelSize: 13
                 wrapMode: Text.WordWrap
             }
@@ -43,7 +44,7 @@ Item {
                 visible: root.controller.download_active || root.controller.download_status.length > 0
                 Layout.fillWidth: true
                 text: root.controller.download_status
-                color: Theme.textMuted
+                color: theme.textMuted
                 font.pixelSize: 12
                 wrapMode: Text.WordWrap
             }
@@ -58,7 +59,7 @@ Item {
                 background: Rectangle {
                     implicitHeight: 8
                     radius: 4
-                    color: Theme.sliderTrack
+                    color: theme.sliderTrack
                 }
                 contentItem: Item {
                     implicitHeight: 8
@@ -66,7 +67,7 @@ Item {
                         width: parent.width * parent.parent.visualPosition
                         height: parent.height
                         radius: 4
-                        color: Theme.accent
+                        color: theme.accent
                     }
                 }
             }

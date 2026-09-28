@@ -1,10 +1,11 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import app.lepramim
+import app.lepramim 1.0
 
 Button {
     id: root
+    readonly property LepramimTheme theme: LepramimTheme {}
     property bool primary: true
     property bool compact: false
 
@@ -20,7 +21,7 @@ Button {
         // Placeholder for optional icon via text prefix handled by caller
         Label {
             text: root.text
-            color: root.primary ? "#0d1f1c" : Theme.textPrimary
+            color: root.primary ? "#0d1f1c" : theme.textPrimary
             font: root.font
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
@@ -30,17 +31,17 @@ Button {
 
     background: Rectangle {
         implicitHeight: root.compact ? 32 : 40
-        radius: Theme.radiusSm
+        radius: theme.radiusSm
         color: {
             if (!root.enabled)
-                return root.primary ? "#2a6f66" : Theme.cardBgRaised
+                return root.primary ? "#2a6f66" : theme.cardBgRaised
             if (root.down)
-                return root.primary ? Qt.darker(Theme.accent, 1.15) : Theme.borderSubtle
+                return root.primary ? Qt.darker(theme.accent, 1.15) : theme.borderSubtle
             if (root.hovered)
-                return root.primary ? Qt.lighter(Theme.accent, 1.08) : Theme.cardBgRaised
-            return root.primary ? Theme.accent : Theme.cardBgRaised
+                return root.primary ? Qt.lighter(theme.accent, 1.08) : theme.cardBgRaised
+            return root.primary ? theme.accent : theme.cardBgRaised
         }
         border.width: root.primary ? 0 : 1
-        border.color: Theme.borderSubtle
+        border.color: theme.borderSubtle
     }
 }

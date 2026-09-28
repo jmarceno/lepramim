@@ -20,7 +20,7 @@ telemetry.
 - **54 voices, 9 languages.** American and British English, Spanish, French,
   Hindi, Italian, Japanese, Brazilian Portuguese, and Mandarin Chinese — with a
   speed slider from 0.50× to 2.00×.
-- **One-file install.** A single AppImage. Speech models (~340 MB) download
+- **One-file install.** A single portable file. Speech models (~340 MB) download
   automatically on first launch, once, and are verified by checksum.
 - **Lives in your tray.** The icon shows what the engine is doing at a glance,
   and an optional floating overlay puts pause, skip, and stop over any window.
@@ -31,13 +31,13 @@ telemetry.
 
 ## Getting started
 
-1. Download the latest `Lepramim-*-x86_64.AppImage` from
+1. Download the latest `Lepramim-*-x86_64-portable.run` from
    [Releases](../../releases).
 2. Make it executable and run it:
 
    ```bash
-   chmod +x Lepramim-*-x86_64.AppImage
-   ./Lepramim-*-x86_64.AppImage
+   chmod +x Lepramim-*-x86_64-portable.run
+   ./Lepramim-*-x86_64-portable.run
    ```
 
 3. On first launch, a welcome window downloads the speech models with a
@@ -86,7 +86,7 @@ session bus (`SpeakSelection` / `Toggle`) so you can bind keys of your choice
 in your keyboard settings.
 
 **Wayland note:** capturing a highlight with one keypress needs one of
-`ydotool`, `wtype`, `xdotool`, or `dotool` on your system (the AppImage bundles
+`ydotool`, `wtype`, `xdotool`, or `dotool` on your system (the portable file bundles
 `xclip`/`wl-clipboard` for the clipboard itself). Without a key-injection
 tool, just copy the text yourself (Ctrl+C) and press **Meta+R** — Lepramim
 reads the clipboard content.
@@ -97,7 +97,7 @@ reads the clipboard content.
   start without one and tells you so.
 - A graphical session (X11 or Wayland).
 
-Everything else you need for highlight capture is bundled in the AppImage.
+Everything else you need for highlight capture is bundled in the portable file.
 
 ## Troubleshooting
 

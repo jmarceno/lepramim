@@ -64,29 +64,27 @@ jobs:
           cargo clippy --locked --all-targets --all-features -- -D warnings
           cargo test --locked --all-targets --all-features
 
-      - name: Build native stage and AppImage
-        run: |
-          ./scripts/build-native.sh --release --stage "$PWD/build/stage"
-          ./scripts/build-appimage.sh
+      - name: Build portable single-file bundle
+        run: ./scripts/build-portable.sh --container
 
-      - name: Smoke AppImage
-        run: ./scripts/smoke-appimage.sh build/appimage/Lepramim-*.AppImage
+      - name: Smoke portable bundle
+        run: ./scripts/smoke-portable.sh build/portable/Lepramim-*.run
 
       - name: Generate SHA256 and manifests
         run: |
           set -e
           mkdir -p dist
-          cp build/appimage/Lepramim-*.AppImage dist/ 2>/dev/null || true
-          cd dist && sha256sum Lepramim-*.AppImage > SHA256SUMS 2>/dev/null || true
+          cp build/portable/Lepramim-*.run dist/ 2>/dev/null || true
+          cd dist && sha256sum Lepramim-*.run > SHA256SUMS 2>/dev/null || true
           cd "$GITHUB_WORKSPACE" || cd "$PWD"
           find build/stage -type f | sort > dist/staged-files.txt 2>/dev/null || true
-          find build/appdir -type f | sort > dist/appdir-files.txt 2>/dev/null || true
+          cp build/portable/payload-files.txt dist/ 2>/dev/null || true
           {
             echo "# Lepramim release manifest"
             echo "version: ${GITEA_REF_NAME:-unknown}"
             echo
-            echo "## ldd lepramim"
-            env -u LD_LIBRARY_PATH ldd build/stage/bin/lepramim 2>&1 || true
+            echo "## ldd lepramim (extracted payload)"
+            env -u LD_LIBRARY_PATH ldd build/portable/payload/bin/lepramim 2>&1 || true
           } > dist/MANIFEST.txt
 
       - name: Create Gitea release and upload assets

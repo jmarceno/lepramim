@@ -1,11 +1,12 @@
 import QtQuick
 import QtQuick.Controls
-import app.lepramim
+import app.lepramim 1.0
 
 Rectangle {
     id: root
-    color: Theme.cardBg
-    radius: Theme.radius
+    readonly property LepramimTheme theme: LepramimTheme {}
+    color: theme.cardBg
+    radius: theme.radius
     border.width: 0
 
     // Rectangle never derives implicit size from children, so a card used
@@ -28,7 +29,7 @@ Rectangle {
         Label {
             id: titleLabel
             visible: text.length > 0
-            color: Theme.textPrimary
+            color: theme.textPrimary
             font.pixelSize: 16
             font.bold: true
             width: parent.width

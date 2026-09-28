@@ -94,7 +94,7 @@ async fn post_to_daemon(
         Ok(s) => s,
         Err(e) => {
             eprintln!(
-                "Could not reach Lepramim ({}). Open the AppImage first.",
+                "Could not reach Lepramim ({}). Launch Lepramim first.",
                 sock.display()
             );
             eprintln!("({e})");
@@ -160,7 +160,7 @@ async fn get_from_daemon(path: &str) -> Result<serde_json::Value, i32> {
         Ok(s) => s,
         Err(_) => {
             eprintln!(
-                "Could not reach Lepramim ({}). Open the AppImage first.",
+                "Could not reach Lepramim ({}). Launch Lepramim first.",
                 sock.display()
             );
             return Err(3);
@@ -563,7 +563,7 @@ async fn cmd_setup(force: bool) -> i32 {
         Ok(path) => println!("Will start with the desktop session ({})", path.display()),
         Err(e) => eprintln!("Could not write autostart entry: {e}"),
     }
-    println!("Lepramim is ready. Double-click the AppImage to use it.");
+    println!("Lepramim is ready. Launch the Lepramim file to use it.");
     0
 }
 

@@ -1,10 +1,11 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import app.lepramim
+import app.lepramim 1.0
 
 ColumnLayout {
     id: root
+    readonly property LepramimTheme theme: LepramimTheme {}
     property string label: ""
     property alias model: combo.model
     property alias currentIndex: combo.currentIndex
@@ -16,7 +17,7 @@ ColumnLayout {
 
     Label {
         text: root.label
-        color: Theme.textDim
+        color: theme.textDim
         font.pixelSize: 11
         font.bold: true
         font.letterSpacing: 0.8
@@ -29,17 +30,17 @@ ColumnLayout {
         font.pixelSize: 14
 
         background: Rectangle {
-            radius: Theme.radiusSm
-            color: Theme.inputBg
+            radius: theme.radiusSm
+            color: theme.inputBg
             border.width: 1
-            border.color: Theme.borderSubtle
+            border.color: theme.borderSubtle
         }
 
         contentItem: Label {
             leftPadding: 12
             rightPadding: combo.indicator.width + 16
             text: combo.displayText
-            color: Theme.textPrimary
+            color: theme.textPrimary
             font: combo.font
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideRight
@@ -49,7 +50,7 @@ ColumnLayout {
             x: combo.width - width - 12
             y: (combo.height - height) / 2
             text: "▾"
-            color: Theme.textMuted
+            color: theme.textMuted
             font.pixelSize: 12
         }
 
@@ -60,10 +61,10 @@ ColumnLayout {
             padding: 8
 
             background: Rectangle {
-                color: Theme.cardBgRaised
-                radius: Theme.radiusSm
+                color: theme.cardBgRaised
+                radius: theme.radiusSm
                 border.width: 1
-                border.color: Theme.borderSubtle
+                border.color: theme.borderSubtle
             }
 
             contentItem: ListView {
@@ -80,13 +81,13 @@ ColumnLayout {
             highlighted: combo.highlightedIndex === index
             contentItem: Label {
                 text: modelData
-                color: Theme.textPrimary
+                color: theme.textPrimary
                 font.pixelSize: 13
                 elide: Text.ElideRight
                 verticalAlignment: Text.AlignVCenter
             }
             background: Rectangle {
-                color: highlighted ? Theme.accentSoft : "transparent"
+                color: highlighted ? theme.accentSoft : "transparent"
                 radius: 6
             }
         }

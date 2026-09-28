@@ -1,10 +1,11 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import app.lepramim
+import app.lepramim 1.0
 
 ColumnLayout {
     id: root
+    readonly property LepramimTheme theme: LepramimTheme {}
     property alias value: slider.value
     property real from: 0.5
     property real to: 2.0
@@ -19,7 +20,7 @@ ColumnLayout {
         Layout.fillWidth: true
         Label {
             text: "READING SPEED"
-            color: Theme.textDim
+            color: theme.textDim
             font.pixelSize: 11
             font.bold: true
             font.letterSpacing: 0.8
@@ -27,7 +28,7 @@ ColumnLayout {
         }
         Label {
             text: root.valueText
-            color: Theme.accent
+            color: theme.accent
             font.pixelSize: 14
             font.bold: true
         }
@@ -46,13 +47,13 @@ ColumnLayout {
             width: slider.availableWidth
             height: 6
             radius: 3
-            color: Theme.sliderTrack
+            color: theme.sliderTrack
 
             Rectangle {
                 width: slider.visualPosition * parent.width
                 height: parent.height
                 radius: 3
-                color: Theme.accent
+                color: theme.accent
             }
         }
 
@@ -64,7 +65,7 @@ ColumnLayout {
             radius: 9
             color: "#ffffff"
             border.width: 2
-            border.color: Theme.accent
+            border.color: theme.accent
         }
     }
 
@@ -72,13 +73,13 @@ ColumnLayout {
         Layout.fillWidth: true
         Label {
             text: root.leftLabel
-            color: Theme.textDim
+            color: theme.textDim
             font.pixelSize: 11
             Layout.fillWidth: true
         }
         Label {
             text: root.rightLabel
-            color: Theme.textDim
+            color: theme.textDim
             font.pixelSize: 11
         }
     }
@@ -86,7 +87,7 @@ ColumnLayout {
     Label {
         visible: root.hint.length > 0
         text: root.hint
-        color: Theme.textMuted
+        color: theme.textMuted
         font.pixelSize: 12
         wrapMode: Text.WordWrap
         Layout.fillWidth: true

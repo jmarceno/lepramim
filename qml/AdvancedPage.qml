@@ -1,10 +1,11 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import app.lepramim
+import app.lepramim 1.0
 
 Item {
     id: root
+    readonly property LepramimTheme theme: LepramimTheme {}
     required property var controller
 
     component PrefCheck: CheckBox {
@@ -15,8 +16,8 @@ Item {
             x: box.leftPadding
             y: parent.height / 2 - height / 2
             radius: 4
-            color: box.checked ? Theme.accent : Theme.inputBg
-            border.color: box.checked ? Theme.accent : Theme.borderSubtle
+            color: box.checked ? theme.accent : theme.inputBg
+            border.color: box.checked ? theme.accent : theme.borderSubtle
             border.width: 1
             Label {
                 anchors.centerIn: parent
@@ -29,7 +30,7 @@ Item {
         }
         contentItem: Label {
             text: box.text
-            color: Theme.textSecondary
+            color: theme.textSecondary
             font.pixelSize: 14
             leftPadding: box.indicator.width + 10
             verticalAlignment: Text.AlignVCenter
@@ -83,7 +84,7 @@ Item {
             Label {
                 Layout.fillWidth: true
                 text: "Low-memory mode skips pre-loading the Kokoro model and voices (~300-400 MB) at startup. The first playback takes longer while they load. Takes effect after you restart the app."
-                color: Theme.textMuted
+                color: theme.textMuted
                 font.pixelSize: 12
                 wrapMode: Text.WordWrap
             }
@@ -92,7 +93,7 @@ Item {
                 Layout.topMargin: 8
                 Layout.fillWidth: true
                 text: "Floating overlay is toggled on the Voice page. Changes apply after you press Apply settings."
-                color: Theme.textMuted
+                color: theme.textMuted
                 font.pixelSize: 12
                 wrapMode: Text.WordWrap
             }

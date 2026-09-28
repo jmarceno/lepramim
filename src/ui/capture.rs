@@ -69,7 +69,7 @@ pub fn is_wayland() -> bool {
 }
 
 /// Key-injection helpers that make one-keypress capture work on Wayland.
-/// None of these are bundled in the AppImage; without at least one of them
+/// None of these are bundled in the portable file; without at least one of them
 /// the user must copy (Ctrl+C) before pressing Meta+R.
 pub const WAYLAND_INJECTORS: [&str; 4] = ["ydotool", "wtype", "xdotool", "dotool"];
 

@@ -2,10 +2,11 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
-import app.lepramim
+import app.lepramim 1.0
 
 Window {
     id: root
+    readonly property LepramimTheme theme: LepramimTheme {}
     required property var controller
 
     width: 520
@@ -26,7 +27,7 @@ Window {
         // Qt 8-digit hex is #AARRGGBB (alpha first).
         color: "#d91a1d22"
         border.width: 1
-        border.color: Theme.borderSubtle
+        border.color: theme.borderSubtle
 
         RowLayout {
             anchors.fill: parent
@@ -35,7 +36,7 @@ Window {
 
             StatusDot {
                 Layout.alignment: Qt.AlignVCenter
-                dotColor: Theme.statusGreen
+                dotColor: theme.statusGreen
             }
 
             ColumnLayout {
@@ -43,7 +44,7 @@ Window {
                 spacing: 2
                 Label {
                     text: root.controller.playback_status_label
-                    color: Theme.textPrimary
+                    color: theme.textPrimary
                     font.pixelSize: 12
                     font.bold: true
                 }
@@ -52,7 +53,7 @@ Window {
                     text: root.controller.current_sentence.length > 0
                           ? root.controller.current_sentence
                           : "Preparing…"
-                    color: Theme.textSecondary
+                    color: theme.textSecondary
                     font.pixelSize: 13
                     elide: Text.ElideRight
                 }
@@ -72,11 +73,11 @@ Window {
                         width: 34
                         height: 34
                         radius: 8
-                        color: btn.containsMouse ? Theme.accentSoft : Theme.cardBgRaised
+                        color: btn.containsMouse ? theme.accentSoft : theme.cardBgRaised
                         Label {
                             anchors.centerIn: parent
                             text: modelData.glyph
-                            color: Theme.textPrimary
+                            color: theme.textPrimary
                             font.pixelSize: 14
                         }
                         MouseArea {

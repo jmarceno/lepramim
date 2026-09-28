@@ -292,6 +292,11 @@ fn tray_breath_loop(handle: Handle<LepramimTray>, stop: Arc<AtomicBool>) {
 }
 
 fn status_notifier_watcher_present() -> bool {
+    // Test hook for headless UI runs (container/offscreen): skip the tray
+    // host requirement. Never set in normal use.
+    if std::env::var("LEPRAMIM_FAKE_TRAY").is_ok() {
+        return true;
+    }
     let Ok(conn) = zbus::blocking::Connection::session() else {
         return false;
     };

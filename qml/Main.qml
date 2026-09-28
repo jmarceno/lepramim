@@ -1,5 +1,5 @@
 import QtQuick
-import app.lepramim
+import app.lepramim 1.0
 
 QtObject {
     id: root

@@ -48,6 +48,7 @@ compile_commands.json
 ### AppImage / Packaging ###
 *.AppImage
 *.AppImage.zsync
+*.portable.run
 squashfs-root/
 squashfs-root.tar.gz
 AppDir/

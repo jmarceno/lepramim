@@ -2,10 +2,11 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
-import app.lepramim
+import app.lepramim 1.0
 
 Window {
     id: root
+    readonly property LepramimTheme theme: LepramimTheme {}
     required property var controller
 
     width: 1120
@@ -13,7 +14,7 @@ Window {
     minimumWidth: 960
     minimumHeight: 640
     visible: controller.control_visible
-    color: Theme.windowBg
+    color: theme.windowBg
     title: "Lepramim"
     flags: Qt.Window | Qt.FramelessWindowHint
 
@@ -24,7 +25,7 @@ Window {
 
     Rectangle {
         anchors.fill: parent
-        color: Theme.windowBg
+        color: theme.windowBg
         radius: 0
 
         ColumnLayout {
@@ -35,7 +36,7 @@ Window {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 44
-                color: Theme.windowBg
+                color: theme.windowBg
 
                 MouseArea {
                     anchors.fill: parent
@@ -74,7 +75,7 @@ Window {
 
                     Label {
                         text: "Lepramim"
-                        color: Theme.textPrimary
+                        color: theme.textPrimary
                         font.pixelSize: 15
                         font.bold: true
                         Layout.fillWidth: true
@@ -94,12 +95,12 @@ Window {
                                 height: 28
                                 radius: 6
                                 color: winBtn.containsMouse
-                                       ? (modelData.action === "close" ? "#e35d6a" : Theme.cardBgRaised)
+                                       ? (modelData.action === "close" ? "#e35d6a" : theme.cardBgRaised)
                                        : "transparent"
                                 Label {
                                     anchors.centerIn: parent
                                     text: modelData.glyph
-                                    color: Theme.textSecondary
+                                    color: theme.textSecondary
                                     font.pixelSize: 12
                                 }
                                 MouseArea {
@@ -138,7 +139,7 @@ Window {
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    color: Theme.windowBg
+                    color: theme.windowBg
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -152,13 +153,13 @@ Window {
                                 Layout.fillWidth: true
                                 Label {
                                     text: root.controller.page_title
-                                    color: Theme.textPrimary
+                                    color: theme.textPrimary
                                     font.pixelSize: 28
                                     font.bold: true
                                 }
                                 Label {
                                     text: root.controller.page_subtitle
-                                    color: Theme.textMuted
+                                    color: theme.textMuted
                                     font.pixelSize: 13
                                     wrapMode: Text.WordWrap
                                     Layout.fillWidth: true
@@ -186,14 +187,14 @@ Window {
                             Layout.fillWidth: true
                             Label {
                                 text: "Changes affect the next playback session."
-                                color: Theme.textMuted
+                                color: theme.textMuted
                                 font.pixelSize: 12
                                 Layout.fillWidth: true
                             }
                             Label {
                                 visible: root.controller.status_message.length > 0
                                 text: root.controller.status_message
-                                color: Theme.textSecondary
+                                color: theme.textSecondary
                                 font.pixelSize: 12
                                 elide: Text.ElideRight
                                 Layout.maximumWidth: 360

@@ -1,10 +1,11 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import app.lepramim
+import app.lepramim 1.0
 
 Item {
     id: root
+    readonly property LepramimTheme theme: LepramimTheme {}
     required property var controller
 
     width: 236
@@ -13,7 +14,7 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        color: Theme.windowBg
+        color: theme.windowBg
 
         ColumnLayout {
             anchors.fill: parent
@@ -24,7 +25,7 @@ Item {
                 spacing: 4
                 Label {
                     text: "ENGINE"
-                    color: Theme.textDim
+                    color: theme.textDim
                     font.pixelSize: 11
                     font.bold: true
                     font.letterSpacing: 1.0
@@ -33,19 +34,19 @@ Item {
                     spacing: 8
                     StatusDot {
                         Layout.alignment: Qt.AlignVCenter
-                        dotColor: root.controller.engine_running ? Theme.statusGreen : Theme.textDim
+                        dotColor: root.controller.engine_running ? theme.statusGreen : theme.textDim
                     }
                     ColumnLayout {
                         spacing: 2
                         Label {
                             text: root.controller.engine_running ? "Running" : "Stopped"
-                            color: Theme.textPrimary
+                            color: theme.textPrimary
                             font.pixelSize: 14
                             font.bold: true
                         }
                         Label {
                             text: "Local — private"
-                            color: Theme.textMuted
+                            color: theme.textMuted
                             font.pixelSize: 12
                         }
                     }
@@ -90,8 +91,8 @@ Item {
 
             Rectangle {
                 Layout.fillWidth: true
-                radius: Theme.radiusSm
-                color: Theme.cardBg
+                radius: theme.radiusSm
+                color: theme.cardBg
                 implicitHeight: shortcutsCol.implicitHeight + 24
 
                 ColumnLayout {
@@ -104,7 +105,7 @@ Item {
 
                     Label {
                         text: "GLOBAL SHORTCUTS"
-                        color: Theme.textDim
+                        color: theme.textDim
                         font.pixelSize: 11
                         font.bold: true
                         font.letterSpacing: 0.8
@@ -113,14 +114,14 @@ Item {
                         Layout.fillWidth: true
                         Label {
                             text: "Meta + R"
-                            color: Theme.textPrimary
+                            color: theme.textPrimary
                             font.pixelSize: 12
                             font.bold: true
                         }
                         Item { Layout.fillWidth: true }
                         Label {
                             text: "Read selection"
-                            color: Theme.textMuted
+                            color: theme.textMuted
                             font.pixelSize: 12
                         }
                     }
@@ -128,14 +129,14 @@ Item {
                         Layout.fillWidth: true
                         Label {
                             text: "Meta + P"
-                            color: Theme.textPrimary
+                            color: theme.textPrimary
                             font.pixelSize: 12
                             font.bold: true
                         }
                         Item { Layout.fillWidth: true }
                         Label {
                             text: "Pause / resume"
-                            color: Theme.textMuted
+                            color: theme.textMuted
                             font.pixelSize: 12
                         }
                     }

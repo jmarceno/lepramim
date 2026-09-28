@@ -1,9 +1,10 @@
 import QtQuick
 import QtQuick.Controls
-import app.lepramim
+import app.lepramim 1.0
 
 Switch {
     id: root
+    readonly property LepramimTheme theme: LepramimTheme {}
 
     indicator: Rectangle {
         implicitWidth: 44
@@ -11,9 +12,9 @@ Switch {
         x: root.leftPadding
         y: parent.height / 2 - height / 2
         radius: 12
-        color: root.checked ? Theme.accent : Theme.sliderTrack
+        color: root.checked ? theme.accent : theme.sliderTrack
         border.width: root.checked ? 0 : 1
-        border.color: Theme.borderSubtle
+        border.color: theme.borderSubtle
 
         Rectangle {
             x: root.checked ? parent.width - width - 3 : 3

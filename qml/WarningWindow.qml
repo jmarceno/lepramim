@@ -2,16 +2,17 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
-import app.lepramim
+import app.lepramim 1.0
 
 Window {
     id: root
+    readonly property LepramimTheme theme: LepramimTheme {}
     required property var controller
 
     width: 420
     height: 160
     visible: controller.warning_visible
-    color: Theme.windowBg
+    color: theme.windowBg
     title: "Lepramim"
     flags: Qt.Dialog
 
@@ -22,7 +23,7 @@ Window {
 
     Rectangle {
         anchors.fill: parent
-        color: Theme.windowBg
+        color: theme.windowBg
 
         ColumnLayout {
             anchors.fill: parent
@@ -31,14 +32,14 @@ Window {
 
             Label {
                 text: "Lepramim"
-                color: Theme.textPrimary
+                color: theme.textPrimary
                 font.pixelSize: 18
                 font.bold: true
             }
             Label {
                 Layout.fillWidth: true
                 text: root.controller.warning_text
-                color: Theme.textSecondary
+                color: theme.textSecondary
                 font.pixelSize: 13
                 wrapMode: Text.WordWrap
             }

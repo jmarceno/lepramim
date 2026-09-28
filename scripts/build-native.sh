@@ -63,10 +63,12 @@ if [[ -n "$FEATURES" ]]; then
   CARGO_ARGS+=(--features "$FEATURES")
 fi
 cargo "${CARGO_ARGS[@]}"
+# Respect CARGO_TARGET_DIR (used by containerized builds with a volume target).
+TARGET_DIR="${CARGO_TARGET_DIR:-$PROJECT_ROOT/target}"
 if [[ "$BUILD_TYPE" == "release" ]]; then
-  RUST_BIN="$PROJECT_ROOT/target/release/lepramim"
+  RUST_BIN="$TARGET_DIR/release/lepramim"
 else
-  RUST_BIN="$PROJECT_ROOT/target/debug/lepramim"
+  RUST_BIN="$TARGET_DIR/debug/lepramim"
 fi
 [[ -x "$RUST_BIN" ]] || { echo "error: binary missing: $RUST_BIN" >&2; exit 1; }
 echo "Cargo build finished."

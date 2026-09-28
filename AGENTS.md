@@ -1,5 +1,3 @@
-Memory (Graphiti): at session end, register an episode via the graphiti-memory MCP server (add_memory, group_id lepramim) summarizing what changed and what was learned; whenever a task needs context from prior sessions, search Graphiti first (search_nodes / search_memory_facts). The Graphiti MCP server (Graphiti Agent Memory v1.29.1) answers over remote MCP (Streamable HTTP) at the endpoint configured for this environment (see the session's MCP server settings). If the graphiti-memory tools are missing from the session tool catalog (e.g. after an app/MCP restart), the server itself is usually still up: shake hands directly — POST initialize (protocolVersion 2024-11-05), capture the mcp-session-id response header, send it back on every follow-up call (tools/list, tools/call). Do not treat a missing tool catalog entry as a dead server; probe the URL first.
-
 ## Cursor AppImage env hijack (recurring)
 
 This repo is often developed inside **Cursor shipped as an AppImage**. Cursor exports host AppImage variables into every integrated terminal and agent shell:

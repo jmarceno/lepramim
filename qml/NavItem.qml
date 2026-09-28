@@ -1,10 +1,11 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import app.lepramim
+import app.lepramim 1.0
 
 Item {
     id: root
+    readonly property LepramimTheme theme: LepramimTheme {}
     property string label: ""
     property string iconGlyph: ""
     property bool selected: false
@@ -15,8 +16,8 @@ Item {
 
     Rectangle {
         anchors.fill: parent
-        radius: Theme.radiusSm
-        color: root.selected ? Theme.accentSoft : "transparent"
+        radius: theme.radiusSm
+        color: root.selected ? theme.accentSoft : "transparent"
 
         Rectangle {
             visible: root.selected
@@ -25,7 +26,7 @@ Item {
             anchors.bottom: parent.bottom
             width: 3
             radius: 1.5
-            color: Theme.accent
+            color: theme.accent
         }
 
         RowLayout {
@@ -36,7 +37,7 @@ Item {
 
             Label {
                 text: root.iconGlyph
-                color: root.selected ? Theme.accent : Theme.textMuted
+                color: root.selected ? theme.accent : theme.textMuted
                 font.pixelSize: 15
                 Layout.preferredWidth: 18
                 horizontalAlignment: Text.AlignHCenter
@@ -44,7 +45,7 @@ Item {
 
             Label {
                 text: root.label
-                color: root.selected ? Theme.accent : Theme.textPrimary
+                color: root.selected ? theme.accent : theme.textPrimary
                 font.pixelSize: 14
                 font.bold: root.selected
                 Layout.fillWidth: true
