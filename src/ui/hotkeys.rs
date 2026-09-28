@@ -1,4 +1,5 @@
-//! Global hotkeys: KGlobalAccel on KDE + session D-Bus service for GNOME.
+//! Global hotkeys: KGlobalAccel on KDE, COSMIC custom shortcuts on COSMIC,
+//! and the org.lepramim.App session D-Bus service they (and GNOME) call.
 //!
 //! Meta+R is registered as the combined key value `MetaModifier | Key_R`
 //! (`0x10000000 | 0x52` = 268435538). Registering any other int leaves Meta+R
@@ -143,6 +144,17 @@ async fn hotkey_service(tx: Sender<HotkeyEvent>) {
     }
     if let Err(e) = conn.request_name("org.lepramim.App").await {
         tracing::warn!("hotkeys: request_name org.lepramim.App: {e}");
+    }
+
+    // cosmic-comp ignores KGlobalAccel; bind the keys in COSMIC's own config
+    // instead, pointing at the org.lepramim.App methods exported above.
+    if crate::platform::cosmic_shortcuts::is_cosmic() {
+        match crate::platform::cosmic_shortcuts::ensure() {
+            Ok(true) => tracing::info!("hotkeys: registered Super+R / Super+P with COSMIC"),
+            Ok(false) => tracing::info!("hotkeys: COSMIC shortcuts already registered"),
+            Err(e) => tracing::warn!("hotkeys: COSMIC shortcut registration failed: {e}"),
+        }
+        std::future::pending::<()>().await;
     }
 
     if let Err(e) = register_and_listen(&conn, tx).await {

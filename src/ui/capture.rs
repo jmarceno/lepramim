@@ -117,11 +117,12 @@ fn command_with_wayland(program: &str) -> Command {
         command.env("WAYLAND_DISPLAY", display);
     }
     if std::env::var("YDOTOOL_SOCKET").is_err() {
-        if let Ok(runtime) = std::env::var("XDG_RUNTIME_DIR") {
-            let sock = format!("{runtime}/.ydotool_socket");
-            if std::path::Path::new(&sock).exists() {
-                command.env("YDOTOOL_SOCKET", sock);
-            }
+        let runtime_sock = std::env::var("XDG_RUNTIME_DIR")
+            .map(|runtime| format!("{runtime}/.ydotool_socket"))
+            .ok()
+            .filter(|sock| std::path::Path::new(sock).exists());
+        if let Some(sock) = runtime_sock {
+            command.env("YDOTOOL_SOCKET", sock);
         } else if std::path::Path::new("/tmp/.ydotool_socket").exists() {
             command.env("YDOTOOL_SOCKET", "/tmp/.ydotool_socket");
         }
@@ -176,6 +177,22 @@ fn read_primary_x11() -> Option<SelectionCapture> {
     Some(SelectionCapture {
         text,
         source: "primary/xclip".into(),
+        truncated,
+    })
+}
+
+/// Wayland primary selection via wl-paste (wlr/ext data-control; works on
+/// COSMIC, KDE, and wlroots compositors). Needs no key injection.
+fn read_primary_wayland() -> Option<SelectionCapture> {
+    let wl = find_tool("wl-paste")?;
+    let raw = run_capture(&wl, &["--primary", "--no-newline"])?;
+    let (text, truncated) = decode_text(&raw);
+    if text.is_empty() {
+        return None;
+    }
+    Some(SelectionCapture {
+        text,
+        source: "primary/wl-paste".into(),
         truncated,
     })
 }
@@ -282,7 +299,9 @@ pub fn try_force_copy() -> bool {
 
     let injected = run(
         &find_tool("ydotool").unwrap_or_default(),
-        &["key", "29:1", "46:1", "46:0", "29:0"],
+        // Release Super (125/126) first: the Meta+R hotkey fires while Meta
+        // is still held, so a bare Ctrl+C would land as Meta+Ctrl+C.
+        &["key", "125:0", "126:0", "29:1", "46:1", "46:0", "29:0"],
         None,
     ) || run(
         &find_tool("wtype").unwrap_or_default(),
@@ -306,11 +325,16 @@ pub fn try_force_copy() -> bool {
 
 /// Capture highlighted text, preferring the primary selection.
 pub fn capture_highlighted_text() -> SelectionCapture {
-    if !is_wayland() {
-        if let Some(primary) = read_primary_x11() {
-            return primary;
-        }
+    let primary = if is_wayland() {
+        read_primary_wayland().or_else(read_primary_x11)
+    } else {
+        read_primary_x11()
+    };
+    if let Some(primary) = primary {
+        tracing::info!("capture: {} ({} bytes)", primary.source, primary.text.len());
+        return primary;
     }
+    tracing::info!("capture: primary selection empty; trying copy + clipboard");
 
     let before = current_clipboard_text();
     let injected = try_force_copy();
@@ -459,5 +483,17 @@ mod tests {
         }
         assert!(advice.contains("Ctrl+C"));
         assert!(advice.contains("Meta+R"));
+    }
+}
+
+#[cfg(test)]
+mod live_tests {
+    /// Manual: `wl-copy --primary 'probe'` then run with `--ignored`.
+    #[test]
+    #[ignore]
+    fn live_capture_reads_primary() {
+        let cap = super::capture_highlighted_text();
+        eprintln!("source={} text={:?}", cap.source, cap.text);
+        assert!(cap.source.starts_with("primary"), "got {}", cap.source);
     }
 }
