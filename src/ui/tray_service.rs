@@ -218,6 +218,18 @@ impl Drop for TrayHandle {
 
 impl TrayHandle {
     pub fn start() -> Result<Self, String> {
+        // At login (XDG autostart) we routinely start before the desktop's
+        // tray host registers; wait for it instead of exiting.
+        // Runs before any Qt object exists, so blocking here is fine.
+        let deadline = Instant::now() + Duration::from_secs(120);
+        let mut waited = false;
+        while !status_notifier_watcher_present() && Instant::now() < deadline {
+            if !waited {
+                tracing::info!("waiting up to 120 s for the system tray host");
+                waited = true;
+            }
+            thread::sleep(Duration::from_millis(500));
+        }
         if !status_notifier_watcher_present() {
             return Err(
                 "no StatusNotifierWatcher on the session bus (system tray host missing)".into(),

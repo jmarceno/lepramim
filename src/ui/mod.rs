@@ -47,6 +47,8 @@ pub fn run(show_control: bool, force_overlay: bool) -> i32 {
         return 1;
     }
 
+    crate::platform::service::refresh_stale_desktop_entries();
+
     let tray = match TrayHandle::start() {
         Ok(tray) => tray,
         Err(e) => {

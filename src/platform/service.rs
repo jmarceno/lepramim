@@ -91,6 +91,14 @@ pub fn is_lepramim_appimage_path(path: &Path) -> bool {
 /// Ignores foreign `$APPIMAGE` values (e.g. Cursor's AppImage) that leak into
 /// agent / IDE shells.
 pub fn resolve_binary_path() -> std::path::PathBuf {
+    // Portable launcher: point at the self-extracting file, not the versioned
+    // cache extraction (which disappears on upgrade).
+    if let Ok(exe) = std::env::var("LEPRAMIM_PORTABLE_EXE") {
+        let p = std::path::PathBuf::from(&exe);
+        if p.is_file() {
+            return p;
+        }
+    }
     if let Ok(appimage) = std::env::var("LEPRAMIM_APPIMAGE") {
         let p = std::path::PathBuf::from(&appimage);
         if is_lepramim_appimage_path(&p) && p.is_file() {
@@ -182,10 +190,86 @@ pub fn remove_autostart() -> Result<Option<std::path::PathBuf>, String> {
     Ok(None)
 }
 
+/// Exec target (first word, quotes stripped) of a desktop entry, skipping an
+/// `env VAR=…` prefix.
+fn desktop_exec_target(contents: &str) -> Option<String> {
+    let line = contents.lines().find_map(|l| l.strip_prefix("Exec="))?;
+    let mut words = line.split_whitespace().map(|w| w.trim_matches('"'));
+    let mut w = words.next()?;
+    if w == "env" {
+        w = words.find(|w| !w.contains('='))?;
+    }
+    Some(w.to_string())
+}
+
+/// True when a desktop entry's Exec target can no longer launch this
+/// release: the file is gone, or it is an AppImage from before releases
+/// switched to the portable `.run` (those builds need a newer glibc than
+/// some hosts have and die before printing anything).
+fn is_stale_exec_target(target: &Path) -> bool {
+    !target.is_file()
+        || target
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("appimage"))
+}
+
+/// Repoint existing menu / autostart entries whose launcher is stale (see
+/// [`is_stale_exec_target`]) at the portable launcher running now.
+/// Only acts for packaged runs, so a dev `cargo run` never hijacks the
+/// user's entries, and never creates entries the user did not have.
+pub fn refresh_stale_desktop_entries() {
+    if std::env::var_os("LEPRAMIM_PORTABLE_EXE").is_none() {
+        return;
+    }
+    let current = resolve_binary_path();
+    if !current.is_file() || is_stale_exec_target(&current) {
+        return;
+    }
+    for path in [desktop_file_path(), autostart_path()] {
+        let Ok(contents) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Some(target) = desktop_exec_target(&contents) else {
+            continue;
+        };
+        if Path::new(&target) == current || !is_stale_exec_target(Path::new(&target)) {
+            continue;
+        }
+        let mut fresh = generate_autostart_desktop(&current);
+        if let Some(icon) = contents.lines().find(|l| l.starts_with("Icon=")) {
+            fresh.push_str(icon);
+            fresh.push('\n');
+        }
+        match std::fs::write(&path, fresh) {
+            Ok(()) => tracing::info!(path = %path.display(), old = %target, "repointed stale desktop entry"),
+            Err(e) => tracing::warn!(path = %path.display(), "could not refresh desktop entry: {e}"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn desktop_exec_target_skips_env() {
+        assert_eq!(
+            desktop_exec_target("Exec=env DESKTOPINTEGRATION=1 /a/lepramim.appimage\n").as_deref(),
+            Some("/a/lepramim.appimage")
+        );
+        assert_eq!(
+            desktop_exec_target("Exec=\"/b/lepramim\"\n").as_deref(),
+            Some("/b/lepramim")
+        );
+    }
+
+    #[test]
+    fn stale_exec_targets() {
+        assert!(is_stale_exec_target(Path::new("/nonexistent/lepramim")));
+        assert!(is_stale_exec_target(Path::new("/nonexistent/lepramim.AppImage")));
+    }
 
     #[test]
     fn rejects_foreign_appimage_names() {

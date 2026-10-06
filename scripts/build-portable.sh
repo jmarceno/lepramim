@@ -441,6 +441,12 @@ if [ -z "${ORT_DYLIB_PATH:-}" ] && [ -f "$DEST/lib/libonnxruntime.so.1" ]; then
 fi
 export LEPRAMIM_PORTABLE_ROOT="$DEST"
 export LEPRAMIM_PORTABLE=1
+# Stable launcher path for desktop entries (the extracted bin is versioned).
+case "$SELF" in
+  /*) LEPRAMIM_PORTABLE_EXE="$SELF" ;;
+  *) LEPRAMIM_PORTABLE_EXE="$(pwd)/$SELF" ;;
+esac
+export LEPRAMIM_PORTABLE_EXE
 
 if [ -n "$CLEANUP_DEST" ]; then
   "$DEST/bin/lepramim" "$@"
