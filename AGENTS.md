@@ -37,3 +37,17 @@ Known traps:
 4. **`Qt.quit()` from QML is not a reliable exiter here** (proven no-op with no error). Tray Quit is handled Rust-side: `poll_input` → `quit_via_rust_shutdown` (stops daemon, reaps child, `process::exit(0)`). Keep the QML `Qt.quit()` call as belt-and-braces only.
 5. **Startup watchdog.** `spawn_bootstrap_watchdog()` in `src/ui/mod.rs` exits(2) with log pointers if QML never consumes the bootstrap payload within 10 s, instead of running headless forever.
 6. **Silent GUI-thread blocks.** `tick()`/`poll_input()` run on the Qt GUI thread: keep them to non-blocking drains. The daemon poll, downloads, and spawn already live on worker threads + channels. Never `thread::sleep` or do UDS I/O on invokables.
+
+
+## Remote Rust builds
+
+Compile with `cargo remote` instead of a local `cargo build`, `cargo test`, or `cargo clippy`. One command syncs the sources, builds on the shared builder, and copies back only the finished executable into `target/<profile>/`. Crates, incremental files, and the rest of `target/` stay on the builder.
+
+```bash
+cargo remote -- build --release
+cargo remote -- test
+cargo remote -- clippy --all-targets -- -D warnings
+```
+
+`cargo fmt` stays local. Dotfiles are not synced; pass `-h` only when the build needs them. Pass `-c <path-under-target>` only when you explicitly want a different file copied back.
+
