@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Lepramim portable single-file build.
 #
-# Produces one self-extracting executable (NOT an AppImage):
+# Produces one self-extracting executable:
 #   build/portable/Lepramim-<version>-x86_64-portable.run
 #
 # The .run file embeds the release binary plus its full shared-library
@@ -20,9 +20,9 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-# shellcheck source=scripts/lib/sanitize-host-appimage-env.sh
-source "$PROJECT_ROOT/scripts/lib/sanitize-host-appimage-env.sh"
-sanitize_host_appimage_env
+# shellcheck source=scripts/lib/sanitize-host-env.sh
+source "$PROJECT_ROOT/scripts/lib/sanitize-host-env.sh"
+sanitize_host_env
 
 CONTAINER=0
 REBUILD_IMAGE=0
@@ -192,7 +192,7 @@ if strings -a "$PAYLOAD/bin/lepramim" 2>/dev/null | grep -q 'libonnxruntime\.so'
   fi
 fi
 
-# --- Qt platform plugins + QML modules (replaces linuxdeploy-plugin-qt) ---
+# --- Qt platform plugins + QML modules ---
 echo "--- Qt plugins / QML ---"
 QT_PLUGINS_DIR="$("$QMAKE" -query QT_INSTALL_PLUGINS 2>/dev/null || true)"
 QT_QML_DIR="$("$QMAKE" -query QT_INSTALL_QML 2>/dev/null || true)"
@@ -231,10 +231,10 @@ EOF
 # loader, the libc family, and NSS (must match host libc). The GL/EGL
 # userspace (libglvnd dispatch + Mesa) IS bundled: minimal systems have no
 # Mesa at all, and glvnd still loads the host's NVIDIA/vendor modules from
-# system paths, so this is strictly more portable (same as AppImage/Electron).
+# system paths, so this is strictly more portable.
 # Notably libstdc++/libgcc ARE bundled: a 22.04-built libstdc++ runs fine on
 # newer hosts, while the reverse (system libstdc++ older than the bundled
-# Qt needs) is exactly the GLIBCXX failure the AppImage hit.
+# Qt needs) fails with missing GLIBCXX symbols.
 echo "--- Shared-library closure ---"
 EXCLUDE_RE='^(linux-vdso|ld-linux|libc\.so|libm\.so|libpthread\.so|libdl\.so|librt\.so|libresolv\.so|libutil\.so|libnss_)'
 declare -A SCANNED=()
@@ -421,7 +421,7 @@ if [ "$RE_EXTRACT" -eq 1 ] || [ "$CACHED" != "$PAYLOAD_SHA256" ] || [ ! -x "$DES
   printf '%s\n' "$PAYLOAD_SHA256" > "$MARKER"
 fi
 
-# Bundled libs first; drop IDE/AppImage-mount leakage (e.g. Cursor terminals)
+# Bundled libs first; drop IDE mount leakage (e.g. Cursor terminals)
 # so foreign Qt builds never shadow the bundled ones.
 _CLEAN_LD="$(printf '%s' "${LD_LIBRARY_PATH:-}" | tr ':' '\n' | grep -v '^/tmp/\.mount_' | grep -v '^$' | paste -sd: - 2>/dev/null || true)"
 export LD_LIBRARY_PATH="$DEST/lib${_CLEAN_LD:+:$_CLEAN_LD}"

@@ -74,40 +74,13 @@ pub fn shell_quote(path: &str) -> String {
     format!("\"{}\"", path.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// True when `path` looks like a Lepramim AppImage (not a host IDE AppImage).
-///
-/// Cursor and similar tools export `$APPIMAGE` into every integrated shell;
-/// we must not treat those as our own binary.
-pub fn is_lepramim_appimage_path(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|n| n.to_str())
-        .is_some_and(|name| name.to_ascii_lowercase().contains("lepramim"))
-}
-
-/// Resolve the lepramim binary path for AppImage / source installs.
-/// AppImage children must be spawned from `$LEPRAMIM_APPIMAGE` so they keep
-/// their own mount; never point at `/tmp/.mount_*`.
-///
-/// Ignores foreign `$APPIMAGE` values (e.g. Cursor's AppImage) that leak into
-/// agent / IDE shells.
+/// Resolve the path desktop entries and child processes should launch.
 pub fn resolve_binary_path() -> std::path::PathBuf {
     // Portable launcher: point at the self-extracting file, not the versioned
     // cache extraction (which disappears on upgrade).
     if let Ok(exe) = std::env::var("LEPRAMIM_PORTABLE_EXE") {
         let p = std::path::PathBuf::from(&exe);
         if p.is_file() {
-            return p;
-        }
-    }
-    if let Ok(appimage) = std::env::var("LEPRAMIM_APPIMAGE") {
-        let p = std::path::PathBuf::from(&appimage);
-        if is_lepramim_appimage_path(&p) && p.is_file() {
-            return p;
-        }
-    }
-    if let Ok(appimage) = std::env::var("APPIMAGE") {
-        let p = std::path::PathBuf::from(&appimage);
-        if is_lepramim_appimage_path(&p) && p.is_file() {
             return p;
         }
     }
@@ -156,7 +129,7 @@ pub fn desktop_file_path() -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from(".local/share/applications/lepramim.desktop"))
 }
 
-/// Generate an XDG desktop entry that launches the AppImage / binary with no args.
+/// Generate an XDG desktop entry that launches the binary with no args.
 pub fn generate_autostart_desktop(exec_path: &Path) -> String {
     format!(
         "[Desktop Entry]\n\
@@ -202,28 +175,15 @@ fn desktop_exec_target(contents: &str) -> Option<String> {
     Some(w.to_string())
 }
 
-/// True when a desktop entry's Exec target can no longer launch this
-/// release: the file is gone, or it is an AppImage from before releases
-/// switched to the portable `.run` (those builds need a newer glibc than
-/// some hosts have and die before printing anything).
-fn is_stale_exec_target(target: &Path) -> bool {
-    !target.is_file()
-        || target
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e.eq_ignore_ascii_case("appimage"))
-}
-
-/// Repoint existing menu / autostart entries whose launcher is stale (see
-/// [`is_stale_exec_target`]) at the portable launcher running now.
-/// Only acts for packaged runs, so a dev `cargo run` never hijacks the
+/// Repoint existing menu / autostart entries whose absolute launcher path
+/// no longer exists at the portable launcher running now. Only acts for packaged runs, so a dev `cargo run` never hijacks the
 /// user's entries, and never creates entries the user did not have.
 pub fn refresh_stale_desktop_entries() {
     if std::env::var_os("LEPRAMIM_PORTABLE_EXE").is_none() {
         return;
     }
     let current = resolve_binary_path();
-    if !current.is_file() || is_stale_exec_target(&current) {
+    if !current.is_file() {
         return;
     }
     for path in [desktop_file_path(), autostart_path()] {
@@ -233,7 +193,9 @@ pub fn refresh_stale_desktop_entries() {
         let Some(target) = desktop_exec_target(&contents) else {
             continue;
         };
-        if Path::new(&target) == current || !is_stale_exec_target(Path::new(&target)) {
+        // Bare names (`Exec=lepramim`) resolve via PATH; leave them alone.
+        let target_path = Path::new(&target);
+        if !target_path.is_absolute() || target_path.is_file() {
             continue;
         }
         let mut fresh = generate_autostart_desktop(&current);
@@ -256,35 +218,13 @@ mod tests {
     #[test]
     fn desktop_exec_target_skips_env() {
         assert_eq!(
-            desktop_exec_target("Exec=env DESKTOPINTEGRATION=1 /a/lepramim.appimage\n").as_deref(),
-            Some("/a/lepramim.appimage")
+            desktop_exec_target("Exec=env FOO=1 /a/lepramim\n").as_deref(),
+            Some("/a/lepramim")
         );
         assert_eq!(
             desktop_exec_target("Exec=\"/b/lepramim\"\n").as_deref(),
             Some("/b/lepramim")
         );
-    }
-
-    #[test]
-    fn stale_exec_targets() {
-        assert!(is_stale_exec_target(Path::new("/nonexistent/lepramim")));
-        assert!(is_stale_exec_target(Path::new("/nonexistent/lepramim.AppImage")));
-    }
-
-    #[test]
-    fn rejects_foreign_appimage_names() {
-        assert!(is_lepramim_appimage_path(Path::new(
-            "/opt/Lepramim-0.2.0-x86_64.AppImage"
-        )));
-        assert!(is_lepramim_appimage_path(Path::new(
-            "/tmp/lepramim-dev.AppImage"
-        )));
-        assert!(!is_lepramim_appimage_path(Path::new(
-            "/home/user/Software/AppImages/cursor.appimage"
-        )));
-        assert!(!is_lepramim_appimage_path(Path::new(
-            "/tmp/.mount_cursorXXXX/AppRun"
-        )));
     }
 
     #[test]
@@ -305,8 +245,8 @@ mod tests {
 
     #[test]
     fn autostart_desktop_quotes_exec() {
-        let desk = generate_autostart_desktop(Path::new("/opt/Lepramim-0.2.0-x86_64.AppImage"));
-        assert!(desk.contains("Exec=\"/opt/Lepramim-0.2.0-x86_64.AppImage\""));
+        let desk = generate_autostart_desktop(Path::new("/opt/Lepramim-0.2.0-x86_64-portable.run"));
+        assert!(desk.contains("Exec=\"/opt/Lepramim-0.2.0-x86_64-portable.run\""));
         assert!(desk.contains("Terminal=false"));
         assert!(!desk.contains("systemd"));
     }

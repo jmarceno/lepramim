@@ -7,9 +7,9 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-# shellcheck source=scripts/lib/sanitize-host-appimage-env.sh
-source "$PROJECT_ROOT/scripts/lib/sanitize-host-appimage-env.sh"
-sanitize_host_appimage_env
+# shellcheck source=scripts/lib/sanitize-host-env.sh
+source "$PROJECT_ROOT/scripts/lib/sanitize-host-env.sh"
+sanitize_host_env
 
 BUILD_TYPE="debug"
 STAGE=""
@@ -90,7 +90,7 @@ fi
 
 DESKTOP_SRC=""
 for cand in \
-  "$PROJECT_ROOT/packaging/appimage/lepramim.desktop" \
+  "$PROJECT_ROOT/packaging/desktop/lepramim.desktop" \
   "$PROJECT_ROOT/src/lepramim/templates/lepramim.desktop.template" \
 ; do
   [[ -f "$cand" ]] && DESKTOP_SRC="$cand" && break
@@ -121,7 +121,7 @@ fi
 
 ICON_SRC="$PROJECT_ROOT/src/lepramim/icons/lepramim.svg"
 [[ -f "$ICON_SRC" ]] && install -m 0644 "$ICON_SRC" "$STAGE/share/icons/hicolor/scalable/apps/lepramim.svg"
-ICON_PNG_SRC="$PROJECT_ROOT/packaging/appimage/lepramim.png"
+ICON_PNG_SRC="$PROJECT_ROOT/packaging/desktop/lepramim.png"
 [[ -f "$ICON_PNG_SRC" ]] && install -m 0644 "$ICON_PNG_SRC" "$STAGE/share/icons/hicolor/512x512/apps/lepramim.png"
 
 for f in LICENSE THIRD_PARTY_LICENSES.md; do

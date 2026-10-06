@@ -45,14 +45,8 @@ compile_commands.json
 !CMakeLists.txt
 !CMakePresets.json
 
-### AppImage / Packaging ###
-*.AppImage
-*.AppImage.zsync
-*.portable.run
-squashfs-root/
-squashfs-root.tar.gz
-AppDir/
-appdir/
+### Packaging ###
+*-portable.run
 *.tar.gz
 !packaging/**/*.tar.gz
 

@@ -59,4 +59,4 @@ The control window **GETs full config, merges edits, POSTs full config** so part
 ## Packaging
 
 - Native stage: `scripts/build-native.sh` (cargo + Qt 6, one binary).
-- AppImage: `scripts/build-appimage.sh` bundles Qt QML plugins via linuxdeploy-plugin-qt plus ldd-discovered audio deps.
+- Portable: `scripts/build-portable.sh` wraps the stage, Qt plugins/QML and the ldd-resolved library closure into one self-extracting `.run`.

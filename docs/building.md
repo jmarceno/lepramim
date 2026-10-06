@@ -51,10 +51,3 @@ initializers.
 CUDA is supported only for source installs with `--backend cuda12`. The CPU
 portable bundle never includes CUDA; advanced users can point a CUDA-capable
 `libonnxruntime` at it via `ORT_DYLIB_PATH`.
-
-## Legacy: AppImage
-
-`scripts/build-appimage.sh` and `scripts/smoke-appimage.sh` are kept for
-reference but are no longer used by CI or releases. The AppImage approach
-was retired because bundles built on newer distros baked in glibc
-requirements (e.g. `GLIBC_2.43`) that older hosts cannot satisfy.

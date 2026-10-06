@@ -2,18 +2,18 @@
 # Lepramim installer — native Rust + Qt Quick (single binary).
 #
 # Installs lepramim plus its desktop entry and icon. Supports:
-#   - AppImage install (default for releases; no build tools required)
+#   - Portable install (default for releases; no build tools required)
 #   - Source build install (--from-source; requires Rust + GUI libs)
 #
 # Usage:
-#   ./scripts/install.sh                              # auto-detect backend, prefer AppImage if present
+#   ./scripts/install.sh                              # auto-detect backend, prefer a built .run if present
 #   ./scripts/install.sh --backend cpu                # force CPU
 #   ./scripts/install.sh --backend cuda12             # force CUDA 12 (requires NVIDIA + CUDA runtime)
 #   ./scripts/install.sh --backend auto               # auto via nvidia-smi
 #   ./scripts/install.sh --prefix ~/.local            # install to prefix (default: ~/.local)
 #   ./scripts/install.sh --system                     # install to /usr/local (requires sudo)
 #   ./scripts/install.sh --from-source                # build from source (cargo)
-#   ./scripts/install.sh --appimage dist/Lepramim-*.AppImage  # install from AppImage
+#   ./scripts/install.sh --portable build/portable/Lepramim-*-portable.run  # install a portable .run
 #   ./scripts/install.sh --with-math-speech           # also install speech-rule-engine (node >=18)
 #
 set -euo pipefail
@@ -24,7 +24,7 @@ PREFIX="${LEPRAMIM_PREFIX:-$PREFIX_DEFAULT}"
 BACKEND="auto"
 WITH_MATH_SPEECH=0
 FROM_SOURCE=0
-APPIMAGE_PATH=""
+PORTABLE_PATH=""
 SYSTEM=0
 
 # --- parse arguments ----------------------------------------------------
@@ -42,10 +42,10 @@ while (( "$#" )); do
       SYSTEM=1; PREFIX="/usr/local"; shift ;;
     --from-source)
       FROM_SOURCE=1; shift ;;
-    --appimage)
-      APPIMAGE_PATH="$2"; shift 2 ;;
-    --appimage=*)
-      APPIMAGE_PATH="${1#*=}"; shift ;;
+    --portable)
+      PORTABLE_PATH="$2"; shift 2 ;;
+    --portable=*)
+      PORTABLE_PATH="${1#*=}"; shift ;;
     --with-math-speech)
       WITH_MATH_SPEECH=1; shift ;;
     -h|--help)
@@ -54,13 +54,13 @@ while (( "$#" )); do
       echo "Examples:"
       echo "  $0 --backend cpu --prefix ~/.local"
       echo "  $0 --from-source --backend cpu"
-      echo "  $0 --appimage dist/Lepramim-0.2.0-x86_64.AppImage"
+      echo "  $0 --portable build/portable/Lepramim-0.2.0-x86_64-portable.run"
       echo "  $0 --system --backend auto"
       exit 0
       ;;
     *)
       echo "Unknown argument: $1" >&2
-      echo "Usage: $0 [--backend cpu|cuda12|auto] [--prefix <path>] [--system] [--from-source] [--appimage <path>] [--with-math-speech]" >&2
+      echo "Usage: $0 [--backend cpu|cuda12|auto] [--prefix <path>] [--system] [--from-source] [--portable <path>] [--with-math-speech]" >&2
       exit 2
       ;;
   esac
@@ -81,7 +81,7 @@ echo "repo root: $REPO_ROOT"
 echo "prefix:    $PREFIX"
 echo "backend:   $BACKEND"
 echo "from-source: $FROM_SOURCE"
-if [[ -n "$APPIMAGE_PATH" ]]; then echo "appimage:  $APPIMAGE_PATH"; fi
+if [[ -n "$PORTABLE_PATH" ]]; then echo "portable:  $PORTABLE_PATH"; fi
 echo
 
 # --- distro detection ---------------------------------------------------
@@ -125,7 +125,7 @@ if [[ "$BACKEND" == "auto" ]]; then
 fi
 
 # --- system dependency check (distro-aware, native) --------------------
-# For AppImage install: only runtime helpers (wl-clipboard, xclip, portaudio, notify)
+# For portable install: only runtime helpers (wl-clipboard, xclip, portaudio, notify)
 # For source build: plus toolchain (cargo, GTK/X11 libs)
 missing_runtime=()
 missing_build=()
@@ -255,7 +255,7 @@ if (( ${#all_missing[@]} > 0 )); then
       ;;
   esac
   echo >&2
-  echo "Proceeding only if --from-source is not required; for AppImage installs, runtime deps are optional but recommended." >&2
+  echo "Proceeding only if --from-source is not required; for portable installs, runtime deps are optional but recommended." >&2
   if [[ $FROM_SOURCE -eq 1 && ${#missing_build[@]} -gt 0 ]]; then
     exit 1
   fi
@@ -270,44 +270,33 @@ STAGE="$REPO_ROOT/build/stage"
 INSTALL_SRC=""
 INSTALL_MODE=""
 
-if [[ -n "$APPIMAGE_PATH" ]]; then
-  # Explicit AppImage path (may be glob)
-  # Expand glob if contains *
-  if [[ "$APPIMAGE_PATH" == *"*"* ]]; then
-    # shellcheck disable=SC2206
-    EXPANDED=($APPIMAGE_PATH)
-    APPIMAGE_PATH="${EXPANDED[0]}"
-  fi
-  if [[ ! -f "$APPIMAGE_PATH" ]]; then
-    echo "ERROR: AppImage not found: $APPIMAGE_PATH" >&2
+if [[ -n "$PORTABLE_PATH" ]]; then
+  if [[ ! -f "$PORTABLE_PATH" ]]; then
+    echo "ERROR: portable .run not found: $PORTABLE_PATH" >&2
     exit 1
   fi
-  INSTALL_SRC="$APPIMAGE_PATH"
-  INSTALL_MODE="appimage"
+  INSTALL_SRC="$PORTABLE_PATH"
+  INSTALL_MODE="portable"
 elif [[ $FROM_SOURCE -eq 1 ]]; then
   INSTALL_MODE="source"
 else
-  # Auto: prefer existing AppImage in build/appimage or dist, else build from source
+  # Auto: prefer an existing portable build, else build from source
   CANDIDATE=""
-  for pat in "$REPO_ROOT/build/appimage/Lepramim-"*.AppImage "$REPO_ROOT/dist/Lepramim-"*.AppImage "$REPO_ROOT/build/appimage/Lepramim-"*.AppImage.tar.gz; do
-    for f in $pat; do
-      [[ -f "$f" && "$f" != *"*.AppImage"* ]] || continue
-      CANDIDATE="$f"
-      break 2
-    done
+  for f in "$REPO_ROOT/build/portable/Lepramim-"*-portable.run; do
+    [[ -f "$f" ]] && CANDIDATE="$f" && break
   done
   if [[ -n "$CANDIDATE" ]]; then
     INSTALL_SRC="$CANDIDATE"
-    INSTALL_MODE="appimage"
-    echo "Found existing AppImage: $CANDIDATE (use --from-source to force source build)"
+    INSTALL_MODE="portable"
+    echo "Found portable build: $CANDIDATE (use --from-source to force source build)"
   else
     INSTALL_MODE="source"
-    echo "No AppImage found; will build from source"
+    echo "No portable build found; will build from source"
   fi
 fi
 
 echo "install mode: $INSTALL_MODE"
-if [[ "$INSTALL_MODE" == "appimage" ]]; then
+if [[ "$INSTALL_MODE" == "portable" ]]; then
   echo "source: $INSTALL_SRC"
 fi
 echo
@@ -337,80 +326,17 @@ mkdir -p "$PREFIX/share/icons/hicolor/scalable/apps"
 mkdir -p "$PREFIX/share/doc/lepramim"
 mkdir -p "$PREFIX/share/lepramim"
 
-if [[ "$INSTALL_MODE" == "appimage" ]]; then
-  # AppImage install: copy AppImage to prefix/bin and set up desktop integration
-  APPIMAGE_NAME="$(basename "$INSTALL_SRC")"
-  # If source is a dummy tar wrapper, still copy it
-  TARGET_APPIMAGE="$PREFIX/bin/Lepramim-x86_64.AppImage"
-  # For release, use versioned name if available
-  if [[ "$APPIMAGE_NAME" == Lepramim-*.AppImage ]]; then
-    TARGET_APPIMAGE="$PREFIX/bin/$APPIMAGE_NAME"
-  fi
-  echo "Copying AppImage to $TARGET_APPIMAGE"
-  cp -a "$INSTALL_SRC" "$TARGET_APPIMAGE"
-  chmod 0755 "$TARGET_APPIMAGE"
-  # Create wrapper so `lepramim` resolves to AppImage
-  cat > "$PREFIX/bin/lepramim" <<WRAP
-#!/usr/bin/env bash
-exec "$TARGET_APPIMAGE" "\$@"
-WRAP
-  chmod 0755 "$PREFIX/bin/lepramim"
-  echo "Created wrapper: $PREFIX/bin/lepramim"
-
-  # Try to extract desktop/icon from AppImage for prefix integration
-  TMP_EXTRACT="$(mktemp -d)"
-  trap 'rm -rf "$TMP_EXTRACT"' EXIT
-  if "$TARGET_APPIMAGE" --appimage-extract 2>/dev/null; then
-    # Dummy wrapper extracts to squashfs-root from current dir
-    if [[ -d "squashfs-root" ]]; then
-      mv squashfs-root "$TMP_EXTRACT/squashfs-root" 2>/dev/null || true
-      rmdir squashfs-root 2>/dev/null || true
-    fi
-  fi
-  # Fallback: check if AppImage is in AppDir mode already
-  if [[ -d "./squashfs-root" ]]; then
-    mv ./squashfs-root "$TMP_EXTRACT/" 2>/dev/null || true
-  fi
-  # If we have an extracted dir, copy desktop/icon
-  EXTRACTED=""
-  if [[ -d "$TMP_EXTRACT/squashfs-root" ]]; then
-    EXTRACTED="$TMP_EXTRACT/squashfs-root"
-  elif [[ -d "$TMP_EXTRACT" && -f "$TMP_EXTRACT/AppRun" ]]; then
-    EXTRACTED="$TMP_EXTRACT"
-  fi
-  if [[ -n "$EXTRACTED" ]]; then
-    if [[ -f "$EXTRACTED/usr/share/applications/lepramim.desktop" ]]; then
-      cp -a "$EXTRACTED/usr/share/applications/lepramim.desktop" "$PREFIX/share/applications/lepramim.desktop"
-      # Fix Exec to point to installed wrapper
-      sed -i "s|^Exec=.*|Exec=$PREFIX/bin/lepramim|" "$PREFIX/share/applications/lepramim.desktop" 2>/dev/null || true
-      echo "Installed desktop file from AppImage"
-    fi
-    if [[ -f "$EXTRACTED/usr/share/icons/hicolor/scalable/apps/lepramim.svg" ]]; then
-      cp -a "$EXTRACTED/usr/share/icons/hicolor/scalable/apps/lepramim.svg" "$PREFIX/share/icons/hicolor/scalable/apps/lepramim.svg"
-      echo "Installed icon from AppImage"
-    fi
-    for f in LICENSE THIRD_PARTY_LICENSES.md; do
-      if [[ -f "$EXTRACTED/usr/share/doc/lepramim/$f" ]]; then
-        cp -a "$EXTRACTED/usr/share/doc/lepramim/$f" "$PREFIX/share/doc/lepramim/$f"
-      fi
-    done
-  fi
-  rm -rf "$TMP_EXTRACT" 2>/dev/null || true
-  trap - EXIT
-  # Fallback if extraction failed: copy from repo
-  if [[ ! -f "$PREFIX/share/applications/lepramim.desktop" && -f "$REPO_ROOT/packaging/appimage/lepramim.desktop" ]]; then
-    cp -a "$REPO_ROOT/packaging/appimage/lepramim.desktop" "$PREFIX/share/applications/lepramim.desktop"
-    echo "Installed desktop file from repo fallback"
-  fi
-  if [[ ! -f "$PREFIX/share/icons/hicolor/scalable/apps/lepramim.svg" ]]; then
-    for cand in "$REPO_ROOT/packaging/appimage/lepramim.svg" "$REPO_ROOT/src/lepramim/icons/lepramim.svg"; do
-      if [[ -f "$cand" ]]; then
-        cp -a "$cand" "$PREFIX/share/icons/hicolor/scalable/apps/lepramim.svg"
-        echo "Installed icon from $cand"
-        break
-      fi
-    done
-  fi
+if [[ "$INSTALL_MODE" == "portable" ]]; then
+  # The .run is self-contained; install it as the `lepramim` command so
+  # desktop entries keep a stable path across upgrades.
+  echo "Copying portable launcher to $PREFIX/bin/lepramim"
+  install -m 0755 "$INSTALL_SRC" "$PREFIX/bin/lepramim"
+  install -m 0644 "$REPO_ROOT/packaging/desktop/lepramim.desktop" "$PREFIX/share/applications/lepramim.desktop"
+  sed -i "s|^Exec=.*|Exec=$PREFIX/bin/lepramim|" "$PREFIX/share/applications/lepramim.desktop"
+  install -m 0644 "$REPO_ROOT/src/lepramim/icons/lepramim.svg" "$PREFIX/share/icons/hicolor/scalable/apps/lepramim.svg"
+  for f in LICENSE THIRD_PARTY_LICENSES.md; do
+    [[ -f "$REPO_ROOT/$f" ]] && install -m 0644 "$REPO_ROOT/$f" "$PREFIX/share/doc/lepramim/$f"
+  done
 else
   # Source stage install: copy binaries and assets directly
   echo "Copying staged binaries to $PREFIX/bin/"
@@ -420,8 +346,8 @@ else
     install -m 0644 "$STAGE/share/applications/lepramim.desktop" "$PREFIX/share/applications/lepramim.desktop"
     # Fix Exec to installed path
     sed -i "s|^Exec=lepramim.*|Exec=$PREFIX/bin/lepramim|" "$PREFIX/share/applications/lepramim.desktop" 2>/dev/null || true
-  elif [[ -f "$REPO_ROOT/packaging/appimage/lepramim.desktop" ]]; then
-    install -m 0644 "$REPO_ROOT/packaging/appimage/lepramim.desktop" "$PREFIX/share/applications/lepramim.desktop"
+  elif [[ -f "$REPO_ROOT/packaging/desktop/lepramim.desktop" ]]; then
+    install -m 0644 "$REPO_ROOT/packaging/desktop/lepramim.desktop" "$PREFIX/share/applications/lepramim.desktop"
     sed -i "s|^Exec=.*|Exec=$PREFIX/bin/lepramim|" "$PREFIX/share/applications/lepramim.desktop" 2>/dev/null || true
   fi
 

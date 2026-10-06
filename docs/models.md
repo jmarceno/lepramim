@@ -28,7 +28,7 @@ Override with `XDG_CACHE_HOME` when launching the app — for example, to keep
 models on a bigger drive:
 
 ```bash
-XDG_CACHE_HOME=/mnt/big-drive/.cache ./Lepramim-*-x86_64.AppImage
+XDG_CACHE_HOME=/mnt/big-drive/.cache ./Lepramim-*-x86_64-portable.run
 ```
 
 The welcome window and the control window's **Models** tab download and verify
@@ -44,7 +44,7 @@ the files for you.
   Apache-2.0 license as the weights.
 
 Lepramim does not modify or repackage the weights. Users redistributing
-a Lepramim installation in bulk (e.g., AppImage, native package) should ensure
+a Lepramim installation in bulk (e.g., portable bundle, native package) should ensure
 their distribution respects the upstream Apache-2.0 and MIT terms.
 
 ## Voices

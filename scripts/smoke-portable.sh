@@ -3,9 +3,9 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-# shellcheck source=scripts/lib/sanitize-host-appimage-env.sh
-source "$PROJECT_ROOT/scripts/lib/sanitize-host-appimage-env.sh"
-sanitize_host_appimage_env
+# shellcheck source=scripts/lib/sanitize-host-env.sh
+source "$PROJECT_ROOT/scripts/lib/sanitize-host-env.sh"
+sanitize_host_env
 
 RUN_PATH="${1:-}"
 [[ -n "$RUN_PATH" ]] || { echo "Usage: $0 <Lepramim-*-portable.run>" >&2; exit 2; }

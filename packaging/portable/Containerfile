@@ -3,7 +3,7 @@
 # The portable single-file bundle MUST be produced on this baseline so the
 # binary + bundled libs run on any newer distro. Building on a newer distro
 # (e.g. Ubuntu 24.04 / glibc 2.39+) bakes in GLIBC_X.Y requirements that
-# older hosts cannot satisfy -- the exact failure the AppImage had.
+# older hosts cannot satisfy.
 #
 # Build/run via: ./scripts/build-portable.sh --container
 FROM docker.io/library/ubuntu:22.04

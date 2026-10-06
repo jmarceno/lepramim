@@ -1,17 +1,17 @@
 # shellcheck shell=bash
 # Source this from packaging / smoke / native build scripts.
 #
-# Cursor (and other IDEs shipped as AppImages) export APPIMAGE, APPDIR, ARGV0,
+# IDEs shipped as AppImages (e.g. Cursor) export APPIMAGE, APPDIR, ARGV0,
 # OWD, and prepend their mount under LD_LIBRARY_PATH into every integrated
-# terminal and agent shell. Nested AppImage tools (appimagetool, linuxdeploy)
-# and our own binary-path resolution then get hijacked by the host IDE.
+# terminal and agent shell, so builds and test runs would link or load the
+# IDE's bundled libraries instead of the system / bundled ones.
 #
 # Usage:
-#   # shellcheck source=scripts/lib/sanitize-host-appimage-env.sh
-#   source "$PROJECT_ROOT/scripts/lib/sanitize-host-appimage-env.sh"
-#   sanitize_host_appimage_env
+#   # shellcheck source=scripts/lib/sanitize-host-env.sh
+#   source "$PROJECT_ROOT/scripts/lib/sanitize-host-env.sh"
+#   sanitize_host_env
 
-sanitize_host_appimage_env() {
+sanitize_host_env() {
   local host_appdir="${APPDIR:-}"
   local host_appimage="${APPIMAGE:-}"
 
@@ -46,6 +46,6 @@ sanitize_host_appimage_env() {
   fi
 
   if [[ -n "$host_appimage" || -n "$host_appdir" ]]; then
-    echo "sanitize-host-appimage-env: cleared host AppImage env (was APPIMAGE=${host_appimage:-<unset>} APPDIR=${host_appdir:-<unset>})" >&2
+    echo "sanitize-host-env: cleared host IDE env (was APPIMAGE=${host_appimage:-<unset>} APPDIR=${host_appdir:-<unset>})" >&2
   fi
 }
