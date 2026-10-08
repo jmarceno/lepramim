@@ -1,38 +1,55 @@
-# Lepramim
+<p align="center">
+  <img src="src/lepramim/icons/lepramim.svg" width="160" alt="Lepramim logo" />
+</p>
 
-Listen to anything you can highlight.
+<h1 align="center">Lepramim</h1>
 
-Lepramim is a local text-to-speech app for Linux. Select text anywhere — a PDF,
-a web page, an editor — press **Meta+R**, and hear it read aloud with natural
-neural voices. Everything runs on your machine: no accounts, no cloud, no
-telemetry.
+<p align="center">
+  <strong>Listen to anything you can highlight.</strong><br />
+  Select text. Press Meta+R. Hear it in a natural neural voice.<br />
+  Local text-to-speech for Linux — no accounts, no cloud, no telemetry.
+</p>
+
+<p align="center">
+  <a href="https://github.com/jmarceno/lepramim/releases">Get Lepramim</a> ·
+  <a href="#why-lepramim">Why Lepramim</a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#everyday-use">Everyday use</a> ·
+  <a href="#voices-and-languages">Voices</a> ·
+  <a href="#troubleshooting">Help</a>
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-28aaa9" alt="MIT license" /></a>
+  <img src="https://img.shields.io/badge/desktop-Linux-024e67" alt="Linux desktop" />
+  <img src="https://img.shields.io/badge/speech-100%25%20local-024e67" alt="Speech generated entirely on your machine" />
+</p>
+
+<p align="center">
+  <img src="docs/Screenshot.png" width="900" alt="Lepramim control window with voice and language selection, reading speed, playback status and floating overlay settings" />
+</p>
+
+---
 
 ## Why Lepramim
 
-- **One hotkey to listen.** Highlight text, press **Meta+R**. Press **Meta+P**
-  to pause and resume.
-- **Private by design.** Speech is generated locally on your hardware. Nothing
-  is sent anywhere, and there is nothing to sign up for.
-- **Built for real documents.** Text is cleaned up before speaking: citations
-  like `[3]` and `(Smith, 2020)` are stripped, `i.e.` and `etc.` are expanded,
-  math symbols and numbers are read as words, and Markdown formatting is
-  removed. Academic PDFs and math-heavy pages come out listenable.
-- **54 voices, 9 languages.** American and British English, Spanish, French,
-  Hindi, Italian, Japanese, Brazilian Portuguese, and Mandarin Chinese — with a
-  speed slider from 0.50× to 2.00×.
-- **One-file install.** A single portable file. Speech models (~340 MB) download
-  automatically on first launch, once, and are verified by checksum.
-- **Lives in your tray.** The icon shows what the engine is doing at a glance,
-  and an optional floating overlay puts pause, skip, and stop over any window.
-- **Starts with your desktop.** Tick one option in the tray menu and Lepramim
-  is waiting for you at login.
+Turn a long article into a listening session, work through a paper, or hear
+your own writing back. Lepramim reads the selection from the app you're
+already using: a PDF reader, browser, editor, or anywhere you can highlight text.
 
-![Lepramim control window showing voice and speed settings](docs/Screenshot.png)
+| What you want | What Lepramim gives you |
+| --- | --- |
+| **Listen without switching apps** | One shortcut to speak the selection, another to pause or resume. |
+| **Keep your text private** | Kokoro-82M generates speech on your hardware. After the one-time model download, reading works offline. |
+| **Make dense text easier to hear** | Optional cleanup removes citations and Markdown, expands abbreviations, and reads numbers and math symbols as words. |
+| **Find a voice that fits** | 54 voices, 9 language options, and playback speed from 0.50× to 2.00×. |
+| **Keep controls close** | A tray icon shows engine status; an optional floating overlay puts pause, sentence navigation, and stop over any window. |
+| **Start listening quickly** | One portable executable, models downloaded from the app, and optional startup at login. |
 
-## Getting started
+## Quick start
 
 1. Download the latest `Lepramim-*-x86_64-portable.run` from
-   [Releases](../../releases).
+   [Releases](https://github.com/jmarceno/lepramim/releases).
 2. Make it executable and run it:
 
    ```bash
@@ -40,12 +57,17 @@ telemetry.
    ./Lepramim-*-x86_64-portable.run
    ```
 
-3. On first launch, a welcome window downloads the speech models with a
+3. On first launch, a welcome window downloads the speech models (~340 MB) with a
    progress bar. You can **Continue** (the download runs in the background and
    Lepramim becomes available as soon as it finishes) or **Skip** and download
    later from the **Models** tab.
 
+4. Highlight a sentence in another app and press **Meta+R** on KDE Plasma.
+   On other desktops, [bind your preferred shortcuts](#hotkeys) first.
+   Use **Meta+P** to pause or continue.
+
 That's the whole install — no system services, no configuration files to edit.
+Downloads are verified by checksum, and models are kept between app updates.
 
 Opening Lepramim a second time never starts a duplicate: the running copy just
 brings its control window forward.
@@ -91,18 +113,41 @@ in your keyboard settings.
 tool, just copy the text yourself (Ctrl+C) and press **Meta+R** — Lepramim
 reads the clipboard content.
 
+## Voices and languages
+
+Choose a voice in the control window, adjust the speed, and use **Test voice**
+to hear a sample before reading. The bundled catalog covers:
+
+| Language option | Voices |
+| --- | ---: |
+| English (American) | 20 |
+| English (British) | 8 |
+| Spanish | 3 |
+| French | 1 |
+| Hindi | 4 |
+| Italian | 2 |
+| Japanese | 5 |
+| Portuguese (Brazilian) | 3 |
+| Chinese (Mandarin) | 8 |
+
+See the [full voice catalog and model details](docs/models.md) for voice IDs,
+download locations, and model licensing.
+
 ## Requirements
 
 - A Linux desktop with a system-tray host (StatusNotifier). The app refuses to
   start without one and tells you so.
 - A graphical session (X11 or Wayland).
+- The x86_64 portable release targets glibc 2.35 or newer.
 
-Everything else you need for highlight capture is bundled in the portable file.
+Qt, audio libraries, and clipboard helpers are bundled in the portable file.
+On Wayland, automatic selection capture also needs a
+[key-injection tool](#hotkeys); copying the text yourself works without one.
 
 ## Troubleshooting
 
 - **No tray icon:** your desktop has no StatusNotifier host running. Start one
-  (e.g. Plasma's system tray, `stalonetray`, or your bar's tray module) and
+  (e.g. Plasma's system tray, GNOME's AppIndicator/KStatusNotifierItem extension, or your bar's StatusNotifier module) and
   relaunch.
 - **Meta+R does nothing:** on KDE, check that no other action grabbed Meta+R.
   Elsewhere, bind your preferred keys to the `org.lepramim.App` bus service in
@@ -129,11 +174,15 @@ purpose, so reinstalling or updating Lepramim never re-downloads them.
 ## Licensing
 
 - Lepramim is MIT-licensed — see [`LICENSE`](LICENSE).
-- The bundled Kokoro-82M voice model and voices are Apache-2.0 (details in
-  [`docs/models.md`](docs/models.md)); Lepramim ships them unmodified.
+- The Kokoro-82M model and voice pack downloaded by the app are Apache-2.0
+  (details in [`docs/models.md`](docs/models.md)); Lepramim uses them unmodified.
 
 ## Building from source
 
 If you want to build Lepramim yourself, see
 [`docs/building.md`](docs/building.md) for system dependencies and the build,
 package, and smoke-test commands.
+
+Have an idea or found a bug? [Open an issue](https://github.com/jmarceno/lepramim/issues)
+with your desktop environment and the relevant engine log. If Lepramim helps
+you read more comfortably, a star helps others find it.
