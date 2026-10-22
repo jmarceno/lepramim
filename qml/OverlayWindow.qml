@@ -4,108 +4,136 @@ import QtQuick.Layouts
 import QtQuick.Window
 import app.lepramim 1.0
 
+// Fallback overlay for X11 (and Wayland compositors without layer-shell).
+//
+// On Wayland the app draws the overlay itself on a zwlr_layer_shell_v1
+// surface (src/ui/overlay_wayland.rs): ordinary toplevel windows cannot pick
+// their own position there, so this window would end up wherever the
+// compositor felt like placing it. This window is the small, bottom-center
+// equivalent used where explicit positioning still works.
 Window {
     id: root
     readonly property LepramimTheme theme: LepramimTheme {}
     required property var controller
 
-    width: 520
-    height: 88
-    visible: controller.overlay_visible
+    readonly property bool processing: root.controller.speech_processing
+    readonly property bool paused: root.controller.playback_paused
+    readonly property string statusText: root.processing
+                                         ? "Processing"
+                                         : (root.paused ? "Paused" : "Speaking")
+    readonly property string phraseText: root.processing
+                                         ? "Preparing audio…"
+                                         : (root.controller.current_sentence.length > 0
+                                            ? root.controller.current_sentence
+                                            : "…")
+
+    width: 360
+    height: 34
+    visible: root.controller.overlay_visible && !root.controller.overlay_native
     color: "transparent"
     title: "Lepramim overlay"
-    flags: Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+    flags: Qt.Window | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+           | Qt.Tool | Qt.WindowDoesNotAcceptFocus | Qt.WindowTransparentForInput
 
-    onClosing: (close) => {
-        close.accepted = false
-    }
+    // Window.x/y use virtual-desktop coordinates, so add the screen offset on
+    // multi-monitor setups (the monitors may not start at 0,0).
+    x: Math.round(Screen.virtualX + (Screen.width - width) / 2)
+    y: Math.round(Screen.virtualY + Screen.height - height - 84)
 
     Rectangle {
         anchors.fill: parent
-        anchors.margins: 4
-        radius: 16
-        // Qt 8-digit hex is #AARRGGBB (alpha first).
-        color: "#d91a1d22"
+        radius: 17
+        color: Qt.rgba(0.102, 0.114, 0.133, 0.94)
         border.width: 1
-        border.color: theme.borderSubtle
+        border.color: root.theme.borderSubtle
 
         RowLayout {
             anchors.fill: parent
-            anchors.margins: 14
-            spacing: 12
+            anchors.leftMargin: 12
+            anchors.rightMargin: 12
+            spacing: 8
 
-            StatusDot {
+            Rectangle {
+                id: dot
                 Layout.alignment: Qt.AlignVCenter
-                dotColor: theme.statusGreen
-            }
-
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 2
-                Label {
-                    text: root.controller.playback_status_label
-                    color: theme.textPrimary
-                    font.pixelSize: 12
-                    font.bold: true
-                }
-                Label {
-                    Layout.fillWidth: true
-                    text: root.controller.current_sentence.length > 0
-                          ? root.controller.current_sentence
-                          : "Preparing…"
-                    color: theme.textSecondary
-                    font.pixelSize: 13
-                    elide: Text.ElideRight
-                }
-            }
-
-            Row {
-                spacing: 6
-                Repeater {
-                    model: [
-                        { glyph: "⏮", action: "back" },
-                        { glyph: root.controller.playback_paused ? "▶" : "⏸", action: "toggle" },
-                        { glyph: "⏭", action: "skip" },
-                        { glyph: "⏹", action: "stop" }
-                    ]
-                    delegate: Rectangle {
-                        required property var modelData
-                        width: 34
-                        height: 34
-                        radius: 8
-                        color: btn.containsMouse ? theme.accentSoft : theme.cardBgRaised
-                        Label {
-                            anchors.centerIn: parent
-                            text: modelData.glyph
-                            color: theme.textPrimary
-                            font.pixelSize: 14
-                        }
-                        MouseArea {
-                            id: btn
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                if (modelData.action === "back")
-                                    root.controller.overlayBack()
-                                else if (modelData.action === "toggle")
-                                    root.controller.overlayToggle()
-                                else if (modelData.action === "skip")
-                                    root.controller.overlaySkip()
-                                else
-                                    root.controller.overlayStop()
-                            }
-                        }
+                width: 8
+                height: 8
+                radius: 4
+                color: root.processing ? root.theme.warning
+                                      : (root.paused ? root.theme.textMuted
+                                                     : root.theme.statusGreen)
+                SequentialAnimation on opacity {
+                    running: root.visible
+                    loops: Animation.Infinite
+                    NumberAnimation {
+                        from: 0.35; to: 1.0; duration: 700
+                        easing.type: Easing.InOutSine
+                    }
+                    NumberAnimation {
+                        from: 1.0; to: 0.35; duration: 700
+                        easing.type: Easing.InOutSine
                     }
                 }
             }
-        }
 
-        MouseArea {
-            anchors.fill: parent
-            z: -1
-            acceptedButtons: Qt.LeftButton
-            onPressed: root.startSystemMove()
+            Label {
+                Layout.alignment: Qt.AlignVCenter
+                Layout.preferredWidth: 66
+                text: root.statusText
+                color: root.theme.textSecondary
+                font.pixelSize: 11
+                font.weight: Font.DemiBold
+                elide: Text.ElideRight
+            }
+
+            // Clipped marquee: pauses at both ends, then scrolls the phrase
+            // once so long sentences stay readable in the tiny pill.
+            Item {
+                id: clip
+                Layout.fillWidth: true
+                Layout.preferredHeight: 18
+                clip: true
+                readonly property real overflow: Math.max(0, phrase.implicitWidth - width)
+
+                Text {
+                    id: phrase
+                    anchors.verticalCenter: parent.verticalCenter
+                    x: 0
+                    text: root.phraseText
+                    color: "#b9bfc8"
+                    font.pixelSize: 12
+                    wrapMode: Text.NoWrap
+                    onTextChanged: {
+                        x = 0
+                        if (marquee.running)
+                            marquee.restart()
+                    }
+                }
+
+                SequentialAnimation {
+                    id: marquee
+                    running: root.visible && !root.processing && !root.paused
+                             && clip.overflow > 1
+                    loops: Animation.Infinite
+                    PauseAnimation { duration: 1100 }
+                    NumberAnimation {
+                        target: phrase
+                        property: "x"
+                        from: 0
+                        to: -clip.overflow
+                        duration: Math.max(900, clip.overflow * 33)
+                        easing.type: Easing.Linear
+                    }
+                    PauseAnimation { duration: 1100 }
+                    PropertyAction { target: phrase; property: "x"; value: 0 }
+                }
+
+                onOverflowChanged: {
+                    phrase.x = 0
+                    if (marquee.running)
+                        marquee.restart()
+                }
+            }
         }
     }
 }

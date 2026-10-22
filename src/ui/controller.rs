@@ -2,7 +2,7 @@
 
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cxx_qt::CxxQtType;
 use cxx_qt_lib::{QString, QStringList};
@@ -13,6 +13,7 @@ use crate::single_instance::SingleInstanceEvent;
 use crate::ui::capture::{self, toggle_playback};
 use crate::ui::client::{self, ApiResult};
 use crate::ui::hotkeys::{HotkeyEvent, HotkeyManager};
+use crate::ui::overlay_wayland::{self, Phase as OverlayPhase, Update as OverlayUpdate};
 use crate::ui::tray_service::{TrayEvent, TrayHandle, TraySharedState};
 use crate::ui::tray_state::{TrayIconPhase, tray_icon_phase, tray_state_for_daemon};
 use crate::ui::voices::{
@@ -37,6 +38,7 @@ pub struct UiBootstrap {
     pub single_rx: Option<crossbeam_channel::Receiver<SingleInstanceEvent>>,
     pub show_control: bool,
     pub force_overlay: bool,
+    pub native_overlay: bool,
 }
 
 static BOOTSTRAP: OnceLock<Mutex<Option<UiBootstrap>>> = OnceLock::new();
@@ -69,6 +71,9 @@ struct Runtime {
     daemon_child: Arc<Mutex<Option<std::process::Child>>>,
     single_rx: Option<crossbeam_channel::Receiver<SingleInstanceEvent>>,
     force_overlay: bool,
+    native_overlay: bool,
+    demo_started: Option<Instant>,
+    last_overlay: Option<OverlayUpdate>,
     base_config: Config,
     form: ControlForm,
     preparing_speech: bool,
@@ -102,6 +107,8 @@ mod qobject {
         #[qproperty(bool, playback_paused)]
         #[qproperty(bool, filter_voices_by_lang)]
         #[qproperty(bool, overlay_enabled)]
+        #[qproperty(bool, overlay_native)]
+        #[qproperty(bool, speech_processing)]
         #[qproperty(bool, dedupe_mathjax)]
         #[qproperty(bool, strip_markdown)]
         #[qproperty(bool, strip_numeric_citations)]
@@ -273,6 +280,8 @@ mod qobject {
 pub struct AppControllerRust {
     control_visible: bool,
     overlay_visible: bool,
+    overlay_native: bool,
+    speech_processing: bool,
     onboarding_visible: bool,
     warning_visible: bool,
     quit_requested: bool,
@@ -323,6 +332,8 @@ impl Default for AppControllerRust {
         Self {
             control_visible: false,
             overlay_visible: false,
+            overlay_native: false,
+            speech_processing: false,
             onboarding_visible: false,
             warning_visible: false,
             quit_requested: false,
@@ -389,7 +400,9 @@ impl qobject::AppController {
         let base_config = crate::config::load_config(None::<&std::path::Path>);
         let form = ControlForm::load_from_config(&base_config);
         let missing = models::artifacts_missing();
-        let overlay_enabled = boot.force_overlay || base_config.advanced.overlay;
+        let demo = std::env::var_os("LEPRAMIM_OVERLAY_DEMO").is_some();
+        let overlay_enabled = boot.force_overlay || base_config.advanced.overlay || demo;
+        let native_overlay = boot.native_overlay;
 
         {
             let mut rust = self.as_mut().rust_mut();
@@ -399,6 +412,9 @@ impl qobject::AppController {
                 daemon_child: boot.daemon_child,
                 single_rx: boot.single_rx,
                 force_overlay: boot.force_overlay,
+                native_overlay,
+                demo_started: demo.then(Instant::now),
+                last_overlay: None,
                 base_config,
                 form: form.clone(),
                 preparing_speech: false,
@@ -419,6 +435,12 @@ impl qobject::AppController {
             "Qt bootstrap complete"
         );
         self.as_mut().set_overlay_enabled(overlay_enabled);
+        self.as_mut().set_overlay_native(native_overlay);
+        if overlay_enabled && native_overlay {
+            // Pay the Wayland + font setup cost now so the first phrase's
+            // overlay appears immediately instead of a beat late.
+            overlay_wayland::prewarm();
+        }
         self.as_mut().sync_form_to_properties();
         self.as_mut().refresh_page_chrome();
         self.as_mut().rebuild_voice_lists();
@@ -677,6 +699,9 @@ impl qobject::AppController {
     }
 
     fn tick(mut self: Pin<&mut Self>) {
+        if self.as_mut().run_overlay_demo() {
+            return;
+        }
         // Spawn / daemon warnings (e.g. daemon failed to become ready).
         // Surfaced in the warning window like the old desktop shell did.
         let mut warnings: Vec<String> = Vec::new();
@@ -759,6 +784,66 @@ impl qobject::AppController {
         }
 
         self.as_mut().poll_daemon_state();
+    }
+
+    /// Test hook: `LEPRAMIM_OVERLAY_DEMO=1` cycles the overlay through
+    /// processing -> speaking -> paused without any playback, so the overlay
+    /// can be checked visually in isolation.
+    fn run_overlay_demo(mut self: Pin<&mut Self>) -> bool {
+        let (elapsed, native_ok) = {
+            let Some(rt) = self.rust().runtime.as_ref() else {
+                return false;
+            };
+            let Some(started) = rt.demo_started else {
+                return false;
+            };
+            (
+                started.elapsed().as_secs_f32() % 21.0,
+                rt.native_overlay && !overlay_wayland::failed(),
+            )
+        };
+        let (visible, phase, sentence) = if elapsed < 4.0 {
+            (true, OverlayPhase::Processing, String::new())
+        } else if elapsed < 16.0 {
+            (
+                true,
+                OverlayPhase::Speaking,
+                "This is a deliberately long demo sentence so the small overlay has to scroll the phrase instead of cutting it off.".to_string(),
+            )
+        } else if elapsed < 19.0 {
+            (
+                true,
+                OverlayPhase::Paused,
+                "Paused demo sentence".to_string(),
+            )
+        } else {
+            // Idle gap: exercises hide + re-show of the layer surface.
+            (false, OverlayPhase::Speaking, String::new())
+        };
+        let processing = phase == OverlayPhase::Processing;
+        let paused = phase == OverlayPhase::Paused;
+        self.as_mut().set_overlay_enabled(true);
+        self.as_mut().set_overlay_visible(visible);
+        self.as_mut().set_overlay_native(native_ok);
+        self.as_mut().set_speech_processing(processing);
+        self.as_mut().set_playback_active(true);
+        self.as_mut().set_playback_paused(paused);
+        self.as_mut()
+            .set_playback_status_label(QString::from(match phase {
+                OverlayPhase::Processing => "Preparing",
+                OverlayPhase::Speaking => "Speaking",
+                OverlayPhase::Paused => "Paused",
+            }));
+        self.as_mut()
+            .set_current_sentence(QString::from(&*sentence));
+        if native_ok {
+            overlay_wayland::update(OverlayUpdate {
+                visible,
+                phase,
+                sentence,
+            });
+        }
+        true
     }
 
     fn poll_daemon_state(mut self: Pin<&mut Self>) {
@@ -849,9 +934,59 @@ impl qobject::AppController {
         let fast = preparing || state_str == "speaking" || state_str == "paused";
         self.as_mut().set_fast_polling(fast);
 
+        let processing = preparing && state_str != "speaking" && state_str != "paused";
         let should_show_overlay =
-            overlay_enabled && (state_str == "speaking" || state_str == "paused");
-        self.as_mut().set_overlay_visible(should_show_overlay);
+            overlay_enabled && (state_str == "speaking" || state_str == "paused" || preparing);
+
+        // On Wayland the overlay is a small layer-shell surface drawn by the
+        // overlay thread, because ordinary toplevel windows cannot choose
+        // where the compositor puts them. Everywhere else the QML fallback
+        // window is used.
+        let native_overlay = self
+            .rust()
+            .runtime
+            .as_ref()
+            .map(|r| r.native_overlay && !overlay_wayland::failed())
+            .unwrap_or(false);
+        if *self.overlay_native() != native_overlay {
+            self.as_mut().set_overlay_native(native_overlay);
+        }
+        if *self.overlay_visible() != should_show_overlay {
+            self.as_mut().set_overlay_visible(should_show_overlay);
+        }
+        if *self.speech_processing() != processing {
+            self.as_mut().set_speech_processing(processing);
+        }
+        if native_overlay {
+            let phase = if processing {
+                OverlayPhase::Processing
+            } else if state_str == "paused" {
+                OverlayPhase::Paused
+            } else {
+                OverlayPhase::Speaking
+            };
+            let update = OverlayUpdate {
+                visible: should_show_overlay,
+                phase,
+                sentence: if processing {
+                    String::new()
+                } else {
+                    sentence.clone()
+                },
+            };
+            let changed = self
+                .rust()
+                .runtime
+                .as_ref()
+                .and_then(|r| r.last_overlay.as_ref())
+                .is_none_or(|last| last != &update);
+            if changed {
+                overlay_wayland::update(update.clone());
+                if let Some(rt) = self.as_mut().rust_mut().runtime.as_mut() {
+                    rt.last_overlay = Some(update);
+                }
+            }
+        }
 
         // Tray update
         let cpu_fallback = !providers.is_empty() && !providers.iter().any(|p| p.contains("CUDA"));

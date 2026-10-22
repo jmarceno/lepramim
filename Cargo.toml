@@ -22,6 +22,9 @@ ksni = { version = "=0.2.2" }
 resvg = { version = "=0.48.1", default-features = false, features = ["text", "system-fonts"] }
 usvg = { version = "=0.48.1" }
 crossbeam-channel = { version = "=0.5.15" }
+libc = { version = "=0.2.189" }
+smithay-client-toolkit = { version = "=0.19.2" }
+wayland-client = { version = "=0.31.10" }
 axum = { version = "=0.7.9" }
 hyper = { version = "=1.6.0" }
 hyper-util = { version = "=0.1.12", features = ["client", "http1", "tokio"] }

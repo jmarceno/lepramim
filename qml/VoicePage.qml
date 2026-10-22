@@ -222,7 +222,7 @@ Item {
                     RowLayout {
                         Layout.fillWidth: true
                         Label {
-                            text: "Optional always-on-top playback controls."
+                            text: "Optional small status pill at the bottom of the screen while a phrase is being processed and read."
                             color: theme.textMuted
                             font.pixelSize: 12
                             wrapMode: Text.WordWrap
@@ -236,41 +236,44 @@ Item {
 
                     Rectangle {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 96
+                        Layout.preferredHeight: 48
                         radius: theme.radiusSm
                         color: theme.inputBg
                         border.width: 1
                         border.color: theme.borderSubtle
 
-                        ColumnLayout {
+                        Rectangle {
                             anchors.fill: parent
-                            anchors.margins: 12
-                            spacing: 8
+                            anchors.margins: 7
+                            radius: 17
+                            color: theme.cardBgRaised
+                            border.width: 1
+                            border.color: theme.borderSubtle
 
                             RowLayout {
-                                spacing: 6
-                                StatusDot { Layout.alignment: Qt.AlignVCenter }
+                                anchors.fill: parent
+                                anchors.leftMargin: 12
+                                anchors.rightMargin: 12
+                                spacing: 8
+                                Rectangle {
+                                    Layout.alignment: Qt.AlignVCenter
+                                    width: 8; height: 8; radius: 4
+                                    color: theme.statusGreen
+                                }
                                 Label {
+                                    Layout.preferredWidth: 66
                                     text: "Speaking"
                                     color: theme.textPrimary
-                                    font.pixelSize: 12
+                                    font.pixelSize: 11
                                     font.bold: true
                                 }
-                            }
-                            Label {
-                                Layout.fillWidth: true
-                                text: "Current sentence appears here while reading…"
-                                color: theme.textMuted
-                                font.pixelSize: 12
-                                elide: Text.ElideRight
-                            }
-                            RowLayout {
-                                spacing: 14
-                                Label { text: "⏮"; color: theme.textSecondary; font.pixelSize: 14 }
-                                Label { text: "⏸"; color: theme.textSecondary; font.pixelSize: 14 }
-                                Label { text: "⏭"; color: theme.textSecondary; font.pixelSize: 14 }
-                                Label { text: "⏹"; color: theme.textSecondary; font.pixelSize: 14 }
-                                Item { Layout.fillWidth: true }
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: "The current sentence scrolls here…"
+                                    color: theme.textMuted
+                                    font.pixelSize: 12
+                                    elide: Text.ElideRight
+                                }
                             }
                         }
                     }

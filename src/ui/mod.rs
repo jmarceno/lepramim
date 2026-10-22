@@ -3,6 +3,7 @@ pub mod client;
 pub mod controller;
 mod hotkeys;
 mod icon;
+pub mod overlay_wayland;
 mod tray_service;
 mod tray_state;
 pub mod voices;
@@ -66,6 +67,11 @@ pub fn run(show_control: bool, force_overlay: bool) -> i32 {
     }
     apply_render_backend_fallback();
 
+    // Probe once whether this session can host a layer-shell overlay
+    // (Wayland + zwlr_layer_shell_v1). On X11 the QML fallback window is used.
+    let native_overlay = overlay_wayland::probe();
+    tracing::info!(native_overlay, "overlay backend probed");
+
     let daemon_child = Arc::new(Mutex::new(None));
     let daemon_for_exit = daemon_child.clone();
     let hotkeys = HotkeyManager::start();
@@ -77,6 +83,7 @@ pub fn run(show_control: bool, force_overlay: bool) -> i32 {
         single_rx,
         show_control,
         force_overlay,
+        native_overlay,
     });
     tracing::info!(show_control, force_overlay, "Qt bootstrap installed");
     spawn_bootstrap_watchdog();

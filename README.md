@@ -43,7 +43,7 @@ already using: a PDF reader, browser, editor, or anywhere you can highlight text
 | **Keep your text private** | Kokoro-82M generates speech on your hardware. After the one-time model download, reading works offline. |
 | **Make dense text easier to hear** | Optional cleanup removes citations and Markdown, expands abbreviations, and reads numbers and math symbols as words. |
 | **Find a voice that fits** | 54 voices, 9 language options, and playback speed from 0.50× to 2.00×. |
-| **Keep controls close** | A tray icon shows engine status; an optional floating overlay puts pause, sentence navigation, and stop over any window. |
+| **Keep controls close** | A tray icon shows engine status; an optional tiny always-on-top pill at the bottom of the screen shows what is being processed and read. |
 | **Start listening quickly** | One portable executable, models downloaded from the app, and optional startup at login. |
 
 ## Quick start
@@ -80,8 +80,8 @@ brings its control window forward.
   your existing clipboard content is never spoken by mistake — before-and-after
   clipboard snapshots are compared. If nothing is highlighted, a notification
   tells you to select text first.
-- **Pause / resume:** **Meta+P**, the tray menu, or the floating overlay.
-- **Stop:** the tray menu or the overlay's stop button.
+- **Pause / resume:** **Meta+P** or the tray menu.
+- **Stop:** the tray menu.
 - **Tray at a glance:** dim blue means stopped, breathing blue means warming
   up, solid green means speaking (it stays green while paused so you know
   where you left off).
@@ -91,9 +91,11 @@ brings its control window forward.
 
 ### Optional: floating overlay
 
-An always-on-top bar shows the current sentence with previous, pause, next,
-and stop buttons. It is off by default to keep Lepramim discreet; turn it on
-in the control window.
+A small, click-through status pill sits at the bottom center of the screen and
+tells you what is happening: **Processing** while a phrase is synthesized and
+**Speaking** (with the sentence scrolling through the pill) while it is read.
+It never takes keyboard focus or blocks clicks. It is off by default to keep
+Lepramim discreet; turn it on in the control window.
 
 ## Hotkeys
 

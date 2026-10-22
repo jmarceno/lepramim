@@ -92,7 +92,7 @@ Item {
             Label {
                 Layout.topMargin: 8
                 Layout.fillWidth: true
-                text: "Floating overlay is toggled on the Voice page. Changes apply after you press Apply settings."
+                text: "The floating overlay is a small, click-through status pill pinned to the bottom of the screen while a phrase is processed and read. It is toggled on the Voice page; changes apply after you press Apply settings."
                 color: theme.textMuted
                 font.pixelSize: 12
                 wrapMode: Text.WordWrap
